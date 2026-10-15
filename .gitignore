@@ -32,6 +32,3 @@ ml-suite-share/
 
 # ---- 本地一次性工具（推送脚本等）----
 push-to-github.bat
-
-# ---- 本地交接文档（给 AI 的提示词，自己用，不属于项目源码）----
-HANDOFF-PROMPT.md
