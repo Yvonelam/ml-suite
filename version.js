@@ -17,15 +17,18 @@
  */
 'use strict';
 
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const readline = require('readline');
 
 const ROOT = __dirname;
 const SNAP = 'snap-';     // 版本快照标签前缀
 const SAFETY = 'safety-'; // 回滚前自动备份标签前缀
 const LIST_LIMIT = 30;
+// patch 中转文件放系统临时目录，不污染项目（也免得被 git status 当成未跟踪文件）
+const PATCH_TMP = path.join(os.tmpdir(), 'ml-suite-patch-in.txt');
 
 // ---------- git 调用封装（永远不让 git 直接往终端写字） ----------
 function git(args) {
@@ -247,13 +250,95 @@ function patchPaths(file) {
   return Array.from(set);
 }
 
-function cmdApply(patchFile) {
-  if (!patchFile) {
-    console.log('\n  用法：node version.js apply <patch文件>\n');
+// 从剪贴板取文本。让 PowerShell 直接写成文件，绕开管道编码问题
+// （否则它把中文按 GBK 吐到管道里，Node 按 UTF-8 解，代码注释里的中文会变乱码）。
+function readClipboardText() {
+  try { fs.unlinkSync(PATCH_TMP); } catch (e) { /* 没有就算了 */ }
+  const p = PATCH_TMP.replace(/\\/g, '/').replace(/'/g, "''");
+  const cmd = "[IO.File]::WriteAllText('" + p + "', (Get-Clipboard -Raw), (New-Object Text.UTF8Encoding($false)))";
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', cmd], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf8',
+    timeout: 20000,
+  });
+  if (r.error || r.status !== 0 || !fs.existsSync(PATCH_TMP)) {
+    return { ok: false, err: (r.error && r.error.message) || String(r.stderr || '').trim() || '读不到剪贴板内容' };
+  }
+  try { return { ok: true, text: fs.readFileSync(PATCH_TMP, 'utf8') }; }
+  catch (e) { return { ok: false, err: e.message }; }
+}
+
+// 从聊天窗口复制出来的 patch 常被「美化」过，直接喂给 git 会被拒。这里统一清洗：
+//   ① 去掉 ``` 代码围栏
+//   ② 砍掉第一个真正 diff 行之前的所有说明文字（比如对方按我们要求写的 `Base: xxx`）
+//   ③ 整段被缩进过的话，剥掉公共缩进
+// 返回清洗后的文本 + 做了哪些处理（要明确告诉用户，不能悄悄改）
+function normalizePatch(text) {
+  const notes = [];
+  let t = String(text).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+
+  const n0 = t.split('\n').length;
+  t = t.split('\n').filter((l) => !/^\s*```/.test(l)).join('\n');
+  if (t.split('\n').length !== n0) notes.push('去掉 markdown 代码围栏');
+
+  const lines = t.split('\n');
+  // 容错前导空白：对方的 diff 可能整段被缩进，那时 `diff --git` 前面会有空格
+  const start = lines.findIndex((l) => /^[ \t]*(?:diff --git |--- |Index: )/.test(l));
+  if (start > 0) {
+    notes.push('砍掉开头 ' + start + ' 行说明文字');
+    t = lines.slice(start).join('\n');
+  }
+
+  const indent = t.match(/^([ \t]+)diff --git /m);
+  if (indent && !/^diff --git /m.test(t)) {
+    const ind = indent[1];
+    t = t.split('\n').map((l) => (l.startsWith(ind) ? l.slice(ind.length) : l)).join('\n');
+    notes.push('剥掉每行前面 ' + ind.length + ' 个空格缩进');
+  }
+
+  return { text: t.replace(/\s+$/, '') + '\n', notes: notes };
+}
+
+function looksLikePatch(t) {
+  return /^(diff --git |--- )/m.test(t);
+}
+
+function cmdApply(arg) {
+  const useClip = arg === '--clip' || arg === '-c' || arg === 'clip';
+  if (!arg || (!useClip && /^-/.test(arg))) {
+    console.log('\n  用法：');
+    console.log('    node version.js apply <patch文件>   应用文件里的 patch');
+    console.log('    node version.js apply --clip        直接用剪贴板里的 patch（推荐）\n');
     return;
   }
-  const file = path.resolve(ROOT, patchFile);
-  if (!fs.existsSync(file)) die('找不到 patch 文件：' + file);
+
+  let raw = '';
+  let from = '';
+
+  if (useClip) {
+    const c = readClipboardText();
+    if (!c.ok) {
+      die('读剪贴板失败：' + c.err + '\n  先确认你已经把对方给的 patch 复制下来了。');
+    }
+    raw = c.text;
+    from = '剪贴板';
+  } else {
+    const f = path.resolve(ROOT, arg);
+    if (!fs.existsSync(f)) die('找不到 patch 文件：' + f);
+    raw = fs.readFileSync(f, 'utf8');
+    from = path.basename(f);
+  }
+
+  if (!raw.trim()) die('内容是空的（' + from + '）。');
+
+  const norm = normalizePatch(raw);
+  if (!looksLikePatch(norm.text)) {
+    die('这段内容看起来不是 patch —— 没找到 `diff --git` 或 `---` 开头的行。\n' +
+      '  请确认复制的是对方给出的完整 git diff，而不是解释文字。');
+  }
+
+  fs.writeFileSync(PATCH_TMP, norm.text, 'utf8');
+  const file = PATCH_TMP;
 
   const before = git(['rev-parse', '--short', 'HEAD']).out;
   const dirtyBefore = porcelain().length;
@@ -297,7 +382,8 @@ function cmdApply(patchFile) {
   const touched = git(['-c', 'core.quotepath=false', 'status', '--porcelain', '--'].concat(paths))
     .out.split('\n').filter(Boolean);
 
-  console.log('\n  ✓ patch 已应用（' + applied + '）');
+  console.log('\n  来源：' + from + (norm.notes.length ? '（已清洗：' + norm.notes.join('、') + '）' : '（内容无需清洗）'));
+  console.log('  ✓ patch 已应用（' + applied + '）');
   console.log('    基座未变：' + before + '（只改动工作区，还没有提交）');
   console.log('    涉及文件：');
   if (touched.length) touched.forEach((l) => console.log('      ' + l));
@@ -422,6 +508,7 @@ async function menu() {
   console.log('    node version.js list                  查看历史版本');
   console.log('    node version.js rollback <编号|标签>   回滚到指定版本');
   console.log('    node version.js base                  查看当前基座（交给外部 AI 用）');
-  console.log('    node version.js apply <patch文件>      应用外部 AI 给的 patch');
+  console.log('    node version.js apply --clip           应用剪贴板里的 patch（推荐）');
+  console.log('    node version.js apply <patch文件>      应用文件里的 patch');
   console.log('    node version.js                       打开交互菜单\n');
 })();

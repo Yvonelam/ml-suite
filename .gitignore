@@ -9,8 +9,12 @@ shots/
 *.log
 运行日志.txt
 public-run.log
-# 由「交接给Claude.bat」每次重新生成，含当前基座，属临时产物
-交接给Claude.txt
+# 由「交接给AI.bat」和 handoff.js 每次重新生成，含当前基座/源码，属临时产物
+交接给AI.txt
+给AI的源码.txt
+
+# 关键词排名工具导出的 HTML 报告（运行时产物，别提交）
+dm-keyword-rank-*.html
 
 # ---- 敏感：绝对不要提交或分享 ----
 # 含美客多 token、SMTP 密码、PushPlus token、大麦 API Key、访问口令

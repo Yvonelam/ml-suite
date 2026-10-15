@@ -43,11 +43,14 @@ ml-suite/
 │   ├── search/               # 关键词排名工具
 │   └── boxmark/              # 箱唛裁切器（含 vendor 版 pdf-lib / pdf.js）
 │
-├── version.js                # 版本管理：保存快照 / 查看 / 回滚
+├── hot-reload.js             # 热重载监视（轮询 *.js 的 mtime，变了就重启服务）
+├── report-schedule.js        # 发报调度决策（纯函数：时区换算 + 该不该发 + 下次时间）
+├── version.js                # 版本管理：save / list / rollback / base / apply
+├── handoff.js                # 生成「交给外部 AI 的开场白」（含当前基座）+ 源码打包
 │
 ├── config.example.json       # 配置模板（全部凭据留空）
 ├── daily-search-config.json  # ← 真实配置，含凭据（已被 .gitignore 排除，需自行创建）
-└── *.bat                     # Windows 双击脚本（启动/停止/版本管理/配置域名/推送代码）
+└── *.bat                     # Windows 双击脚本（启动/停止/版本管理/交接给AI/配置域名/推送代码）
 ```
 
 ---
@@ -134,28 +137,43 @@ node version.js save "AI 这次改了什么"
 
 版本列表就会是一条清晰的时间线，任何一步都能一键退回。
 
-### 交给外部 AI 改代码（Claude 等）
+### 交给外部 AI 改代码（Claude / GPT / Gemini 都行）
 
-双击 **`交接给Claude.bat`** → 自动生成一段开场白并**复制到剪贴板** → 打开 Claude 直接粘贴 → 在【】里填需求。
+这套流程**和是哪家 AI 无关**。双击 **`交接给AI.bat`** → 自动生成一段开场白并**复制到剪贴板** → 打开任意 AI 直接粘贴 → 在【】里填需求。
 
-生成的这段话里已经包含：仓库地址、**当前基座 commit**、最近几次改动、硬约束（不要 push / 不要起服务 / 不要动 `.bat`）、需求填写模板。
+生成的这段话里已经包含：仓库地址、**当前基座 commit**、最近几次改动、你能怎么干活（够不到电脑的网页版 / 能操作本机的 CLI 版）、硬约束（不要 push / 不要起服务 / 不要动 `.bat`）、需求填写模板。
+
+想针对某一家微调措辞（主要是提醒它「读不到仓库」这件事）：
+
+```bash
+交接给AI.bat gpt        # 或 gemini / claude；不带参数就是通用版
+```
+
+对方**读不到仓库**时（GPT、Gemini 网页版通常是这种情况），先打包源码给它：
+
+```bash
+node handoff.js pack    # 生成「给AI的源码.txt」（约 640 KB，40 个源码文件），上传给对方即可
+```
 
 **关于「基座」——别用固定 commit**：
 
 基座就是「对方以哪一版代码为基准来改」。它**不能固定**：`main` 一直在往前走，固定成旧 commit 会让对方读到旧代码，把已经修好的地方改回旧样子。正确做法是让**对方自己取**：
 
 ```bash
-git rev-parse --short HEAD      # 对方 clone 后自己跑，结果就是基座
+git rev-parse --short HEAD      # 对方拿到代码后自己跑，结果就是基座
 ```
 
 我这边落地 patch 时用的是 `git apply --3way`（三方合并），所以基座差一两个提交通常也能自动合上：
 
 ```bash
 node version.js base                  # 看当前基座
-node version.js apply 对方给的.patch    # 落地（自动 3-way → 直接应用 → 容错应用 三档降级）
+node version.js apply --clip           # 应用剪贴板里的 patch（推荐：从聊天窗口复制即可）
+node version.js apply 对方给的.patch    # 或从文件应用
 ```
 
-**唯一要守的纪律**：同一时间只让一边改同一批文件，否则必然冲突。
+`apply` 会**自动清洗**从聊天窗口复制出来的 patch（去掉 ```` ``` ```` 代码围栏、砍掉 patch 前面的说明文字、剥掉多余缩进），落地顺序为 `3-way 合并` → `直接应用` → `容错应用` 三档降级；只改工作区不提交，不满意可 `git checkout -- <文件>` 整体丢弃。
+
+**唯一要守的纪律**：同一时间只让**一个** AI 改同一批文件，改完存一版快照（`版本管理.bat`）再换下一个，否则两边的改动必然打架。
 
 ---
 
