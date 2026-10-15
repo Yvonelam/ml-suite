@@ -62,6 +62,8 @@ function isPortBusy(port) {
 let server = null;
 let tunnel = null;
 let shuttingDown = false;
+let deliberateRestart = false;  // true = 因代码热重载而主动杀掉服务（走快速重启，不计崩溃限流）
+let watcher = null;
 let svcRestarts = [];   // 本地服务自动重启时间戳（用于限流）
 let tunRestarts = [];   // 隧道自动重连时间戳（用于限流）
 
@@ -84,6 +86,13 @@ function startServer() {
   server.on('error', (e) => console.error('[服务] 启动失败:', e.message));
   server.on('exit', (c) => {
     if (shuttingDown) return;
+    if (deliberateRestart) {
+      // 热重载导致的重启：不计入崩溃限流，等端口释放后立刻拉起
+      deliberateRestart = false;
+      console.log('[热重载] 服务已停止，正在重新拉起…');
+      restartAfterReload();
+      return;
+    }
     if (stopRequested()) { console.log('[服务] 收到停止指令，不再自动重启。'); return; }
     // 限流：1 分钟内最多重启 10 次，超过就停下等人工介入，避免疯狂重启刷屏
     const now = Date.now();
@@ -97,6 +106,78 @@ function startServer() {
     console.warn('[服务] 已退出，代码 ' + c + '。3 秒后自动重启（隧道保持在线）…');
     setTimeout(startServer, 3000);
   });
+}
+
+// 热重载后拉起服务：先等端口真正释放，避免 Windows 上的 EADDRINUSE
+async function restartAfterReload() {
+  for (let i = 0; i < 40; i++) {
+    if (shuttingDown || stopRequested()) return;
+    if (!(await isPortBusy(PORT))) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  if (shuttingDown || stopRequested()) return;
+  startServer();
+}
+
+// ---- 代码热重载 ----
+// 轮询项目根目录下所有 .js 的修改时间，变了就自动重启本地服务；Cloudflare 隧道全程保持在线。
+// 这样用 AI 改完后端代码不用手动重启，刷新浏览器就是新版本。
+// 想关掉：设置环境变量 WATCH=0
+function startWatcher() {
+  if (String(process.env.WATCH || '1') === '0') {
+    console.log('  [热重载] 已关闭（WATCH=0）');
+    return;
+  }
+
+  function scan() {
+    const out = new Map();
+    let names = [];
+    try { names = fs.readdirSync(ROOT); } catch (e) { return out; }
+    for (const n of names) {
+      if (!/\.js$/i.test(n)) continue;
+      try { out.set(n, fs.statSync(path.join(ROOT, n)).mtimeMs); } catch (e) { }
+    }
+    return out;
+  }
+
+  let known = scan();
+  let reloadTimer = null;
+
+  function scheduleReload(name) {
+    if (reloadTimer) clearTimeout(reloadTimer);
+    // 防抖 800ms：AI / 编辑器写文件往往是分多次写入，等写完再重启
+    reloadTimer = setTimeout(() => {
+      reloadTimer = null;
+      if (shuttingDown || stopRequested()) return;
+      if (!server) {
+        console.warn('[热重载] 检测到 ' + name + ' 变更，但本地服务不是由本启动器管理的，无法自动重启。');
+        return;
+      }
+      console.log('\n[热重载] 检测到 ' + name + ' 变更，正在重启本地服务（隧道保持在线）…');
+      deliberateRestart = true;
+      try { server.kill(); } catch (e) { }
+    }, 800);
+  }
+
+  watcher = setInterval(() => {
+    if (shuttingDown) return;
+    const next = scan();
+
+    let changed = null;
+    for (const [n, t] of next) {
+      if (!known.has(n) || known.get(n) !== t) { changed = n; break; }
+    }
+    if (!changed) {
+      for (const n of known.keys()) {
+        if (!next.has(n)) { changed = n + '（已删除）'; break; }
+      }
+    }
+
+    known = next;
+    if (changed) scheduleReload(changed);
+  }, 1000);
+
+  console.log('  [热重载] 已开启：改动后端 .js 会自动重启服务；前端改完刷新浏览器即生效。');
 }
 
 // 隧道退出后自动重连（限流防止疯狂重连）
@@ -177,6 +258,7 @@ function startTunnel() {
   }
 
   startTunnel();
+  startWatcher();
 
   console.log('\n  [守护] 已启用自动重启：服务或隧道意外退出会自动拉起（1 分钟最多 10 次）。');
   console.log('  [守护] 停止请用「停止公网服务.bat」，或按 Ctrl+C。\n');

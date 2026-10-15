@@ -9,7 +9,10 @@
     "tunnel": "node start-public.js",
     "stop": "node stop-public.js",
     "setup-tunnel": "node setup-tunnel.js",
-    "fixed-domain": "node setup-named-tunnel.js"
+    "fixed-domain": "node setup-named-tunnel.js",
+    "save": "node version.js save",
+    "versions": "node version.js list",
+    "rollback": "node version.js rollback"
   },
   "dependencies": {
     "express": "^4.21.2",
