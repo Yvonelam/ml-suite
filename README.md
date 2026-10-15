@@ -43,9 +43,11 @@ ml-suite/
 │   ├── search/               # 关键词排名工具
 │   └── boxmark/              # 箱唛裁切器（含 vendor 版 pdf-lib / pdf.js）
 │
+├── version.js                # 版本管理：保存快照 / 查看 / 回滚
+│
 ├── config.example.json       # 配置模板（全部凭据留空）
 ├── daily-search-config.json  # ← 真实配置，含凭据（已被 .gitignore 排除，需自行创建）
-└── *.bat                     # Windows 双击脚本（启动/停止/配置域名/推送代码）
+└── *.bat                     # Windows 双击脚本（启动/停止/版本管理/配置域名/推送代码）
 ```
 
 ---
@@ -86,6 +88,51 @@ npm run public
 Windows 用户可直接双击 **`启动公网服务.bat`**。
 
 停止：`Ctrl+C`，或双击 **`停止公网服务.bat`**（会写 `.stop-flag`，防止启动器自动重连）。
+
+---
+
+## 开发工作流（改完即生效 · 不满意可回滚）
+
+这套组合是给「让 AI 帮你改代码」准备的：**改完不用手动重启，刷新浏览器就是新版本；改得不满意随时退回上一版。**
+
+### 热重载
+
+| 你改的东西 | 生效方式 |
+|---|---|
+| **前端**（`public/` 下的 html / js / css） | **刷新浏览器即可**，无需重启（静态资源已设 `Cache-Control: no-store`） |
+| **后端**（根目录 `.js`：`server.js`、`dm-client.js`、`daily-report.js` 等） | **自动重启服务**（启动器每秒检查一次文件修改时间，防抖 800ms 后重启；**Cloudflare 隧道全程在线，公网不会断**） |
+
+- 关闭热重载：启动前设环境变量 `WATCH=0`
+- ⚠️ 热重载由 `启动公网服务.bat` / `npm run public` 提供。若你用的是 `npm start`，后端改动仍需自己 `Ctrl+C` 重启
+
+### 版本管理
+
+双击 **`版本管理.bat`** 打开交互菜单（保存 / 查看 / 回滚）。命令行等价写法：
+
+```bash
+node version.js save "改了热搜词卡片"      # 把当前所有改动存成一个版本（提交 + 打 snap- 标签）
+node version.js list                      # 查看最近 30 个版本（带编号）
+node version.js rollback 3                # 回滚到列表里的第 3 版
+node version.js rollback snap-20261015-170200
+```
+
+**回滚是安全的**：每次回滚前，脚本会先把「当前状态」自动打成一个 `safety-时间戳` 标签。所以连回滚本身都能反悔：
+
+```bash
+node version.js rollback safety-20261015-170211   # 退回「回滚之前」的状态
+```
+
+回滚会改动工作区文件 → 自动触发热重载 → 刷新浏览器就是回滚后的版本。
+
+### 推荐的协作节奏
+
+让 AI **每改完一件事就存一版**：
+
+```bash
+node version.js save "AI 这次改了什么"
+```
+
+版本列表就会是一条清晰的时间线，任何一步都能一键退回。
 
 ---
 

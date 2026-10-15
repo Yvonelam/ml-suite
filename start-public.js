@@ -15,6 +15,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
+const { createWatcher } = require('./hot-reload');
 
 const ROOT = __dirname;
 const PORT = process.env.PORT || 3000;
@@ -63,6 +64,7 @@ let server = null;
 let tunnel = null;
 let shuttingDown = false;
 let deliberateRestart = false;  // true = 因代码热重载而主动杀掉服务（走快速重启，不计崩溃限流）
+let restarting = false;         // true = 正在重启过程中（此时不重复排队重启）
 let watcher = null;
 let svcRestarts = [];   // 本地服务自动重启时间戳（用于限流）
 let tunRestarts = [];   // 隧道自动重连时间戳（用于限流）
@@ -70,6 +72,7 @@ let tunRestarts = [];   // 隧道自动重连时间戳（用于限流）
 function shutdown() {
   console.log('\n正在停止服务...');
   shuttingDown = true;
+  try { if (watcher) watcher.stop(); } catch (e) { }
   try { if (tunnel) tunnel.kill(); } catch (e) { }
   try { if (server) server.kill(); } catch (e) { }
   process.exit(0);
@@ -77,6 +80,7 @@ function shutdown() {
 
 // 启动本地服务（可反复调用，用于崩溃后自动重启）
 function startServer() {
+  restarting = false;
   console.log('[1/2] 正在启动本地服务 http://127.0.0.1:' + PORT + ' ...');
   server = spawn(process.execPath, [path.join(ROOT, 'server.js')], {
     cwd: ROOT,
@@ -129,53 +133,24 @@ function startWatcher() {
     return;
   }
 
-  function scan() {
-    const out = new Map();
-    let names = [];
-    try { names = fs.readdirSync(ROOT); } catch (e) { return out; }
-    for (const n of names) {
-      if (!/\.js$/i.test(n)) continue;
-      try { out.set(n, fs.statSync(path.join(ROOT, n)).mtimeMs); } catch (e) { }
-    }
-    return out;
-  }
-
-  let known = scan();
-  let reloadTimer = null;
-
-  function scheduleReload(name) {
-    if (reloadTimer) clearTimeout(reloadTimer);
-    // 防抖 800ms：AI / 编辑器写文件往往是分多次写入，等写完再重启
-    reloadTimer = setTimeout(() => {
-      reloadTimer = null;
+  watcher = createWatcher({
+    root: ROOT,
+    interval: 1000,
+    debounce: 800,
+    shouldStop: () => shuttingDown || stopRequested(),
+    onChange: (name) => {
       if (shuttingDown || stopRequested()) return;
+      if (restarting) return;   // 正在重启：新进程会加载最新代码，不必再排队一次
       if (!server) {
-        console.warn('[热重载] 检测到 ' + name + ' 变更，但本地服务不是由本启动器管理的，无法自动重启。');
+        console.warn('[热重载] 检测到 ' + name + ' 变更，但本地服务不是由本启动器管理的（端口被别的进程占用），无法自动重启。');
         return;
       }
       console.log('\n[热重载] 检测到 ' + name + ' 变更，正在重启本地服务（隧道保持在线）…');
+      restarting = true;
       deliberateRestart = true;
       try { server.kill(); } catch (e) { }
-    }, 800);
-  }
-
-  watcher = setInterval(() => {
-    if (shuttingDown) return;
-    const next = scan();
-
-    let changed = null;
-    for (const [n, t] of next) {
-      if (!known.has(n) || known.get(n) !== t) { changed = n; break; }
-    }
-    if (!changed) {
-      for (const n of known.keys()) {
-        if (!next.has(n)) { changed = n + '（已删除）'; break; }
-      }
-    }
-
-    known = next;
-    if (changed) scheduleReload(changed);
-  }, 1000);
+    },
+  });
 
   console.log('  [热重载] 已开启：改动后端 .js 会自动重启服务；前端改完刷新浏览器即生效。');
 }
