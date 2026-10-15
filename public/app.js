@@ -505,7 +505,7 @@ async function loadConfig() {
     $('#cfgSiteMLM').checked = sites.includes('MLM');
     $('#cfgSiteMLB').checked = sites.includes('MLB');
     $('#cfgSiteMLA').checked = sites.includes('MLA');
-    updateCfgCount(); updateScheduleToggle(); updateOverviewConfig(c);
+    updateCfgCount(); updateScheduleToggle(); updateOverviewConfig(c); loadReportStatus();
     setTimeout(() => { suppressAutoSave = false; }, 300);
   } catch (e) { console.error('加载配置失败', e); suppressAutoSave = false; }
 }
@@ -563,7 +563,7 @@ async function saveConfigManual() {
   const btn = $('#saveConfig'); btn.disabled = true;
   try {
     const r = await postConfig(c); const d = await r.json();
-    if (r.ok && d.success) { showCfgStatus('✅ 设置已保存' + (c.scheduleEnabled ? ` · 每日 ${c.scheduleHour}:${String(c.scheduleMinute).padStart(2, '0')} 北京时间` : ''), 'success'); updateOverviewConfig(c); }
+    if (r.ok && d.success) { showCfgStatus('✅ 设置已保存' + (c.scheduleEnabled ? ` · 每日 ${c.scheduleHour}:${String(c.scheduleMinute).padStart(2, '0')} 北京时间` : ''), 'success'); updateOverviewConfig(c); loadReportStatus(); }
     else showCfgStatus('❌ 保存失败：' + (d.error || '未知错误'), 'error');
   } catch (e) { showCfgStatus('❌ 请求失败：' + e.message, 'error'); }
   finally { btn.disabled = false; }
@@ -580,7 +580,7 @@ async function sendReportNow() {
     if (r.ok && d.success) showCfgStatus('✅ 报告已发送至 ' + (d.message || c.email), 'success');
     else showCfgStatus('❌ 发送失败：' + (d.error || '未知错误'), 'error');
   } catch (e) { showCfgStatus('❌ 请求失败：' + e.message, 'error'); }
-  finally { btn.disabled = false; }
+  finally { btn.disabled = false; loadReportStatus(); }
 }
 function updateCfgCount() {
   const c = $('#cfgProductTitles').value.split('\n').map(t => t.trim()).filter(t => t).length;
@@ -609,6 +609,62 @@ function updateOverviewConfig(c) {
   sparklines();
 }
 
+/* ---------- 发报运行状态（上次/下次发送）----------
+   用户反馈「设了 14:00 却早上 6 点收到」。根因是外面的兜底任务抢发，
+   已停用；这里把「服务端实际认定的下次发送时间」直接摊在界面上的北京时间，
+   避免再出现「我设的时间到底有没有生效」的疑问。 */
+let reportRuntimeTimer = null;
+function escHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
+
+async function loadReportStatus() {
+  const panel = $('#reportRuntime'); if (!panel) return;
+  try {
+    const r = await fetch(`${API_BASE}/api/report/status`);
+    const s = await r.json();
+    renderReportRuntime(s);
+  } catch (e) {
+    panel.style.display = 'block';
+    panel.innerHTML = '<span class="bad">无法读取发报状态（服务未响应）</span>';
+  }
+}
+function renderReportRuntime(s) {
+  const panel = $('#reportRuntime'); if (!panel || !s || !s.ok) return;
+  panel.style.display = 'block';
+  const pad2 = n => String(Number(n) || 0).padStart(2, '0');
+  const hhmm = `${pad2(s.scheduleHour)}:${pad2(s.scheduleMinute)}`;
+  const rows = [];
+
+  rows.push(s.scheduleEnabled
+    ? `调度：<b>已启用</b> · 每日 <span class="hl">${hhmm}</span> 北京时间`
+    : `调度：<b>未启用</b>`);
+
+  if (s.lastDate) {
+    rows.push(`上次发送：<b>${escHtml(s.lastAt || s.lastDate)}</b> · ${s.lastError ? '<span class="bad">失败</span>' : '<span class="hl">成功</span>'}`);
+  } else {
+    rows.push(`上次发送：<b>暂无记录</b>`);
+  }
+  if (s.lastError) rows.push(`最近错误：<span class="bad">${escHtml(s.lastError)}</span>`);
+
+  rows.push(s.scheduleEnabled && s.nextRunAt
+    ? `下次发送：<span class="hl">${escHtml(s.nextRunAt)}</span> 北京时间`
+    : `下次发送：<b>—</b>`);
+
+  rows.push(`服务器当前北京时间：<b>${escHtml(s.serverNow || '')}</b>`);
+
+  // 表单里选的时间如果跟已保存的不一致，提示还没生效
+  const fh = $('#cfgScheduleHour'), fm = $('#cfgScheduleMinute');
+  if (fh && fm && s.scheduleEnabled) {
+    const formHHMM = `${pad2(fh.value)}:${pad2(fm.value)}`;
+    if (formHHMM !== hhmm) rows.push(`<span class="bad">⚠ 表单时间是 ${formHHMM}，尚未保存生效（点「保存设置」后生效）</span>`);
+  }
+
+  panel.innerHTML = rows.join('<br>');
+}
+function refreshReportRuntimeSoon() {
+  clearTimeout(reportRuntimeTimer);
+  reportRuntimeTimer = setTimeout(loadReportStatus, 1800); // 等自动保存落库后再读
+}
+
 function bindConfigEvents() {
   ['cfgKeyword', 'cfgEmail', 'cfgSmtpHost', 'cfgSmtpPort', 'cfgSmtpUser', 'cfgSmtpPass'].forEach(id => {
     const el = $(id); if (el) el.addEventListener('input', scheduleAutoSave); else console.warn('missing element:', id);
@@ -616,8 +672,12 @@ function bindConfigEvents() {
   ['cfgPages', 'cfgScheduleHour', 'cfgScheduleMinute', 'cfgSiteMLM', 'cfgSiteMLB', 'cfgSiteMLA'].forEach(id => {
     const el = $(id); if (el) el.addEventListener('change', scheduleAutoSave); else console.warn('missing element:', id);
   });
+  // 改发报时间时，除了自动保存，稍后再拉一次运行状态，让「下次发送」立刻跟上
+  ['cfgScheduleHour', 'cfgScheduleMinute'].forEach(id => {
+    const el = $(id); if (el) el.addEventListener('change', refreshReportRuntimeSoon);
+  });
   const cpt = $('#cfgProductTitles'); if (cpt) cpt.addEventListener('input', () => { updateCfgCount(); scheduleAutoSave(); });
-  const cse = $('#cfgScheduleEnabled'); if (cse) cse.addEventListener('change', () => { updateScheduleToggle(); scheduleAutoSave(); });
+  const cse = $('#cfgScheduleEnabled'); if (cse) cse.addEventListener('change', () => { updateScheduleToggle(); scheduleAutoSave(); refreshReportRuntimeSoon(); });
   const sc = $('#saveConfig'); if (sc) sc.onclick = saveConfigManual;
   const sr = $('#sendReport'); if (sr) sr.onclick = sendReportNow;
 }
@@ -2711,6 +2771,8 @@ function init() {
   splash();
   applyModeUI();
   loadConfig();
+  loadReportStatus();
+  setInterval(() => { if (!document.hidden) loadReportStatus(); }, 60000);
   loadOrderSummary();
   loadSales();
   loadListings();

@@ -4,6 +4,7 @@ const fs = require('fs');
 const { randomBytes } = require('crypto');
 const { ProxyAgent, setGlobalDispatcher } = require('undici');
 const nodemailer = require('nodemailer');
+const reportSchedule = require('./report-schedule');
 
 // ---- 崩溃兜底 ----
 // 之前这里没有任何兜底：任何一处未捕获的异常 / 未处理的 Promise 拒绝，
@@ -100,6 +101,30 @@ function loadConfig() {
 
 function saveConfig(cfg) {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+}
+
+// ==================== 报告发送状态 ====================
+// 单独一个文件，不写进用户配置：一是语义清晰，二是避免和 /api/config 的写入互相覆盖。
+// 作用：记录「今天发过没」，让「过了点就补发」的逻辑不会把邮件发重。
+const REPORT_STATE_PATH = path.join(__dirname, 'report-state.json');
+
+function loadReportState() {
+  try {
+    return JSON.parse(fs.readFileSync(REPORT_STATE_PATH, 'utf8'));
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveReportState(patch) {
+  try {
+    const next = Object.assign(loadReportState(), patch);
+    fs.writeFileSync(REPORT_STATE_PATH, JSON.stringify(next, null, 2), 'utf8');
+    return next;
+  } catch (e) {
+    console.error('[报告] 写入发送状态失败:', e.message);
+    return loadReportState();
+  }
 }
 
 // ==================== 公网访问口令 ====================
@@ -2884,6 +2909,13 @@ app.post('/api/send-report', async (req, res) => {
 
     console.log('[报告] 手动触发邮件发送...');
     const result = await runReportAndSendEmail(config);
+    // 手动发也算「今天已发」：避免定时器稍后在今天的计划点上再补一封重复的
+    saveReportState({
+      lastDate: reportSchedule.beijingDate(new Date()),
+      lastAt: reportSchedule.beijingLabel(new Date()),
+      lastMessageId: (result && result.messageId) || '',
+      lastError: '',
+    });
     console.log('[报告] 邮件发送成功:', result.messageId);
     res.json({ success: true, message: `报告已发送至 ${config.email}`, ...result });
   } catch (error) {
@@ -2893,35 +2925,76 @@ app.post('/api/send-report', async (req, res) => {
 });
 
 // ==================== 内置定时调度器 ====================
-let schedulerRunning = false;
-let lastSchedulerRun = null;
+// 决策逻辑在 report-schedule.js 里（纯函数、有单测），这里只负责「执行 + 落状态」。
+//
+// 相比旧实现修掉的问题：
+//   旧：setInterval(60s) + 「小时==H 且 分钟==M」严格相等 → 只要某次 tick 跨过整分钟
+//       （事件循环被卡一下就会），当天就永远不发；且没有任何「今天发过没」的记录，
+//       一旦和外部任务并存就会重复发。
+//   新：过了计划时间且今天还没发过就发（错过也只是晚一分钟），并用 lastDate 去重。
+const REPORT_MAX_ATTEMPTS = 6;          // 每天最多尝试几次，免得一直失败一直重试
+const REPORT_RETRY_GAP_MS = 5 * 60000;  // 失败后隔 5 分钟再试
+
+let reportSending = false;                        // 正在发送，防并发
+let reportAttempt = { date: '', count: 0, nextAt: 0 };
 
 function startScheduler() {
-  setInterval(() => {
+  setInterval(async () => {
     const config = loadConfig();
-    if (!config.scheduleEnabled) return;
+    const state = loadReportState();
+    const d = reportSchedule.decideReportFire(config, new Date(), state.lastDate);
 
-    // 获取北京时间 (UTC+8)
-    const now = new Date();
-    const beijing = new Date(now.getTime() + (now.getTimezoneOffset() + 480) * 60000);
-    const currentHour = beijing.getHours();
-    const currentMinute = beijing.getMinutes();
+    if (!d.fire) return;                 // 未启用 / 今天还没到点 / 今天已发过
+    if (reportSending) return;           // 上一封还在发
 
-    if (currentHour === config.scheduleHour && currentMinute === config.scheduleMinute) {
-      // 防止同一分钟重复执行
-      const runKey = `${beijing.getFullYear()}-${beijing.getMonth()}-${beijing.getDate()}-${currentHour}-${currentMinute}`;
-      if (lastSchedulerRun === runKey) return;
-      lastSchedulerRun = runKey;
+    if (reportAttempt.date !== d.date) reportAttempt = { date: d.date, count: 0, nextAt: 0 };
+    if (reportAttempt.count >= REPORT_MAX_ATTEMPTS) return;  // 今天已放弃
+    if (Date.now() < reportAttempt.nextAt) return;           // 退避中
 
-      console.log(`[调度] 定时任务触发: ${formatDateStr(new Date())}`);
+    reportAttempt.count += 1;
+    reportAttempt.nextAt = Date.now() + REPORT_RETRY_GAP_MS;
+    reportSending = true;
 
-      // 异步执行，不阻塞调度器
-      runReportAndSendEmail(config)
-        .then(result => console.log(`[调度] 邮件发送成功: ${result.messageId}`))
-        .catch(err => console.error(`[调度] 邮件发送失败:`, err.message));
+    console.log(`[调度] 触发发报（${d.reason === 'catch-up' ? '补发' : '准点'}）：计划 ${d.scheduledAt}，第 ${reportAttempt.count} 次尝试`);
+
+    try {
+      const result = await runReportAndSendEmail(config);
+      saveReportState({
+        lastDate: d.date,
+        lastAt: reportSchedule.beijingLabel(new Date()),
+        lastMessageId: (result && result.messageId) || '',
+        lastError: '',
+      });
+      console.log('[调度] 邮件发送成功:', result && result.messageId);
+    } catch (err) {
+      saveReportState({
+        lastError: `第 ${reportAttempt.count} 次失败：${err.message}（${reportSchedule.beijingLabel(new Date())}）`,
+      });
+      console.error('[调度] 邮件发送失败:', err.message);
+    } finally {
+      reportSending = false;
     }
   }, 60000); // 每分钟检查一次
 }
+
+// 报告发送状态（前端用它显示「上次 / 下次发送时间」，让用户看得见设置已生效）
+app.get('/api/report/status', (req, res) => {
+  const config = loadConfig();
+  const state = loadReportState();
+  res.json({
+    ok: true,
+    scheduleEnabled: !!config.scheduleEnabled,
+    scheduleHour: config.scheduleHour,
+    scheduleMinute: config.scheduleMinute,
+    timezone: reportSchedule.TZ,
+    lastDate: state.lastDate || '',
+    lastAt: state.lastAt || '',
+    lastMessageId: state.lastMessageId || '',
+    lastError: state.lastError || '',
+    nextRunAt: reportSchedule.computeNextRun(config, new Date(), state.lastDate || ''),
+    serverNow: reportSchedule.beijingLabel(new Date()),
+  });
+});
 
 // 静态文件
 app.use(express.static(path.join(__dirname, 'public'), {

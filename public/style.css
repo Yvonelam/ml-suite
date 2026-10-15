@@ -158,6 +158,11 @@ td{padding:10px 14px;border-bottom:1px solid var(--bd)}tr:last-child td{border:0
 .config-status.error{background:#ef444415;color:var(--bad);border:1px solid #ef444440}
 .config-status.loading{background:#3b82f615;color:var(--ac);border:1px solid #3b82f640}
 .config-status.autosave{background:#22c55e10;color:var(--ok);border:1px solid #22c55e25}
+/* 发报运行状态：让用户看得见「上次什么时候发的、下次什么时候发」 */
+.report-runtime{padding:10px 14px;border-radius:8px;font-size:12.5px;margin-top:12px;background:var(--s1);border:1px solid var(--bd);color:var(--tx2);line-height:1.9}
+.report-runtime b{color:var(--ink);font-weight:600}
+.report-runtime .hl{color:var(--cyan);font-weight:600}
+.report-runtime .bad{color:var(--bad)}
 .error-card{background:#ef444415;border:1px solid #ef444440;border-radius:8px;padding:12px 14px;color:var(--bad);font-size:13.5px;margin-top:14px;display:none}
 .toolbar{display:flex;justify-content:space-between;align-items:center;margin:16px 0 10px}
 .table-info{font-size:12px;color:var(--mut)}
