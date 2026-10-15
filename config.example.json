@@ -1,0 +1,46 @@
+{
+  "keyword": "",
+  "productTitles": [],
+  "sites": ["MLB"],
+  "pages": 5,
+  "email": "",
+  "proxy": "http://127.0.0.1:7897",
+  "scheduleEnabled": false,
+  "scheduleHour": 14,
+  "scheduleMinute": 0,
+
+  "smtpHost": "smtp.qq.com",
+  "smtpPort": 465,
+  "smtpUser": "",
+  "smtpPass": "",
+
+  "mlAppId": "",
+  "mlSecret": "",
+  "mlAccessToken": "",
+  "mlRefreshToken": "",
+  "mlTokenExpireAt": 0,
+  "mlUserId": "",
+  "mlSite": "MLB",
+  "mlRedirectUri": "",
+  "mlPkce": true,
+
+  "mlAdvertiserId": "",
+  "mlAdvertiserSite": "MLB",
+
+  "pushToken": "",
+  "pushEnabled": false,
+  "pushIntervalMin": 1,
+
+  "dmApiKey": "",
+  "dmHotSite": "MLB",
+  "dmHotTtlHours": 24,
+  "dmHotKeywords": [
+    { "k": "fone de ouvido bluetooth", "z": "蓝牙耳机" },
+    { "k": "headset gamer", "z": "游戏耳机" },
+    { "k": "fone de ouvido com fio", "z": "有线耳机" },
+    { "k": "fone de ouvido jbl", "z": "JBL 耳机" },
+    { "k": "fone de ouvido cancelamento de ruido", "z": "降噪耳机" }
+  ],
+
+  "accessPassword": ""
+}

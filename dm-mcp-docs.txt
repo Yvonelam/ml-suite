@@ -1,0 +1,923 @@
+
+
+========== 说明文档 ==========
+TITLE: 大麦数据
+------------------------------------
+多麦BI
+New
+大麦ERP
+自发货版
+2026年10月15日 01:26:55
+新手指南
+新功能
+ 价格
+登录/注册
+MCP说明文档
+快速开始
+客户端配置
+可用工具
+1. 类目搜索
+2. 行业概览
+3. 商品搜索及属性聚合
+4. 商品销量趋势
+5. 商品图搜
+6. 评论查询
+7. 配额查询
+计费说明
+连接验证
+常见问题
+GETTING STARTED
+快速开始
+步骤 1
+开通服务
+
+选择 MCP 套餐，或确保当前账号有可用积分。
+
+步骤 2
+创建 API Key
+
+创建后立即安全保存完整 Key，关闭弹窗后无法再次查看。
+
+步骤 3
+填写客户端配置
+
+配置服务地址，并通过 X-API-Key 请求头发送 Key。
+
+步骤 4
+验证连接
+
+重新加载客户端，调用 get_my_quota_status 检查额度。
+
+账号与密钥说明
+同一当前账号下的 API Key 共用该账号的 MCP 套餐额度；完整 Key 丢失后只能删除并重新创建。
+CLIENT SETUP
+客户端配置
+
+选择客户端并复制配置，将示例中的 sk-替换为你的APIKey 替换为创建时保存的完整密钥。
+
+通用 JSON
+Codex
+Claude Desktop
+Cursor
+
+适用于支持自定义请求头的远程 MCP（Streamable HTTP）客户端。
+
+通用 JSON 配置
+复制内容
+{
+  "type": "http",
+  "url": "https://mcp.damaishuju.com/tools/mcp",
+  "headers": {
+    "X-API-Key": "sk-替换为你的APIKey"
+  }
+}
+
+命令行联调可将 API Key 保存到环境变量 DM_MCP_API_KEY 后使用以下 cURL。response_format=json 便于脚本解析工具结果。
+
+cURL 联调示例
+复制内容
+curl -sS -X POST \
+  "https://mcp.damaishuju.com/tools/mcp?response_format=json" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "X-API-Key: ${DM_MCP_API_KEY}" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "1",
+    "method": "tools/call",
+    "params": {
+      "name": "search_product_snapshots",
+      "arguments": {
+        "market_code": "MLM",
+        "sku_id": "MLM1602785195",
+        "limit": 1
+      }
+    }
+  }'
+响应解析
+先检查 HTTP 状态码、JSON-RPC error 和 result.isError；成功业务数据通常位于 result.content[].text，text 还需要再次解析为 JSON，部分客户端会同时返回 structuredContent。
+API Key 安全提示
+请妥善保管完整 API Key，密钥丢失后只能删除并重新创建。
+TOOLS
+可用工具
+
+当前 damai-data 提供以下 7 个工具，支持 MLM、MLB、MLA、MLC、MCO 五个 Mercado Libre 市场。
+
+工具 1
+类目搜索search_categories
+免费
+
+通过类目关键词查找候选类目，适合在商品搜索前获取 category_id。
+
+使用说明
+query 为类目关键词，仅支持所选市场当地语言；market_code 默认 MLM；limit 默认 100、最大 100。
+请求参数
+字段	类型	必填	说明
+market_code	string	否	市场编码，默认 MLM。
+query	string	否	类目关键词。
+limit	integer	否	返回数量，默认及最大 100。
+返回内容
+字段	类型	说明
+request_overview	object	包含 market、search_text 和 page_size 等请求摘要字段。
+record_count	integer	本次返回类目数。
+records	array	类目列表；记录包含类目 ID、名称、层级、路径、叶子类目标识、近 30 天销量与 GMV、均价、商家数和活跃商品数。
+records[].taxonomy_code	string	类目 ID。
+records[].taxonomy_name	string	类目名称。
+records[].taxonomy_trail	array	类目路径。
+records[].taxonomy_trail_localized	array	本地化类目路径。
+records[].taxonomy_trail_english	array	英文类目路径。
+records[].taxonomy_name_localized	string	本地化类目名称。
+records[].taxonomy_depth	integer	类目层级。
+records[].is_terminal_taxonomy	boolean	是否为叶子类目。
+records[].orders_last_30_days	integer	近 30 天销量。
+records[].revenue_last_30_days	number	近 30 天 GMV。
+records[].average_selling_price	number	平均售价。
+records[].merchant_count	integer	商家数。
+records[].active_listings_last_30_days	integer	近 30 天活跃商品数。
+请求示例
+JSON 请求示例
+复制内容
+{
+  "market_code": "MLM",
+  "query": "phone",
+  "limit": 10
+}
+返回示例
+JSON 返回示例
+复制内容
+{
+  "request_overview": {
+    "market": "Mexico",
+    "search_text": "phone",
+    "page_size": 1
+  },
+  "record_count": 1,
+  "records": [
+    {
+      "taxonomy_code": "MLM1055",
+      "taxonomy_name": "Celulares y Smartphones",
+      "taxonomy_depth": 2,
+      "is_terminal_taxonomy": true
+    }
+  ]
+}
+计费方式
+免费，不扣减套餐额度或积分。
+工具 2
+行业概览industry_overview
+扣减次数
+
+按站点和类目返回月销量、均价与 GMV 趋势，以及商品数、近 30 天平均日销量、环比增长和成交指标。
+
+使用说明
+category_id 必填；market_code 默认 MLM。
+请求参数
+字段	类型	必填	说明
+category_id	string	是	类目 ID。
+market_code	string	否	市场编码，默认 MLM。
+返回内容
+字段	类型	说明
+data_available	boolean	是否查询到行业数据。
+market_code	string	市场编码。
+taxonomy_code	string	类目 ID。
+industry_summary	object	行业汇总。
+industry_summary.monthly_order_trend	array	月销量趋势。
+industry_summary.monthly_average_price_trend	array	月均价趋势。
+industry_summary.monthly_revenue_trend	array	月 GMV 趋势。
+industry_summary.total_listing_count	integer	商品总数。
+industry_summary.active_listing_count	integer	活跃商品数。
+industry_summary.average_daily_orders_last_30_days	integer/number	近 30 天平均日销量。
+industry_summary.monthly_order_growth_rate	number	月销量环比增长率。
+industry_summary.average_selling_price	number	平均成交价格。
+industry_summary.revenue_last_30_days	number	近 30 天交易额。
+industry_summary.monthly_order_trend[]	object	月销量趋势元素包含 month 和 orders。
+industry_summary.monthly_average_price_trend[]	object	月均价趋势元素包含 month 和 average_selling_price。
+industry_summary.monthly_revenue_trend[]	object	月 GMV 趋势元素包含 month 和 revenue。
+请求示例
+JSON 请求示例
+复制内容
+{
+  "category_id": "MLM1055",
+  "market_code": "MLM"
+}
+返回示例
+JSON 返回示例
+复制内容
+{
+  "market_code": "MLM",
+  "taxonomy_code": "MLM1055",
+  "data_available": true,
+  "industry_summary": {
+    "monthly_order_trend": [
+      {
+        "month": "202607",
+        "orders": 292450
+      }
+    ],
+    "monthly_average_price_trend": [
+      {
+        "month": "202607",
+        "average_selling_price": 5797.82
+      }
+    ],
+    "monthly_revenue_trend": [
+      {
+        "month": "202607",
+        "revenue": 1689586658.2
+      }
+    ],
+    "total_listing_count": 106193,
+    "active_listing_count": 8083,
+    "average_daily_orders_last_30_days": 270084,
+    "monthly_order_growth_rate": null,
+    "average_selling_price": 5896.92,
+    "revenue_last_30_days": 131973069.6
+  }
+}
+计费方式
+每次成功调用扣减 1 次。
+工具 3
+商品搜索及属性聚合search_product_snapshots
+扣减次数
+
+按关键词、类目、商品、店铺、价格、销量、评分、评论和上架时间等条件筛选 Mercado Libre 商品；关键词仅支持所选市场当地语言。
+
+使用说明
+至少提供 keyword、category_id、sku_id、shop_id、shop_query、product_url 之一。
+请求参数
+字段	类型	必填	说明
+market_code	string	否	市场编码，默认 MLM。
+keyword	string	条件必填	商品关键词。
+category_id	string	条件必填	类目 ID。
+sku_id	string	条件必填	商品 ID，用于精确查询。
+product_url	string	条件必填	商品链接，用于精确定位。
+shop_id	string	条件必填	店铺或卖家 ID，用于精确筛选店铺商品。
+shop_query	string	条件必填	店铺名或卖家名关键词。
+price_min	number	否	最低价格。
+price_max	number	否	最高价格。
+sales_30d_min	integer	否	近 30 天最低销量。
+sales_30d_max	integer	否	近 30 天最高销量。
+historical_total_sales_min	integer	否	历史累计最低销量。
+historical_total_sales_max	integer	否	历史累计最高销量。
+rating_min	number	否	最低评分。
+rating_max	number	否	最高评分。
+review_count_min	integer	否	最低评论数。
+review_count_max	integer	否	最高评论数。
+listing_date_min	string	否	最早上架日期。
+listing_date_max	string	否	最晚上架日期。
+stock_type	string	否	库存或履约类型：nor、ci、ful 或 USA；不传表示不限。
+shop_type	string	否	卖家类型：cross_border 或 local。
+product_status	string	否	商品状态：active（在售）或 paused（暂停销售）。
+sort_by	string	否	排序字段，默认 sales_30d。
+sort_order	string	否	排序方向，默认 desc。
+page	integer	否	页码，默认 1。
+limit	integer	否	每页返回数量，默认及最大 100。
+返回内容
+字段	类型	说明
+request_overview	object	请求摘要，包含市场、搜索条件、商品/店铺定位、排序、分页和 filters 等字段。
+request_overview.market / search_text	string/null	实际执行市场 / 使用的商品关键词。
+request_overview.taxonomy_code / product_code	string/null	实际使用的类目 ID / 商品 ID。
+request_overview.merchant_code / merchant_search	string/null	实际使用的店铺 ID / 店铺名称关键词。
+request_overview.detail_link	string/null	实际解析和查询的商品链接。
+request_overview.page_number / page_size	integer	服务端实际执行的页码 / 每页数量。
+request_overview.ordering	string	实际生效的排序规则，例如 sales_30d_desc。
+request_overview.filters	object	服务端实际应用的价格、销量、评分、评论、日期和店铺筛选条件。
+record_count	integer	本次返回数量。
+matched_count	integer	命中商品总数。
+records	array	商品列表，包含商品、链接、价格、7/30/60/90 天及累计销量、GMV、评分、品牌、店铺、类目、上架日期、履约类型、库存和尺寸重量。
+features	object	商品属性聚合，包含覆盖商品数、属性值数量、常见值和示例商品 ID。
+notices	array	提示信息。
+records[].product_code	string	商品 ID。
+records[].product_name	string	商品名称。
+records[].selling_price	number	售价。
+records[].currency_code	string	币种。
+records[].orders_last_30_days	integer	近 30 天销量。
+records[].orders_last_7_days	integer	近 7 天销量。
+records[].orders_last_60_days	integer	近 60 天销量。
+records[].orders_last_90_days	integer	近 90 天销量。
+records[].lifetime_orders	integer	历史累计销量。
+records[].feedback_score	number	商品评分。
+records[].feedback_count	integer	评论数。
+records[].merchant_code	string	店铺 ID。
+records[].merchant_name	string	店铺名称。
+records[].taxonomy_name	string	类目名称。
+records[].taxonomy_trail	array	类目路径。
+records[].detail_link	string	商品详情链接。
+records[].picture_link	string	商品图片链接。
+records[].brand_label	string	品牌。
+records[].first_listed_on	string	首次上架日期。
+records[].fulfillment_type	string	履约类型。
+records[].available_inventory	integer	可用库存。
+records[].revenue_last_30_days	number	近 30 天销售额。
+records[].parcel_length_cm / parcel_width_cm / parcel_height_cm	number	长、宽、高，单位为厘米。
+records[].dimensional_weight_kg	number	体积重，单位为克。
+records[].parcel_volume_cm3	number	体积，单位为立方厘米。
+records[].parcel_weight_kg	number	包装实际重量，单位为克。
+features.records[]	array	属性编码、名称、本地化名称、覆盖商品数、不同值数量、常见值和示例商品 ID。
+features.record_count / matched_count	integer	属性记录数 / 属性匹配总数。
+features.sample_product_count	integer	参与属性统计的商品样本数。
+features.records[].feature_code / feature_name	string	属性稳定编码 / 原始属性名称。
+features.records[].feature_name_localized	string/null	本地化属性名称。
+features.records[].covered_product_count	integer	样本中包含该属性的商品数量。
+features.records[].distinct_value_count	integer	样本中不同属性值的数量。
+features.records[].popular_values[]	object	属性常见值元素包含 feature_value 和 covered_product_count。
+features.records[].popular_values[].feature_value	string/number/boolean	具体属性值。
+features.records[].popular_values[].covered_product_count	integer	使用该属性值的商品数量。
+features.records[].example_product_codes	array	属性示例商品 ID 列表。
+请求示例
+JSON 请求示例
+复制内容
+{
+  "market_code": "MLM",
+  "sku_id": "MLM1602785195",
+  "page": 1,
+  "limit": 10
+}
+返回示例
+JSON 返回示例
+复制内容
+{
+  "request_overview": {
+    "filters": {
+      "sales_30d_min": null,
+      "sales_30d_max": null,
+      "historical_total_sales_min": null,
+      "historical_total_sales_max": null,
+      "rating_min": null,
+      "rating_max": null,
+      "review_count_min": null,
+      "review_count_max": null,
+      "listing_date_min": null,
+      "listing_date_max": null,
+      "stock_type": null,
+      "shop_type": null,
+      "product_status": null,
+      "price_min": null,
+      "price_max": null
+    },
+    "market": "Mexico",
+    "search_text": null,
+    "taxonomy_code": null,
+    "product_code": "MLM1602785195",
+    "merchant_code": null,
+    "merchant_search": null,
+    "detail_link": null,
+    "page_number": 1,
+    "page_size": 10,
+    "ordering": "sales_30d_desc"
+  },
+  "record_count": 1,
+  "matched_count": 1,
+  "records": [
+    {
+      "product_code": "MLM1602785195",
+      "product_name": "Guantes De Nitrilo Vinil Libre De Latex Sin Polvo Azul Negro",
+      "detail_link": "https://articulo.mercadolibre.com.mx/MLM-1602785195-guantes-de-nitrilo-vinil-libre-de-latex-sin-polvo-azul-negro-_JM?matt_tool=17030900&ua=xY1cQAOpfySSCBx0xPxVG1ZQx6Km2A#origin=share&sid=share",
+      "picture_link": "https://http2.mlstatic.com/D_NQ_NP_809388-MLM78064615777_072024-O.webp",
+      "selling_price": 125,
+      "orders_last_30_days": 32870,
+      "orders_last_7_days": 7971,
+      "orders_last_60_days": null,
+      "orders_last_90_days": 100048,
+      "lifetime_orders": 1293916,
+      "revenue_last_30_days": 3990277,
+      "feedback_count": 98520,
+      "feedback_score": 4.6,
+      "brand_label": null,
+      "merchant_code": "399621798",
+      "merchant_name": "Selectshop MX",
+      "taxonomy_name": "Guantes Desechables",
+      "taxonomy_trail": [
+        "Salud y Equipamiento Médico",
+        "Equipamiento Médico",
+        "Instrumental Médico",
+        "Indumentaria Quirúrgica",
+        "Guantes Desechables"
+      ],
+      "first_listed_on": "2022-11-10",
+      "fulfillment_type": "ful",
+      "available_inventory": 31577,
+      "parcel_length_cm": 20,
+      "parcel_width_cm": 11.8,
+      "parcel_height_cm": 5.2,
+      "dimensional_weight_kg": 0.24543999,
+      "parcel_volume_cm3": 1227.2,
+      "parcel_weight_kg": 300,
+      "currency_code": "MXN"
+    }
+  ],
+  "features": {
+    "record_count": 3,
+    "matched_count": 3,
+    "sample_product_count": 100,
+    "records": [
+      {
+        "feature_code": "BRAND",
+        "feature_name": "Brand",
+        "feature_name_localized": null,
+        "covered_product_count": 1,
+        "distinct_value_count": 1,
+        "popular_values": [
+          {
+            "feature_value": "SelectShop",
+            "covered_product_count": 1
+          }
+        ],
+        "example_product_codes": [
+          "MLM1602785195"
+        ]
+      },
+      {
+        "feature_code": "MODEL",
+        "feature_name": "Model",
+        "feature_name_localized": null,
+        "covered_product_count": 1,
+        "distinct_value_count": 1,
+        "popular_values": [
+          {
+            "feature_value": "Vinil",
+            "covered_product_count": 1
+          }
+        ],
+        "example_product_codes": [
+          "MLM1602785195"
+        ]
+      },
+      {
+        "feature_code": "FULFILLMENT_TYPE",
+        "feature_name": "Fulfillment type",
+        "feature_name_localized": null,
+        "covered_product_count": 1,
+        "distinct_value_count": 1,
+        "popular_values": [
+          {
+            "feature_value": "ful",
+            "covered_product_count": 1
+          }
+        ],
+        "example_product_codes": [
+          "MLM1602785195"
+        ]
+      }
+    ]
+  },
+  "notices": []
+}
+计费方式
+每次成功调用扣减 1 次。
+工具 4
+商品销量趋势product_sales_trend
+扣减次数
+
+读取商品日销量历史并聚合为月销量和周销量，最长查询约两年数据。
+
+使用说明
+sku_id 必填；market_code 默认 MLM；days 默认 730、最大 731。
+请求参数
+字段	类型	必填	说明
+sku_id	string	是	商品 ID。
+market_code	string	否	市场编码，默认 MLM。
+days	integer	否	查询天数，默认 730，范围 1 至 731。
+返回内容
+字段	类型	说明
+market_code	string	市场编码。
+product_code	string	商品 ID。
+range_start_date	string	实际查询开始日期。
+range_end_date	string	实际查询结束日期。
+requested_day_count	integer	请求查询天数。
+covered_day_count	integer	实际覆盖天数。
+data_available	boolean	是否有销量数据。
+data_coverage	object	数据覆盖情况。
+aggregation_period	object	月、周聚合模式和日期时区模式。
+monthly_order_series	array	月销量序列。
+weekly_order_series	array	周销量序列。
+notices	array	数据不足或覆盖提示。
+input_method	string	数据输入方式。
+data_coverage.requested_day_count	integer	覆盖统计请求天数。
+data_coverage.covered_day_count	integer	覆盖统计实际天数。
+data_coverage.full_coverage	boolean	是否完整覆盖。
+data_coverage.coverage_start_date	string	覆盖开始日期。
+data_coverage.coverage_end_date	string	覆盖结束日期。
+aggregation_period.month_mode	string	月聚合模式。
+aggregation_period.week_mode	string	周聚合模式。
+aggregation_period.timezone_mode	string	日期时区模式。
+monthly_order_series[].month	string	月序列月份。
+monthly_order_series[].orders	integer/number	月序列销量。
+weekly_order_series[].week	string	周序列 ISO 周。
+weekly_order_series[].orders	integer/number	周序列销量。
+请求示例
+JSON 请求示例
+复制内容
+{
+  "sku_id": "MLM1602785195",
+  "market_code": "MLM",
+  "days": 30
+}
+返回示例
+JSON 返回示例
+复制内容
+{
+  "market_code": "MLM",
+  "product_code": "MLM1602785195",
+  "requested_day_count": 30,
+  "covered_day_count": 27,
+  "data_available": true,
+  "range_start_date": "2026-07-16",
+  "range_end_date": "2026-08-14",
+  "data_coverage": {
+    "requested_day_count": 30,
+    "covered_day_count": 27,
+    "full_coverage": false,
+    "coverage_start_date": "2026-07-16",
+    "coverage_end_date": "2026-08-11"
+  },
+  "aggregation_period": {
+    "month_mode": "calendar_month",
+    "week_mode": "iso_week",
+    "timezone_mode": "server_local_date"
+  },
+  "monthly_order_series": [
+    {
+      "month": "2026-07",
+      "orders": 1660
+    }
+  ],
+  "weekly_order_series": [
+    {
+      "week": "2026-W29",
+      "orders": 429
+    }
+  ],
+  "input_method": "daily_history"
+}
+计费方式
+每次成功调用扣减 1 次。
+工具 5
+商品图搜image_search_products
+扣减次数
+
+根据图片 URL 或 Base64 图片搜索 Mercado Libre 相似商品 ID。
+
+使用说明
+image_url、image_base64 至少提供一个；page 默认 1；limit 默认 50。
+请求参数
+字段	类型	必填	说明
+image_url	string	条件必填	可直接访问的图片 URL。
+image_base64	string	条件必填	图片 Base64 字符串；与 image_url 至少提供一个。
+market_code	string	否	市场编码，默认 MLM。
+page	integer	否	页码，默认 1。
+limit	integer	否	返回数量，默认 50。
+token	string	否	图片搜索令牌。
+返回内容
+字段	类型	说明
+request_overview	object	市场、图片输入方式和分页摘要。
+request_overview.market	string	市场。
+request_overview.input_type	string	图片输入方式。
+request_overview.page_number	integer	当前页码。
+request_overview.page_size	integer	当前页数量。
+provider_status	string	图片搜索处理状态。
+display_message	string	图片搜索提示信息。
+record_count	integer	相似商品返回数量。
+product_code	array	相似商品 ID 列表。
+provider_payload	object	图搜上游保留对象，不建议依赖其内部字段。
+请求示例
+JSON 请求示例
+复制内容
+{
+  "market_code": "MLM",
+  "image_url": "https://example.com/product.jpg",
+  "page": 1,
+  "limit": 50
+}
+返回示例
+JSON 返回示例
+复制内容
+{
+  "request_overview": {
+    "market": "ml_mx",
+    "input_type": "image_url",
+    "page_number": 1,
+    "page_size": 2
+  },
+  "provider_status": "ok",
+  "display_message": null,
+  "record_count": 2,
+  "product_code": [
+    "MLM1602785195",
+    "MLM3390626348"
+  ],
+  "provider_payload": {}
+}
+计费方式
+每次成功调用扣减 1 次。
+工具 6
+评论查询review_search
+扣减次数
+
+按商品 ID 分页查询评论列表。
+
+使用说明
+sku_id 必填；market_code 默认 MLM；page 从 1 开始，可通过 limit 控制每页数量。
+请求参数
+字段	类型	必填	说明
+sku_id	string	是	商品 ID。
+market_code	string	否	市场编码，默认 MLM。
+page	integer	否	页码，默认 1。
+limit	integer	否	每页数量，默认 20、最大 100。
+返回内容
+字段	类型	说明
+market_code	string	市场编码。
+product_code	string	商品 ID。
+page_number	integer	当前页码。
+page_size	integer	每页数量。
+matched_count	integer	评论总数。
+reviews	array	评论列表，包含评论 ID、评分、商品名称、原文、英文及本地化内容、评论时间、买家名称和商品 ID。
+reviews[].review_code	string	评论 ID。
+reviews[].feedback_score	number	评论评分。
+reviews[].review_content	string	评论原文。
+reviews[].review_content_english	string	英文评论内容。
+reviews[].review_content_localized	string	本地化评论内容。
+reviews[].review_date	string	评论时间。
+reviews[].buyer_name	string	买家名称。
+reviews[].product_name	string	评论对应的商品名称。
+reviews[].product_code	string	评论对应的商品 ID。
+请求示例
+JSON 请求示例
+复制内容
+{
+  "sku_id": "MLM1602785195",
+  "market_code": "MLM",
+  "page": 1,
+  "limit": 1
+}
+返回示例
+JSON 返回示例
+复制内容
+{
+  "market_code": "MLM",
+  "product_code": "MLM1602785195",
+  "page_number": 1,
+  "page_size": 1,
+  "matched_count": 3497,
+  "reviews": [
+    {
+      "review_code": "MLM1602785195-review-20260809-001",
+      "feedback_score": null,
+      "product_name": "Guantes De Nitrilo Vinil Libre De Latex Sin Polvo Azul Negro",
+      "review_content": "Diseño: bueno.",
+      "review_content_english": null,
+      "review_content_localized": null,
+      "review_date": "2026-08-09T00:00:00",
+      "buyer_name": null,
+      "product_code": "MLM1602785195"
+    }
+  ]
+}
+计费方式
+每次成功调用扣减 1 次。
+工具 7
+配额查询get_my_quota_status
+免费
+
+查询当前 API Key 所属账号的套餐、额度周期、剩余额度和积分状态。
+
+使用说明
+无需参数，只能查询当前 API Key 所属调用者自己的额度。
+请求参数
+
+无需请求参数。
+
+返回内容
+字段	类型	说明
+customer_account_code	integer/string	当前 API Key 所属账号编码。
+credit_balance	number	当前可用请求额度。
+credit_policy	object	额度来源与套餐信息，包含 billing_source、plan_code 和 plan_name。
+quota_limit	integer	套餐总额度。
+used_quota	integer	已使用额度。
+quota_starts_at	string	当前额度周期开始时间。
+quota_ends_at	string	当前额度周期结束时间。
+available_points	integer	可用积分。
+points_mode	string	积分模式。
+credit_policy.billing_source	string	当前计费来源。
+credit_policy.plan_code	string	额度策略中的套餐编码。
+credit_policy.plan_name	string	额度策略中的套餐名称。
+请求示例
+JSON 请求示例
+复制内容
+{}
+返回示例
+JSON 返回示例
+复制内容
+{
+  "customer_account_code": 90205,
+  "credit_policy": {
+    "billing_source": "subscription",
+    "plan_code": "basic_monthly",
+    "plan_name": "Basic Monthly"
+  },
+  "quota_limit": 1400,
+  "used_quota": 324,
+  "credit_balance": 1076,
+  "quota_starts_at": "2026-08-13 10:18:28",
+  "quota_ends_at": "2026-09-13 10:18:28",
+  "available_points": 100420,
+  "points_mode": "self"
+}
+计费方式
+免费，不扣减套餐额度或积分。
+BILLING
+计费说明
+套餐账号扣次数
+
+有效套餐下，收费工具每次成功调用扣减 1 次套餐额度；免费工具不扣费。
+
+额度按周期重置
+
+同一账号下的所有 API Key 共用套餐额度，具体周期以“我的套餐”为准。
+
+不自动切换积分
+
+仅从未开通过套餐的账号按积分计费；账号开通过套餐后，到期或额度耗尽均不会自动扣积分。
+
+VERIFY
+连接验证
+1
+保存配置
+
+保存客户端配置并重新加载 MCP 服务。
+
+2
+检查服务发现
+
+确认客户端能够发现名为 damai-data 的服务。
+
+3
+调用配额工具
+
+请求调用 get_my_quota_status。
+
+4
+核对返回结果
+
+收到套餐、额度周期、可用额度或积分状态，即表示连接成功。
+
+SUPPORT
+常见问题
+客户端提示 401 或未授权怎么办？
+客户端找不到 MCP 服务怎么办？
+为什么无法再次查看完整 API Key？
+套餐支付后仍未生效怎么办？
+调用被拒绝应该检查什么？
+主账号和子账号会共享 MCP 套餐吗？
+ 2026 大麦数据出品
+ 在线客服
+
+
+========== 指令示例 ==========
+TITLE: 大麦数据
+------------------------------------
+多麦BI
+New
+大麦ERP
+自发货版
+2026年10月15日 01:27:07
+新手指南
+新功能
+ 价格
+登录/注册
+MCP说明文档
+指令示例
+MCP PROMPTS
+指令示例
+
+参考以下 Mercado Libre 选品场景，直接复制指令到支持 MCP 的 AI 客户端使用。
+
+使用前请确认已完成 MCP 客户端配置并创建 API Key。
+示例中的 {{...}} 为待替换参数；MLM 表示 Mercado Libre 墨西哥站，也可以在指令中直接使用“墨西哥站”；其他站点编码包括 MLB、MLA、MLC 和 MCO。
+示例 01
+墨西哥站热销商品筛选
+复制指令
+
+请调用大麦数据 MCP，基于 墨西哥站（MLM），筛选近30天销量最高的在售商品。要求评分不低于4.5、评论数不少于100、价格在200至800 MXN之间，输出前20个商品及推荐理由。
+
+示例 02
+巴西站热销商品筛选
+复制指令
+
+请调用大麦数据 MCP，基于 巴西站（MLB），搜索葡萄牙语关键词“organizador de cozinha”，筛选近30天销量不低于50、评分不低于4.5的在售商品，按销量降序输出前20个。
+
+示例 03
+关键词选品分析
+复制指令
+
+请调用大麦数据 MCP，基于墨西哥站（MLM）搜索关键词“organizador de escritorio”，分析商品数量、价格区间、近30天销量、评分、评论数和竞争程度，并判断是否适合跨境卖家进入。
+
+示例 04
+指定类目热销商品分析
+复制指令
+
+请调用大麦数据 MCP，搜索墨西哥站（MLM）类目关键词“accesorios para cocina”，查询该类目下近30天销量最高的前20个商品，输出市场容量、主流价格带和竞争情况。
+
+示例 05
+行业市场容量分析
+复制指令
+
+请调用大麦数据 MCP，分析墨西哥站（MLM）类目 `{{category_id}}` 最近一年的月销量、月均价格、月 GMV、活跃商品数、近30天销量和环比增长，并判断市场处于增长、稳定还是衰退阶段。
+
+示例 06
+高增长商品筛选
+复制指令
+
+请调用大麦数据 MCP，基于墨西哥站（MLM）搜索关键词 `{{keyword}}`，筛选近30天销量不低于30、上架时间在最近180天内的商品，按销量降序输出，并识别新品机会。
+
+示例 07
+新品机会分析
+复制指令
+
+请调用大麦数据 MCP，基于墨西哥站（MLM）类目 `{{category_id}}`，筛选上架日期在 `{{start_date}}` 至 `{{end_date}}` 之间、近30天销量不低于20、评论数低于200的商品，分析新品成长潜力和进入风险。
+
+示例 08
+价格带分析
+复制指令
+
+请调用大麦数据 MCP，分析墨西哥站（MLM）类目 `{{category_id}}` 的商品价格分布，统计各价格带的商品数量、平均销量和平均评分，并推荐适合进入的价格区间。
+
+示例 09
+高评分商品反推需求
+复制指令
+
+请调用大麦数据 MCP，筛选墨西哥站（MLM）中评分不低于4.7、评论数不少于50、近30天销量不低于30的商品，归纳消费者认可的产品特点、主要卖点和可复制的选品方向。
+
+示例 10
+高销量低评分改良机会
+复制指令
+
+请调用大麦数据 MCP，筛选墨西哥站（MLM）中近30天销量不低于100但评分低于4.3的商品，分析可能存在的用户痛点和产品改良方向。
+
+示例 11
+竞品店铺商品分析
+复制指令
+
+请调用大麦数据 MCP，查询墨西哥站（MLM）店铺关键词 `{{shop_query}}` 相关商品，输出商品数量、主推类目、价格范围、销量排名和店铺竞争优势。
+
+示例 12
+指定店铺商品分析
+复制指令
+
+请调用大麦数据 MCP，查询墨西哥站（MLM）店铺 ID `{{shop_id}}` 下的商品，筛选近30天销量最高的前20个商品，并分析该店铺的选品结构和爆款特征。
+
+示例 13
+商品销量趋势分析
+复制指令
+
+请调用大麦数据 MCP，分析墨西哥站（MLM）商品 `{{sku_id}}` 最近730天的月销量和周销量趋势，指出销量峰值、低谷、季节性变化及当前销售趋势。
+
+示例 14
+商品评论分析
+复制指令
+
+请调用大麦数据 MCP，查询墨西哥站（MLM）商品 `{{sku_id}}` 的评论，提取高频好评关键词、差评关键词、用户关注点和产品改良建议。
+
+示例 15
+商品综合诊断
+复制指令
+
+请调用大麦数据 MCP，查询墨西哥站（MLM）商品 `{{sku_id}}` 的基础数据、销量趋势和用户评论，综合分析销量表现、评价情况、竞争壁垒和跟卖风险，并给出推荐结论。
+
+示例 16
+商品链接精确查询
+复制指令
+
+请调用大麦数据 MCP，根据商品链接 `{{product_url}}` 精确查询商品标题、商品 ID、价格、销量、评分、评论数、店铺类型和商品状态。
+
+示例 17
+跨境友好商品筛选
+复制指令
+
+请调用大麦数据 MCP，基于墨西哥站（MLM）搜索关键词 `{{keyword}}`，筛选在售、近30天销量不低于30、评分不低于4.5、价格适中的商品，排除食品、药品、液体、化妆品及明显品牌商品。
+
+示例 18
+低竞争商品筛选
+复制指令
+
+请调用大麦数据 MCP，基于墨西哥站（MLM）类目 `{{category_id}}`，筛选近30天销量不低于20、评论数不超过300、评分不低于4.3的商品，分析需求和竞争壁垒。
+
+示例 19
+多市场商品对比
+复制指令
+
+请调用大麦数据 MCP，分别在墨西哥站（MLM）、巴西站（MLB）、阿根廷站（MLA）、智利站（MLC）和哥伦比亚站（MCO）搜索关键词 `{{keyword}}`，比较各市场的商品数量、价格、销量、评分和评论数，并推荐优先进入的市场。
+
+示例 20
+综合选品报告
+复制指令
+
+请调用大麦数据 MCP，围绕 `{{关键词或category_id}}` 生成综合选品报告，包含市场规模、热销商品、价格区间、销量趋势、评分评论、竞争强度、用户痛点、跨境风险、推荐商品和上架优先级。
+
+统一输出要求
+
+请用表格输出，并包含以下字段：市场、商品名称、商品 ID、所属类目、商品链接、商品价格、近30天销量、累计销量、商品评分、评论数、店铺类型、商品状态、竞争分析、主要卖点、主要风险、是否适合跨境销售、推荐优先级。如某字段暂无数据，请标记为“暂无数据”，不要自行编造。
+
+复制输出要求
+ 2026 大麦数据出品
+ 在线客服

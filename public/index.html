@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ML Suite</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="favicon-16.png" type="image/png" sizes="16x16">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#09090b">
+<link rel="stylesheet" href="style.css?v=47">
+</head>
+<body>
+<!-- 开屏动画 -->
+<div id="splash" role="status" aria-label="加载中">
+  <button class="skip" id="skip">跳过</button>
+  <div class="spf">© 2026 ML Suite · 所有数据在本机处理</div>
+  <div class="sp">
+    <svg viewBox="0 0 240 240" aria-hidden="true"><defs><linearGradient id="hg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7dd3fc"/><stop offset=".55" stop-color="#2997ff"/><stop offset="1" stop-color="#bf5af2"/></linearGradient><radialGradient id="gw" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#2997ff" stop-opacity=".5"/><stop offset="1" stop-color="#2997ff" stop-opacity="0"/></radialGradient></defs><circle class="rg" cx="120" cy="120" r="88" pathLength="1"/><g class="hs" transform="translate(120 120) scale(5.2) translate(-12 -12)"><path pathLength="1" d="m11 17 2 2a1 1 0 1 0 3-3"/><path pathLength="1" d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/><path pathLength="1" d="m21 3 1 11h-2"/><path pathLength="1" d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/><path pathLength="1" d="M3 4h8"/></g></svg>
+    <h1>ML Suite</h1>
+    <div class="sites" id="sites"><span>墨西哥 MLM</span><span>巴西 MLB</span><span>阿根廷 MLA</span></div>
+    <div class="bar"><i id="bar"></i></div><small id="stxt">正在初始化本地环境…</small>
+  </div>
+</div>
+
+<!-- 液态玻璃背景 -->
+<div class="liquid-bg">
+  <div class="liquid-orb orb-1"></div>
+  <div class="liquid-orb orb-2"></div>
+  <div class="liquid-orb orb-3"></div>
+</div>
+<div class="liquid-grid"></div>
+
+<div class="app">
+<aside class="side">
+  <div class="brand" data-go="hub"><b>ML</b><span>ML Suite</span></div>
+  <nav id="nav">
+    <p class="grp">工作台</p>
+    <a data-go="hub" class="on"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>概览</a>
+    <p class="grp">售前</p>
+    <a data-go="questions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>商品问答<span class="nb" id="nb-q" hidden>0</span></a>
+    <p class="grp">售后</p>
+    <a data-go="orders"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg>订单管理<span class="nb" id="nb-o" hidden>0</span></a>
+    <a data-go="claims"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>退货与投诉<span class="nb" id="nb-c" hidden>0</span></a>
+    <p class="grp">运营工具</p>
+    <a data-go="ads"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>广告投放</a>
+    <a data-go="rank"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>关键词排名</a>
+    <a data-go="box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>箱唛裁切</a>
+  </nav>
+  <div class="sidefoot">本地版 v1.2<br>数据在本机处理</div>
+</aside>
+
+<div class="mainc">
+  <header class="tb">
+    <div class="crumb"><span>ML Suite</span><i>/</i><b id="ct">概览</b></div>
+    <div class="tr">
+      <span class="env" id="envTag"><i></i>本地运行</span>
+      <button class="ghost" id="replay">重播开屏</button>
+      <span class="av">运</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- 概览 -->
+    <section class="view on" id="v-hub">
+      <div class="ph2"><h1>概览</h1><p>三个站点的连接状态与运营工具入口 · 实时数据</p></div>
+      <div class="kpis">
+        <div class="card kpi"><label>监控关键词</label><b id="kpi-keywords">—</b><div class="dl" id="kpi-keywords-dl">—</div><div class="spk" data-v="0,0,0,0,0,0,0,0"></div></div>
+        <div class="card kpi"><label>平均排名</label><b id="kpi-avg">—</b><div class="dl" id="kpi-avg-dl">—</div><div class="spk" data-v="0,0,0,0,0,0,0,0"></div></div>
+        <div class="card kpi"><label>前 10 名占比</label><b id="kpi-top10">—</b><div class="dl" id="kpi-top10-dl">—</div><div class="spk" data-v="0,0,0,0,0,0,0,0"></div></div>
+        <div class="card kpi"><label>产品标题数</label><b id="kpi-titles">—</b><div class="dl" id="kpi-titles-dl">—</div><div class="spk" data-v="0,0,0,0,0,0,0,0"></div></div>
+      </div>
+
+      <!-- 实时订单看板 -->
+      <div class="card pad order-band">
+        <div class="ob-head">
+          <div class="ob-title">
+            <h3>实时订单</h3>
+            <span id="mlUpdated">尚未同步</span>
+          </div>
+          <div class="ob-actions">
+            <span class="st" id="mlState"><i class="off"></i>未连接</span>
+            <button class="ghost" id="mlCfgBtn" title="配置美客多 API 凭证">API 设置</button>
+            <button class="btn y" id="mlRefresh">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+              刷新
+            </button>
+          </div>
+        </div>
+        <div class="ostat-grid">
+          <div class="ostat"><span>今日订单</span><b id="ml-today">—</b><small id="ml-today-amt">—</small></div>
+          <div class="ostat"><span>待我发货</span><b id="ml-pending">—</b><small id="ml-pending-sub">自发货/打面单才提醒</small></div>
+          <div class="ostat"><span>已发货</span><b id="ml-shipped">—</b><small>运输中 / 已签收</small></div>
+          <div class="ostat"><span>已取消</span><b id="ml-cancelled">—</b><small>含退款与关闭</small></div>
+        </div>
+        <div class="note" id="mlHint" style="display:none"></div>
+      </div>
+
+      <!-- 销售金额 · 实时流水（按巴西时区） -->
+      <div class="card pad sales-band">
+        <div class="ob-head">
+          <div class="ob-title">
+            <h3>销售金额 · 实时流水</h3>
+            <span id="salesTzNote">按巴西时间（GMT-3）统计 · 来源：美客多官方订单接口</span>
+          </div>
+          <div class="ob-actions">
+            <span class="st" id="salesState"><i class="off"></i>未连接</span>
+            <label class="sales-auto" title="开启后每 30 秒自动同步一次"><input type="checkbox" id="salesAuto" checked><span>自动刷新</span></label>
+            <button class="btn y" id="salesRefresh">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+              刷新
+            </button>
+          </div>
+        </div>
+
+        <div class="ostat-grid sales-kpis">
+          <div class="ostat"><span>订单数</span><b id="sk-orders">—</b><small id="sk-orders-sub">—</small></div>
+          <div class="ostat good"><span>销售金额</span><b id="sk-amount">—</b><small id="sk-amount-sub">—</small></div>
+          <div class="ostat"><span>售出件数</span><b id="sk-items">—</b><small>含多件下单</small></div>
+          <div class="ostat"><span>客单价</span><b id="sk-avg">—</b><small>销售金额 ÷ 订单数</small></div>
+        </div>
+
+        <div class="sales-filter">
+          <div class="seg" id="salesRange">
+            <button data-r="today" class="on">今天</button>
+            <button data-r="7">近 7 天</button>
+            <button data-r="30">近 30 天</button>
+            <button data-r="month">本月</button>
+            <button data-r="custom">自定义</button>
+          </div>
+          <div class="sales-dates">
+            <input type="date" id="salesFrom"><span>至</span><input type="date" id="salesTo">
+            <button class="btn" id="salesApply">应用</button>
+          </div>
+          <div class="sales-gran">
+            <span class="sg-label">聚合</span>
+            <div class="seg" id="salesGran">
+              <button data-g="order" class="on">按单</button>
+              <button data-g="hour">按小时</button>
+              <button data-g="day">按天</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="salesBody"><div class="empty">正在加载销售数据…</div></div>
+        <div class="note" id="salesNote" style="display:none"></div>
+      </div>
+
+      <!-- Listing 出单统计 -->
+      <div class="card pad sales-band">
+        <div class="ob-head">
+          <div class="ob-title">
+            <h3>Listing 出单统计</h3>
+            <span id="listingTzNote">按商品聚合出单数量与金额 · 默认当天</span>
+          </div>
+          <div class="ob-actions">
+            <span class="st" id="listingState"><i class="off"></i>未连接</span>
+            <button class="btn y" id="listingRefresh">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+              刷新
+            </button>
+          </div>
+        </div>
+
+        <div class="sales-filter">
+          <div class="seg" id="listingRange">
+            <button data-r="today" class="on">当天</button>
+            <button data-r="7">7 天</button>
+            <button data-r="30">30 天</button>
+            <button data-r="custom">自定义</button>
+          </div>
+          <div class="sales-dates">
+            <input type="date" id="listingFrom"><span>至</span><input type="date" id="listingTo">
+            <button class="btn" id="listingApply">应用</button>
+          </div>
+        </div>
+
+        <div id="listingBody"><div class="empty">正在加载 Listing 出单数据…</div></div>
+        <div class="note" id="listingNote" style="display:none"></div>
+      </div>
+
+      <div class="g2">
+        <div class="card">
+          <div class="cph"><div class="nums"><div class="ck"><b id="kg">+0%</b><span>较期初增长</span></div><div class="ck"><b id="kt">0</b><span>站内累计销量(件)</span></div></div><div class="seg" id="cp"><button data-p="7">7 天</button><button class="on" data-p="30">30 天</button><button data-p="12">12 月</button></div></div>
+          <div class="cw" id="cw"><svg id="cs" viewBox="0 0 800 260" role="img" aria-label="销量趋势图"></svg><div class="tip" id="tip"></div></div>
+        </div>
+        <div class="col">
+          <div class="card">
+            <div class="ch"><div><h3>实时热搜词</h3><span>MLB 耳机类 · 大麦数据真实数据</span></div><div class="lv"><span class="st"><i class="pulse" id="lvd"></i><b id="lvs">大麦数据</b></span><button class="ghost" id="lvb">刷新</button></div></div>
+            <div class="rl" id="rl" aria-live="off"></div>
+            <div class="lf"><span id="lvsrc">数据来源：大麦数据 MCP · search_product_snapshots</span><span id="lvt">--:--:--</span></div>
+          </div>
+          <div class="card">
+            <div class="ch"><h3>站点与任务</h3></div>
+            <div class="lst" id="siteTasks">
+              <div class="li"><span class="nm">墨西哥 MLM<small id="lat-MLM">检测中…</small></span><span class="st" id="status-MLM"><i></i>检测中</span></div>
+              <div class="li"><span class="nm">巴西 MLB<small id="lat-MLB">检测中…</small></span><span class="st" id="status-MLB"><i></i>检测中</span></div>
+              <div class="li"><span class="nm">阿根廷 MLA<small id="lat-MLA">检测中…</small></span><span class="st" id="status-MLA"><i></i>检测中</span></div>
+              <div class="li"><span class="nm">每日排名报告<small id="task-schedule">未启用</small></span><span class="st" id="status-schedule"><i class="off"></i>未启用</span></div>
+              <div class="li"><span class="nm">售前提问微信提醒<small id="task-push">未配置</small></span><span class="st" id="status-push"><i class="off"></i>未开启</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 运营工具入口 -->
+      <div class="card pad" style="margin-top:14px">
+        <div class="ob-head" style="padding-bottom:14px;border-bottom:1px solid var(--bd);margin-bottom:16px">
+          <div class="ob-title"><h3>运营工具入口</h3><span>售前答疑与售后履约，全部对接美客多官方 API</span></div>
+        </div>
+        <div class="tools-grid">
+          <a class="tool-card" data-go="orders">
+            <span class="tc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg></span>
+            <span class="tc-tx"><b>订单管理<i class="role after">售后</i></b><small>实时订单、状态筛选、发货进度</small></span>
+            <span class="tc-badge" id="tc-o"></span>
+          </a>
+          <a class="tool-card" data-go="questions">
+            <span class="tc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg></span>
+            <span class="tc-tx"><b>商品问答<i class="role before">售前</i></b><small>买家提问、快速回复、未回复提醒</small></span>
+            <span class="tc-badge" id="tc-q"></span>
+          </a>
+          <a class="tool-card" data-go="claims">
+            <span class="tc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg></span>
+            <span class="tc-tx"><b>退货与投诉<i class="role after">售后</i></b><small>平台调解 / 买家咨询 / 无需操作 自动分流</small></span>
+            <span class="tc-badge" id="tc-c"></span>
+          </a>
+          <a class="tool-card" data-go="ads">
+            <span class="tc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg></span>
+            <span class="tc-tx"><b>广告投放<i class="role after">运营</i></b><small>Product Ads 花费、销售额、ACOS、ROAS</small></span>
+            <span class="tc-badge" id="tc-a"></span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 关键词排名 -->
+    <section class="view" id="v-rank">
+      <div class="card pad">
+        <div class="ph"><h2>关键词排名查询</h2><p>输入关键词在美客多前台搜索，查看产品出现在第几页第几位。</p></div>
+        <div class="tabs"><button class="on" data-m="s">单关键词</button><button data-m="b">批量产品</button><button data-m="cfg">定时报告</button></div>
+
+        <!-- 单关键词 -->
+        <div id="rank-single" class="rank-panel">
+          <div class="row">
+            <label class="fld grow">搜索关键词<input type="text" id="kw" placeholder="如：cinturon de piel hombre" autocomplete="off"></label>
+            <label class="fld">站点<select id="site"><option value="MLM" selected>MLM 墨西哥</option><option value="MLB">MLB 巴西</option><option value="MLA">MLA 阿根廷</option></select></label>
+            <label class="fld">搜索页数<select id="pg"><option value="1">1页</option><option value="2">2页</option><option value="3">3页</option><option value="5" selected>5页</option><option value="10">10页</option><option value="20">20页</option><option value="30">30页</option><option value="42">42页（最大）</option></select></label>
+            <button class="btn y" id="go">开始搜索</button>
+          </div>
+          <div class="row">
+            <label class="fld grow">产品标题筛选（可选，高亮匹配）<input type="text" id="filter" placeholder="输入产品标题关键词…" autocomplete="off"></label>
+            <div class="fld"><label>&nbsp;</label><button class="btn" id="testConn">测试连接</button></div>
+          </div>
+          <div class="note" id="singleNote">数据来自美客多前台，每页 48 个商品，最多 42 页（2016 个商品）。</div>
+        </div>
+
+        <!-- 批量产品 -->
+        <div id="rank-batch" class="rank-panel" style="display:none">
+          <div class="row">
+            <label class="fld grow">搜索关键词<input type="text" id="bkw" placeholder="如：funda celular" autocomplete="off"></label>
+            <label class="fld">站点<select id="bsite"><option value="MLM" selected>MLM 墨西哥</option><option value="MLB">MLB 巴西</option><option value="MLA">MLA 阿根廷</option></select></label>
+            <label class="fld">搜索页数<select id="bpg"><option value="1">1页</option><option value="2">2页</option><option value="3">3页</option><option value="5" selected>5页</option><option value="10">10页</option><option value="20">20页</option><option value="30">30页</option><option value="42">42页（最大）</option></select></label>
+            <button class="btn y" id="bgo">批量搜索</button>
+          </div>
+          <label class="fld" style="margin-top:14px">产品标题（每行一个，模糊匹配）<textarea id="bt" rows="5" placeholder="每行输入一个产品标题…"></textarea></label>
+          <div class="batch-info"><span id="bt-count">0</span> 个产品标题 <span class="sep">|</span> 最多 100 个 <span class="sep">|</span> <button class="clear-btn" id="bclear">清空</button></div>
+        </div>
+
+        <!-- 定时报告 -->
+        <div id="rank-cfg" class="rank-panel" style="display:none">
+          <div class="note" style="margin-bottom:18px">配置每日自动搜索报告。保存后系统会在指定时间自动搜索并发送结果到邮箱。修改任意字段后 1.5 秒自动保存。</div>
+          <div class="settings-section-title">搜索配置</div>
+          <div class="row">
+            <label class="fld grow">搜索关键词<input type="text" id="cfgKeyword" placeholder="定时搜索的关键词" autocomplete="off"></label>
+            <label class="fld">搜索页数<select id="cfgPages"><option value="1">1页</option><option value="2">2页</option><option value="3">3页</option><option value="5" selected>5页</option><option value="10">10页</option><option value="20">20页</option><option value="30">30页</option><option value="42">42页（最大）</option></select></label>
+          </div>
+          <div class="row">
+            <div class="fld" style="flex:1"><label>搜索站点（可多选）</label><div class="site-checkboxes"><label class="site-checkbox"><input type="checkbox" id="cfgSiteMLM" value="MLM" checked><span>墨西哥 (MLM)</span></label><label class="site-checkbox"><input type="checkbox" id="cfgSiteMLB" value="MLB"><span>巴西 (MLB)</span></label><label class="site-checkbox"><input type="checkbox" id="cfgSiteMLA" value="MLA"><span>阿根廷 (MLA)</span></label></div></div>
+          </div>
+          <div class="row">
+            <label class="fld" style="flex:1">产品标题列表（每行一个）<textarea id="cfgProductTitles" rows="4" placeholder="每行一个产品标题…"></textarea></label>
+          </div>
+          <div class="batch-info"><span id="cfg-count">0</span> 个产品标题 <span class="sep">|</span> 最多 100 个</div>
+
+          <div class="settings-section-title">邮箱配置</div>
+          <div class="row">
+            <label class="fld grow">收件邮箱<input type="email" id="cfgEmail" placeholder="your@email.com" autocomplete="off"></label>
+            <label class="fld">SMTP 服务器<input type="text" id="cfgSmtpHost" placeholder="smtp.qq.com" autocomplete="off"></label>
+            <label class="fld">SMTP 端口<input type="number" id="cfgSmtpPort" placeholder="465" autocomplete="off"></label>
+          </div>
+          <div class="row">
+            <label class="fld">SMTP 账号<input type="text" id="cfgSmtpUser" placeholder="your@email.com" autocomplete="off"></label>
+            <label class="fld grow">SMTP 授权码 <small id="smtpPassHint">（已设置，留空则不修改）</small><input type="password" id="cfgSmtpPass" placeholder="留空则保留原有授权码" autocomplete="off"></label>
+          </div>
+
+          <div class="settings-section-title">定时发送配置</div>
+          <div class="row">
+            <label class="fld">每日发送时间（北京时间）<div class="time-picker"><select id="cfgScheduleHour"></select><span class="time-colon">:</span><select id="cfgScheduleMinute"></select></div></label>
+            <div class="fld"><label>定时发送</label><label class="toggle-switch"><input type="checkbox" id="cfgScheduleEnabled"><span class="toggle-slider"></span><span class="toggle-label" id="scheduleStatusLabel">未启用</span></label></div>
+          </div>
+          <div class="row" style="margin-top:16px">
+            <button class="btn y" id="saveConfig">保存设置</button>
+            <button class="btn" id="sendReport" style="border-color:var(--ok);color:var(--ok)">立即发送报告</button>
+          </div>
+          <div id="cfgStatus" class="config-status" style="display:none"></div>
+        </div>
+
+        <div class="prog" id="prog"><i></i></div>
+        <div id="rankError" class="error-card" style="display:none"></div>
+
+        <!-- 单关键词结果 -->
+        <div id="singleRes" style="display:none;margin-top:18px">
+          <div class="sum" id="singleSum"></div>
+          <div id="matchedSection" style="display:none"></div>
+          <div class="toolbar"><div class="table-info" id="singleInfo"></div><button class="btn" id="singleExport">导出 CSV</button></div>
+          <div class="tw"><table id="singleTable"><thead><tr><th>总排名</th><th>页码</th><th>页内</th><th>产品标题</th><th>价格</th><th>卖家</th><th>链接</th></tr></thead><tbody></tbody></table></div>
+          <div class="pagination" id="singlePagination"></div>
+        </div>
+
+        <!-- 批量结果 -->
+        <div id="batchRes" style="display:none;margin-top:18px">
+          <div class="sum" id="batchSum"></div>
+          <div class="toolbar"><div class="table-info" id="batchInfo"></div><button class="btn" id="batchExport">导出 CSV</button></div>
+          <div class="tw"><table id="batchTable"><thead><tr><th>#</th><th>状态</th><th>页码</th><th>页内</th><th>总排名</th><th>搜索标题</th><th>匹配商品</th><th>价格</th><th>链接</th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 箱唛裁切 -->
+    <section class="view" id="v-box">
+      <div class="card pad">
+        <div class="ph"><h2>箱唛批量裁切</h2><p>将一页多标签的箱唛 / 物流面单 PDF，自动识别并切成一页一个。纯本地处理，不上传服务器。</p></div>
+
+        <section id="drop" class="dropzone">
+          <input id="file" type="file" accept="application/pdf,.pdf" hidden />
+          <div class="drop-icon">
+            <svg viewBox="0 0 48 48" width="46" height="46" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 14h32v26H8z"/><path d="M8 22h32M20 22v18"/><path d="M24 4v10M19 9l5-5 5 5"/></svg>
+          </div>
+          <div class="drop-title">拖入箱唛 PDF，或点击选择文件</div>
+          <div class="drop-sub">全部在本机浏览器内处理，文件不会上传到任何服务器</div>
+        </section>
+
+        <section id="boxPanel" class="box-panel" style="display:none">
+          <div class="panel-row">
+            <div class="field" data-show="auto trim grid">
+              <label>识别模式</label>
+              <div class="mode" id="seg-mode"><button data-mode="auto" class="on">自动识别</button><button data-mode="trim">每页一个</button><button data-mode="grid">手动网格</button></div>
+              <div class="hint" id="mode-hint">自动分析页面空白，把多个箱唛分割开</div>
+            </div>
+          </div>
+          <div class="panel-row">
+            <div class="field" data-show="auto">
+              <label>标签间距阈值 <span class="val" id="v-gap">3.0 mm</span></label>
+              <input type="range" id="p-gap" min="0.5" max="20" step="0.5" value="3" />
+              <div class="hint">间距大于此值即判定为两个箱唛</div>
+            </div>
+            <div class="field" data-show="auto">
+              <label>最小箱唛尺寸 <span class="val" id="v-min">8 mm</span></label>
+              <input type="range" id="p-min" min="2" max="60" step="1" value="8" />
+              <div class="hint">小于此尺寸的碎块会被丢弃</div>
+            </div>
+            <div class="field" data-show="grid">
+              <label>行数 <span class="val" id="v-rows">2</span></label>
+              <input type="range" id="p-rows" min="1" max="10" step="1" value="2" />
+            </div>
+            <div class="field" data-show="grid">
+              <label>列数 <span class="val" id="v-cols">2</span></label>
+              <input type="range" id="p-cols" min="1" max="10" step="1" value="2" />
+            </div>
+          </div>
+          <div class="panel-row">
+            <div class="field" data-show="auto trim grid">
+              <label>输出边距 <span class="val" id="v-margin">1.5 mm</span></label>
+              <input type="range" id="p-margin" min="0" max="15" step="0.5" value="1.5" />
+              <div class="hint">每个箱唛四周保留的空白</div>
+            </div>
+            <div class="field" data-show="auto trim grid">
+              <label>分析精度</label>
+              <select id="p-quality"><option value="1.2">快速</option><option value="1.6" selected>标准</option><option value="2.2">高精（细线更准）</option></select>
+              <div class="hint">调整后需重新分析</div>
+            </div>
+          </div>
+          <div id="boxStats" class="box-stats"></div>
+          <div id="boxResults" class="box-results"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- 订单管理（售后） -->
+    <section class="view" id="v-orders">
+      <div class="ph2"><h1>订单管理</h1><p>实时拉取美客多官方订单，按履约状态筛选。属于售后环节。</p></div>
+      <div class="card pad">
+        <div class="tool-head">
+          <div class="tabs" id="orderTabs">
+            <button data-k="todo" class="on">待我发货</button>
+            <button data-k="all">全部</button>
+            <button data-k="pending">待发货</button>
+            <button data-k="shipped">已发货</button>
+            <button data-k="cancelled">已取消</button>
+          </div>
+          <div class="tool-actions">
+            <span class="st" id="orderState"><i class="off"></i>未连接</span>
+            <button class="btn" id="orderRefresh">刷新</button>
+          </div>
+        </div>
+        <div class="claim-legend">
+          <span class="lg buy">🏷 官方发货</span>美客多仓库代发，无需你处理
+          <span class="lgsep">·</span>
+          <span class="lg med">🏷 自发货 / 官方面单</span>需要你打印发票面单并发货
+        </div>
+        <div id="orderBody"><div class="empty">正在加载…</div></div>
+      </div>
+    </section>
+
+    <!-- 商品问答（售前） -->
+    <section class="view" id="v-questions">
+      <div class="ph2"><h1>商品问答</h1><p>买家提问与回复。售前转化的关键环节，未回复会优先提醒。</p></div>
+      <div class="card pad">
+        <div class="tool-head">
+          <div class="tabs" id="questionTabs">
+            <button data-k="UNANSWERED" class="on">未回复</button>
+            <button data-k="ANSWERED">已回复</button>
+            <button data-k="all">全部</button>
+          </div>
+          <div class="tool-actions">
+            <span class="st" id="questionState"><i class="off"></i>未连接</span>
+            <button class="btn" id="questionRefresh">刷新</button>
+          </div>
+        </div>
+        <div id="questionBody"><div class="empty">正在加载…</div></div>
+      </div>
+    </section>
+
+    <!-- 退货与投诉（售后） -->
+    <section class="view" id="v-claims">
+      <div class="ph2"><h1>退货与投诉</h1><p>按「谁需要你回复」自动分流：平台调解、买家主动咨询需要你处理；买家自行退货退款无需操作。</p></div>
+      <div class="card pad">
+        <div class="tool-head">
+          <div class="tabs" id="claimTabs">
+            <button data-k="todo" class="on">待我处理</button>
+            <button data-k="mediation">平台调解</button>
+            <button data-k="buyer">买家咨询</button>
+            <button data-k="auto">无需操作</button>
+            <button data-k="ignored">已忽略</button>
+            <button data-k="closed">已关闭</button>
+          </div>
+          <div class="tool-actions">
+            <span class="st" id="claimState"><i class="off"></i>未连接</span>
+            <button class="ghost" id="claimDemoBtn">👀 示例预览</button>
+            <button class="btn" id="claimRefresh">刷新</button>
+          </div>
+        </div>
+        <div class="claim-legend">
+          <span class="lg med">⚖️ 平台调解</span>需回复平台调解员
+          <span class="lgsep">·</span>
+          <span class="lg buy">💬 买家咨询</span>买家主动联系，需回复买家
+          <span class="lgsep">·</span>
+          <span class="lg auto">📦 无需操作</span>买家已自行退货退款
+          <span class="lgsep">·</span>
+          <span class="lg">🚫 已忽略</span>回复不了的可以点「忽略」收起来
+        </div>
+        <div id="claimBody"><div class="empty">正在加载…</div></div>
+      </div>
+    </section>
+
+    <!-- 广告投放（Mercado Ads / Product Ads） -->
+    <section class="view" id="v-ads">
+      <div class="ph2"><h1>广告投放</h1><p>美客多商品广告（Product Ads）实时数据 · 花费、广告销售额、ACOS、ROAS。属于运营环节。</p></div>
+
+      <!-- 日期范围（同时作用于下方两张卡） -->
+      <div class="card pad">
+        <div class="sales-filter" style="margin-bottom:0">
+          <span class="sg-label">日期范围</span>
+          <div class="seg" id="adsRange">
+            <button data-r="today" class="on">今天</button>
+            <button data-r="7">近 7 天</button>
+            <button data-r="30">近 30 天</button>
+            <button data-r="month">本月</button>
+            <button data-r="custom">自定义</button>
+          </div>
+          <div class="sales-dates">
+            <input type="date" id="adsFrom"><span>至</span><input type="date" id="adsTo">
+            <button class="btn" id="adsApply">应用</button>
+          </div>
+          <span class="ads-bar-hint">同时作用于「广告分时」与「广告总览」</span>
+        </div>
+      </div>
+
+      <!-- 广告分时：按小时看花费 / 出单 -->
+      <div class="card pad" style="margin-top:16px">
+        <div class="ob-head">
+          <div class="ob-title">
+            <h3>广告分时</h3>
+            <span id="adsHourNote">按账号本地时间 · 出单为真实值；花费为服务器采样反推的实测值（未采集到的小时为估算）</span>
+          </div>
+          <div class="ob-actions">
+            <div class="seg" id="adsHourView">
+              <button data-v="hour" class="on">按小时</button>
+              <button data-v="heat">每天 × 小时</button>
+            </div>
+            <div class="seg" id="adsHourMetric">
+              <button data-m="orders" class="on">出单数量</button>
+              <button data-m="cost">花费</button>
+            </div>
+            <button class="btn y" id="adsHourRefresh">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+              刷新
+            </button>
+          </div>
+        </div>
+        <div class="hh-kpis" id="adsHourKpis"></div>
+        <div id="adsHourBody"><div class="empty">正在加载分时数据…</div></div>
+        <div class="note" id="adsHourTip" style="display:none"></div>
+      </div>
+
+      <!-- 广告总览 -->
+      <div class="card pad" style="margin-top:16px">
+        <div class="ob-head">
+          <div class="ob-title">
+            <h3>广告总览</h3>
+            <span id="adsNote">按巴西时间统计 · 来源：美客多 Mercado Ads 接口</span>
+          </div>
+          <div class="ob-actions">
+            <span class="st" id="adsState"><i class="off"></i>未连接</span>
+            <label class="sales-auto" title="开启后每 5 分钟自动同步一次"><input type="checkbox" id="adsAuto" checked><span>自动刷新</span></label>
+            <button class="btn y" id="adsRefresh">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+              刷新
+            </button>
+          </div>
+        </div>
+
+        <div class="ostat-grid sales-kpis">
+          <div class="ostat"><span>广告花费</span><b id="ak-cost">—</b><small>区间累计投入</small></div>
+          <div class="ostat good"><span>广告销售额</span><b id="ak-amount">—</b><small id="ak-amount-sub">直接 + 间接</small></div>
+          <div class="ostat"><span>ACOS</span><b id="ak-acos">—</b><small>花费 ÷ 销售额</small></div>
+          <div class="ostat"><span>ROAS</span><b id="ak-roas">—</b><small>销售额 ÷ 花费</small></div>
+          <div class="ostat"><span>点击</span><b id="ak-clicks">—</b><small id="ak-clicks-sub">展示 —</small></div>
+          <div class="ostat"><span>广告单量</span><b id="ak-units">—</b><small>广告带来的成交</small></div>
+          <div class="ostat"><span>CPC</span><b id="ak-cpc">—</b><small>平均单次点击成本</small></div>
+          <div class="ostat"><span>CTR</span><b id="ak-ctr">—</b><small>点击 ÷ 展示</small></div>
+        </div>
+
+        <div class="sales-filter">
+          <div class="sales-gran" style="margin-left:0">
+            <span class="sg-label">视图</span>
+            <div class="seg" id="adsTab">
+              <button data-t="day" class="on">按天趋势</button>
+              <button data-t="campaign">活动明细</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="adsBody"><div class="empty">正在加载广告数据…</div></div>
+        <div class="note" id="adsTip" style="display:none"></div>
+      </div>
+    </section>
+  </main>
+  <footer>ML Suite · 本地运行 · 所有数据在本机处理</footer>
+</div>
+</div>
+
+<div id="dock" class="dock" style="display:none">
+  <div class="dock-info" id="dock-text">—</div>
+  <div class="dock-actions">
+    <button id="btn-clear" class="btn ghost">清空</button>
+    <button id="btn-export" class="btn y">导出 PDF</button>
+  </div>
+</div>
+
+<div id="progress" class="progress-overlay" style="display:none">
+  <div class="progress-card glass">
+    <div class="spinner"></div>
+    <div class="progress-text" id="progress-text">处理中…</div>
+    <div class="progress-bar"><i id="progress-fill"></i></div>
+  </div>
+</div>
+
+<!-- 美客多 API 凭证设置 -->
+<div id="mlModal" class="modal-mask" style="display:none">
+  <div class="modal">
+    <div class="modal-head">
+      <div><h3>美客多 API 凭证</h3><span>用于拉取实时订单、问答与售后数据</span></div>
+      <button class="ghost" id="mlClose">关闭</button>
+    </div>
+    <div class="modal-body">
+      <div class="note">在美客多开发者后台创建应用后获取。<b>推荐用「一键授权」</b>：填好 App ID 与 Secret Key 后点授权按钮，系统会自动拿回令牌并长期自动续期，无需手动更换。</div>
+      <label class="fld">App ID / Client ID<input id="mlAppId" placeholder="如 372553508992860" autocomplete="off"></label>
+      <label class="fld">Secret Key <small id="mlSecretHint"></small><input id="mlSecret" type="password" placeholder="留空则保留原值" autocomplete="off"></label>
+      <label class="fld">主站点<select id="mlSite"><option value="MLM">MLM 墨西哥</option><option value="MLB" selected>MLB 巴西</option><option value="MLA">MLA 阿根廷</option><option value="CBT">CBT 跨境（global-selling 建的应用选这个）</option></select></label>
+      <div class="oauth-box">
+        <div class="oauth-t">一键授权（OAuth 2.0）</div>
+        <div class="oauth-d">下面这一栏必须和后台 <b>Redirect URIs</b> 里登记的<b>一字不差</b>（去后台复制过来）。登记的是根域名就填根域名，登记了完整路径就填完整路径。</div>
+        <input id="mlRedirectInput" class="oauth-input" placeholder="https://ml.yvonework.website" autocomplete="off">
+        <div class="oauth-d">如果后台还空着，直接把上面这串复制进去保存即可。</div>
+        <div class="oauth-d" style="border-left:2px solid var(--warn);padding-left:9px;margin-top:2px">
+          授权时若提示「<b>无法将应用连接到你的账号</b>」，多半是<b>账号 KYC 未完成</b>。先去完成实名验证：<br>
+          <a href="https://global-selling.mercadolibre.com/kyc?initiative=cbt&landing=true&congrats=true" target="_blank" rel="noopener" style="color:#7dd3fc">global-selling.mercadolibre.com/kyc</a>
+        </div>
+        <label class="oauth-chk"><input type="checkbox" id="mlPkce"> 后台「Use PKCE」已开启（默认不勾）</label>
+        <button class="btn" id="mlOAuth" style="width:100%">开始授权，跳转美客多登录</button>
+        <div class="oauth-d" id="mlOauthState" style="margin-top:8px"></div>
+      </div>
+      <details class="oauth-more">
+        <summary>授权失败？手动粘贴回调网址（备用方案）</summary>
+        <div class="oauth-d" style="margin-top:10px">美客多授权后地址栏会变成 <code>https://ml.yvonework.website/?code=TG-...</code>。把<b>整个网址</b>复制粘贴到下框，我直接换令牌。</div>
+        <textarea id="mlCodeInput" class="oauth-input" rows="2" placeholder="https://ml.yvonework.website/?code=TG-xxxxxxxx&state=..."></textarea>
+        <button class="btn" id="mlCodeBtn" style="width:100%;margin-top:8px">用手动粘贴的网址换令牌</button>
+        <div class="oauth-d" id="mlCodeState" style="margin-top:8px"></div>
+      </details>
+      <details class="oauth-more">
+        <summary>或手动填写令牌（高级）</summary>
+        <label class="fld">Access Token <small id="mlTokenHint"></small><input id="mlToken" type="password" placeholder="APP_USR-开头，留空则保留原值" autocomplete="off"></label>
+        <label class="fld">Refresh Token <small id="mlRefreshHint"></small><input id="mlRefresh" type="password" placeholder="TG-开头，留空则保留原值" autocomplete="off"></label>
+      </details>
+      <details class="oauth-more" id="pushSection">
+        <summary>🔔 微信提醒 · 售前提问（推送到手机微信）</summary>
+        <div class="oauth-d" style="margin-top:10px">
+          有买家提<b>新的售前问题</b>时，自动推一条微信给你，带问题原文、商品名和直达链接。走 <b>PushPlus</b>，不用服务器、免费。
+        </div>
+        <div class="oauth-d" style="background:var(--s3);border-radius:8px;padding:9px 11px;margin-top:6px">
+          <b>怎么拿 token：</b>手机微信搜公众号「<b>pushplus 推送加</b>」并关注 → 进去点菜单登录 → 在「一对一推送」页面复制 <b>token</b> → 粘贴到下面。
+          <a href="https://www.pushplus.plus/" target="_blank" rel="noopener" style="color:#7dd3fc">官网 pushplus.plus</a>
+        </div>
+        <label class="fld">PushPlus Token <small id="pushTokenHint"></small><input id="pushToken" type="password" placeholder="粘贴 32 位 token，留空则保留原值" autocomplete="off"></label>
+        <div class="push-row">
+          <label class="oauth-chk"><input type="checkbox" id="pushEnabled"> 开启新提问提醒</label>
+          <label class="push-int">每 <input id="pushInterval" type="number" min="1" max="120" value="5"> 分钟检查一次</label>
+        </div>
+        <div class="push-actions">
+          <button class="btn" id="pushTest">发送测试消息</button>
+          <button class="btn" id="pushCheck">立即检查一次</button>
+        </div>
+        <div class="oauth-d" id="pushState" style="margin-top:8px"></div>
+      </details>
+      <div class="modal-foot">
+        <button class="btn" id="mlTest">测试连接</button>
+        <button class="btn y" id="mlSave">保存凭证</button>
+      </div>
+      <div id="mlCfgStatus" class="config-status" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="vendor/pdf-lib.min.js"></script>
+<script src="vendor/pdf.min.js"></script>
+<script src="app.js?v=47"></script>
+</body>
+</html>

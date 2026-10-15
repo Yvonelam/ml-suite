@@ -1,0 +1,30 @@
+# 统一换行符策略
+# 为什么需要：本项目在 Windows 上开发（文件是 CRLF），而 Claude 等 AI 在 Linux 上编辑会写成 LF。
+# 如果不声明，同一个文件会因为换行符不同被判定为"整体重写"，diff 全是噪音，看不出真实改动。
+# 规则：仓库里一律存 LF；Windows 检出时自动转回 CRLF；.bat 必须保持 CRLF（否则批处理会出错）。
+* text=auto
+
+*.js    text eol=lf
+*.json  text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Windows 批处理必须 CRLF，否则可能无法执行
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# 二进制文件不做任何换行符转换
+*.exe   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.woff   binary
+*.woff2  binary
+*.zip   binary

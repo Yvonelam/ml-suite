@@ -1,0 +1,20 @@
+{
+  "name": "ml-suite",
+  "version": "1.2.0",
+  "description": "ML Suite · 美客多运营工作台（关键词排名 + 箱唛裁切 + 公网部署）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "public": "node start-public.js",
+    "tunnel": "node start-public.js",
+    "stop": "node stop-public.js",
+    "setup-tunnel": "node setup-tunnel.js",
+    "fixed-domain": "node setup-named-tunnel.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "https-proxy-agent": "^9.1.0",
+    "nodemailer": "^9.0.3",
+    "undici": "^8.7.0"
+  }
+}
