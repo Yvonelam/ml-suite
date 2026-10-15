@@ -1,0 +1,190 @@
+# ML Suite · 美客多运营工作台
+
+一个自托管的 **Mercado Libre（美客多）运营工作台**，把「关键词排名查询」「店铺数据看板」「箱唛（外箱标签）批量拆分」「公网发布」整合在同一个 Express 服务里对外提供。
+
+- 站点覆盖：**墨西哥 MLM / 巴西 MLB / 阿根廷 MLA**
+- 技术栈：**Express 4 + 原生 HTML/CSS/JS**（零前端构建、零框架）
+- 默认端口：**3000**（可用环境变量 `PORT` 覆盖）
+- 公网访问：**Cloudflare 命名隧道**
+
+---
+
+## 功能模块
+
+| 路径 | 模块 | 说明 |
+|---|---|---|
+| `/` | 落地页 | 官方门面，入口导航 |
+| `/search/` | 关键词排名工具 | 输入关键词 → 抓取各站点自然搜索排名 / 商品快照，支持多站点、多页 |
+| `/boxmark/` | 箱唛裁切器 | 把一页多标签的 PDF **无损拆分**成「一页一标签」，纯前端（pdf-lib / pdf.js） |
+| （看板） | 运营数据中心 | 订单概览、销售额、Listing、广告（含分时）、问答、售后索赔 |
+| （集成） | 大麦数据 MCP | 拉取**真实热搜词**，写入「实时热搜词」面板 |
+| （集成） | 每日报表 | 定时抓取排名 → 通过 SMTP 邮件推送 |
+| （集成） | PushPlus 推送 | 新问答 / 新售后实时推送到微信 |
+
+---
+
+## 目录结构
+
+```
+ml-suite/
+├── server.js                 # Express 主服务（路由 + 业务逻辑）
+├── start-public.js           # 启动器：本地服务 + Cloudflare 隧道（带崩溃自愈）
+├── stop-public.js            # 停止器：写 .stop-flag 并结束进程
+├── setup-tunnel.js           # 首次下载/配置 cloudflared 快速隧道
+├── setup-named-tunnel.js     # 配置固定域名（命名隧道）
+├── check-domain.js           # 检查域名/隧道状态
+├── daily-report.js           # 每日排名报表（SMTP 发信）
+├── dm-client.js              # 大麦数据 MCP 客户端（Node 原生 https）
+├── dm-mcp.js                 # 大麦 MCP 命令行（tools / call / quota）
+│
+├── public/                   # 前端（静态托管于此目录）
+│   ├── index.html            # 落地页
+│   ├── app.js / style.css    # 主工作台 SPA
+│   ├── search/               # 关键词排名工具
+│   └── boxmark/              # 箱唛裁切器（含 vendor 版 pdf-lib / pdf.js）
+│
+├── config.example.json       # 配置模板（全部凭据留空）
+├── daily-search-config.json  # ← 真实配置，含凭据（已被 .gitignore 排除，需自行创建）
+└── *.bat                     # Windows 双击脚本（启动/停止/配置域名/推送代码）
+```
+
+---
+
+## 快速开始
+
+### 1. 环境要求
+
+- **Node.js ≥ 18**（推荐 20/22；项目用到内置 `fetch`、`AbortSignal.timeout`）
+- Windows / macOS / Linux 均可（`.bat` 脚本仅 Windows 用）
+
+### 2. 安装依赖
+
+```bash
+cd ml-suite
+npm install
+```
+
+### 3. 生成配置
+
+```bash
+cp config.example.json daily-search-config.json
+```
+
+然后按需编辑 `daily-search-config.json`（**注意：此文件含密钥，永远不要提交到 Git**）。
+
+### 4. 启动
+
+```bash
+# 方式一：仅本地
+npm start
+# → http://localhost:3000
+
+# 方式二：本地 + 公网隧道（Cloudflare）
+npm run public
+```
+
+Windows 用户可直接双击 **`启动公网服务.bat`**。
+
+停止：`Ctrl+C`，或双击 **`停止公网服务.bat`**（会写 `.stop-flag`，防止启动器自动重连）。
+
+---
+
+## 配置说明（`daily-search-config.json`）
+
+| 字段 | 说明 |
+|---|---|
+| `sites` | 目标站点数组，如 `["MLB"]`、`["MLM","MLB","MLA"]` |
+| `proxy` | 抓取美客多时走的 HTTP 代理（国内需科学上网，如 `http://127.0.0.1:7897`） |
+| `smtpHost/Port/User/Pass` | 每日报表发信用的 SMTP（Gmail 用**授权码**，不是登录密码） |
+| `mlAppId/mlSecret` | 美客多开发者应用凭据（OAuth） |
+| `mlAccessToken/mlRefreshToken` | 美客多 OAuth 令牌（由 `/api/ml/oauth/start` 流程自动写入） |
+| `dmApiKey` | **大麦数据 MCP** 的 API Key（用于拉取真实热搜词） |
+| `dmHotTtlHours` | 热搜词缓存有效期（小时），默认 `24` = 一天刷新一次 |
+| `pushToken/pushEnabled` | PushPlus 推送令牌与开关 |
+| `accessPassword` | 工作台访问密码（留空则不校验） |
+
+> **安全约定**：源码 `server.js` 里的 `DEFAULT_CONFIG` **不含任何真实凭据**，全部留空。真实值只存在于 `daily-search-config.json`，该文件已被 `.gitignore` 排除；`/api/config` 接口也会自动屏蔽 `dmApiKey` 等敏感字段，只回 `xxxSet: true/false`。
+
+---
+
+## 公网部署（Cloudflare 隧道）
+
+1. 双击 **`启动公网服务.bat`**（或 `npm run public`）
+2. 首次运行会自动下载 `cloudflared.exe` 到 `tools/`
+3. 窗口里会打印公网地址（快速隧道是随机 `*.trycloudflare.com`）
+4. 想固定域名：双击 **`配置固定域名.bat`** → 按提示登录 Cloudflare 授权
+
+**自愈机制**：`start-public.js` 会在服务/隧道异常退出后 **3 秒自动重启**（每分钟限流 10 次），并监听 `.stop-flag` 以支持优雅停止。`server.js` 顶部挂了 `uncaughtException` / `unhandledRejection` 兜底，避免任何未捕获异常直接把整站打挂。
+
+---
+
+## 主要 API 一览
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/search` | 单关键词排名查询 |
+| GET | `/api/batch-search` | 批量关键词查询 |
+| GET/POST | `/api/config` | 读取 / 保存配置（读取时屏蔽密钥） |
+| GET | `/api/ml/status` | 美客多授权与令牌状态 |
+| GET | `/api/ml/orders/summary` | 订单概览 |
+| GET | `/api/ml/sales` | 销售额统计 |
+| GET | `/api/ml/listings` | 商品 Listing |
+| GET | `/api/ml/ads`·`/api/ml/ads/hourly` | 广告数据 / 分时数据 |
+| GET | `/api/ml/questions` | 买家问答列表 |
+| POST | `/api/ml/questions/:id/answer` | 回复问答 |
+| GET | `/api/ml/claims`·`/api/ml/claims/:id` | 售后索赔列表 / 详情 |
+| POST | `/api/ml/claims/:id/reply`·`/ignore` | 回复 / 忽略索赔 |
+| GET | `/api/dm/hot-keywords` | **真实热搜词**（只读缓存，`?force=1` 强制后台刷新） |
+| GET | `/api/dm/quota` | 大麦数据额度（免费接口） |
+| GET | `/api/ml/oauth/start`·`/callback` | 美客多 OAuth 授权流程 |
+| POST | `/api/push/test`·`/check` | PushPlus 测试 / 立即检查 |
+| POST | `/api/send-report` | 手动触发邮件报表 |
+
+---
+
+## 大麦数据（MCP）集成
+
+- 端点：`https://mcp.damaishuju.com/tools/mcp`（Streamable HTTP，协议 `2024-11-05`）
+- 鉴权：请求头 `X-API-Key`（值来自配置的 `dmApiKey`）
+- 客户端：`dm-client.js`（**故意使用 Node 原生 `https.request`**，而非 `fetch`/`undici`——规避 undici 版本冲突，且国内站无需走代理）
+- 命令行自检：
+
+```bash
+node dm-mcp.js tools                    # 列出全部可用工具
+node dm-mcp.js quota                    # 查额度（免费）
+node dm-mcp.js call search_product_snapshots '{"market_code":"MLB","keyword":"headset gamer","limit":100}'
+```
+
+- **热度口径**：对某关键词 Top100 商品求 `orders_last_30_days` 之和，归一化到 `0–100`；`matched_count` 上报时封顶 `10000`。
+- **成本控制**：单次调用约 25 秒、约 5 积分。因此 `/api/dm/hot-keywords` **永远只回缓存**，过期才在后台异步刷新（默认 24 小时一轮 ≈ 5 积分/天），绝不阻塞接口。
+
+---
+
+## 常见问题
+
+**Q：站点打不开，Cloudflare 报错 1033？**
+隧道在线但本地服务没起来。根因通常是 `server.js` 崩溃退出。本项目已加三层护栏（异常兜底 + 服务自愈 + 隧道重连）；若仍复现，查 `运行日志.txt` 里的 `[服务] 已退出，代码 X` 与堆栈。
+
+**Q：抓取美客多超时 / 失败？**
+国内需要代理。确认 `daily-search-config.json` 的 `proxy` 指向你本机的 Clash/Mihomo 混合端口（**端口是动态的**，去客户端「设置」里看当前值，不要照抄文档里的 7897）。
+
+**Q：`npm run public` 之后关掉黑窗口，站就下线了？**
+是的，这是前台进程。要常驻请用 `pm2`、Windows 任务计划程序或 `nssm` 注册成服务。
+
+**Q：大麦 MCP 在 WorkBuddy 里连不上？**
+「信任」按钮在 **WorkBuddy 客户端侧**（左侧「连接器」→「自定义连接器」→ 配置 MCP → 保存后才会出现「信任」），不是在数据方网站上。
+
+---
+
+## 安全须知
+
+1. `daily-search-config.json`、`tunnel-config.json`、各类 `*-cache.json`、`push-state.json` 均已被 `.gitignore` 排除，**不要强行 `git add -f` 提交**。
+2. `push-to-github.bat` 同样被排除（本机自用脚本，含个人仓库地址）。
+3. 若曾不小心提交过真实凭据，**改代码不够，必须去对应平台吊销并重新签发**（Git 历史里的记录仍在）。
+4. 公网开放时建议设置 `accessPassword`，避免工作台被扫到。
+
+---
+
+## 许可证
+
+私有项目，未声明开源许可。如需复用请先联系作者。
