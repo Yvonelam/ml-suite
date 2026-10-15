@@ -19,6 +19,7 @@
 
 const { execFileSync } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 const readline = require('readline');
 
 const ROOT = __dirname;
@@ -66,7 +67,8 @@ function now() {
 }
 
 function porcelain() {
-  const r = git(['status', '--porcelain']);
+  // -c core.quotepath=false：否则含中文的文件名会被 git 转义成 \344\272 这类八进制，看不懂
+  const r = git(['-c', 'core.quotepath=false', 'status', '--porcelain']);
   if (!r.ok) return [];
   return r.out.split('\n').filter(Boolean);
 }
@@ -210,6 +212,118 @@ function cmdRollback(target, commits) {
   console.log('\n  服务会自动热重载，刷新浏览器即可看到回滚后的效果。\n');
 }
 
+// ---------- 命令：打印当前基座 ----------
+// 交给外部 AI（Claude 等）的基座永远是「此刻的 HEAD」，不要用口头报的数字，那些会过期。
+function cmdBase() {
+  const short = git(['rev-parse', '--short', 'HEAD']).out;
+  const when = git(['log', '-1', '--date=format:%Y-%m-%d %H:%M', '--pretty=format:%ad']).out;
+  const subject = git(['-c', 'i18n.logOutputEncoding=UTF-8', 'log', '-1', '--pretty=format:%s']).out;
+  const dirty = porcelain().length;
+
+  console.log('\n  当前基座（HEAD）：' + short);
+  console.log('    时间：' + when);
+  console.log('    说明：' + subject);
+  console.log('    工作区：' + (dirty ? dirty + ' 个文件未提交（基座 ≠ 磁盘现状）' : '干净'));
+  console.log('\n  想让外部 AI 对齐，直接双击「交接给Claude.bat」，会自动把基座填进去。\n');
+}
+
+// ---------- 命令：应用外部 AI 给的 patch ----------
+// 之所以带 3-way：对方生成 patch 时用的基座可能比我现在的 HEAD 早一两个提交，
+// 只要两边改的不是同一段代码，git 就能自动合上，不必要求基座完全一致。
+//
+// 坑：`git apply --3way` 隐含 `--index`，会把改动**直接写进暂存区**。
+// 那样一来 `git checkout -- <文件>` 就还原不掉了（它会从暂存区恢复）。
+// 所以 3-way 成功后我们会把涉及的路径从暂存区退回去，保持「改动都还在工作区」的一致心智。
+function patchPaths(file) {
+  let txt = '';
+  try { txt = fs.readFileSync(file, 'utf8'); } catch (e) { return []; }
+  const set = new Set();
+  txt.split('\n').forEach((line) => {
+    const m = /^(?:\+\+\+|---) [ab]\/(.+)$/.exec(line);
+    if (!m) return;
+    const p = m[1].replace(/\t.*$/, '').trim();
+    if (p && p !== 'dev/null') set.add(p);
+  });
+  return Array.from(set);
+}
+
+function cmdApply(patchFile) {
+  if (!patchFile) {
+    console.log('\n  用法：node version.js apply <patch文件>\n');
+    return;
+  }
+  const file = path.resolve(ROOT, patchFile);
+  if (!fs.existsSync(file)) die('找不到 patch 文件：' + file);
+
+  const before = git(['rev-parse', '--short', 'HEAD']).out;
+  const dirtyBefore = porcelain().length;
+
+  const tiers = [
+    { name: '3-way 合并', args: ['apply', '--3way', '--whitespace=nowarn', file] },
+    { name: '直接应用', args: ['apply', '--whitespace=nowarn', file] },
+    { name: '容错应用（合不上的段落成 .rej）', args: ['apply', '--reject', '--whitespace=nowarn', file] },
+  ];
+
+  let applied = '';
+  let lastErr = '';
+  for (const t of tiers) {
+    const r = git(t.args);
+    if (r.ok) { applied = t.name; break; }
+    lastErr = r.out;
+  }
+
+  const paths = patchPaths(file);
+
+  // 把 3-way 顺带写进暂存区的内容退回工作区，让后续「丢弃」只需 git checkout --
+  const unstaged = applied === '3-way 合并' && paths.length
+    ? git(['reset', '-q', 'HEAD', '--'].concat(paths)).ok
+    : false;
+
+  if (!applied) {
+    console.log('\n  ✗ patch 没能应用。git 的说明：\n');
+    console.log('    ' + lastErr.split('\n').join('\n    '));
+    console.log('\n  常见原因：对方用的基座和当前代码在同一段位置上已经不一样了。');
+    console.log('  建议：把「node version.js base」的输出发给对方，让它基于最新基座重新出 patch。\n');
+    process.exit(1);
+  }
+
+  // 冲突标记检测：3-way 有可能「应用成功但内容带冲突」
+  const conflicted = paths.filter((p) => {
+    try { return fs.readFileSync(path.join(ROOT, p), 'utf8').includes('<<<<<<<'); }
+    catch (e) { return false; }
+  });
+  const rej = porcelain().filter((l) => l.endsWith('.rej'));
+
+  const touched = git(['-c', 'core.quotepath=false', 'status', '--porcelain', '--'].concat(paths))
+    .out.split('\n').filter(Boolean);
+
+  console.log('\n  ✓ patch 已应用（' + applied + '）');
+  console.log('    基座未变：' + before + '（只改动工作区，还没有提交）');
+  console.log('    涉及文件：');
+  if (touched.length) touched.forEach((l) => console.log('      ' + l));
+  else console.log('      （没有检测到变化，patch 可能是空的）');
+  if (unstaged) console.log('    （已把 3-way 顺带放进暂存区的改动退回工作区）');
+
+  if (conflicted.length || rej.length) {
+    console.log('\n  ⚠ 有冲突没合干净，动手前先检查：');
+    conflicted.forEach((p) => console.log('      ' + p + '  ← 文件里有 <<<<<<< 冲突标记，需要人工合并'));
+    rej.forEach((l) => console.log('      ' + l.replace(/^\?\?\s*/, '') + '  ← 合不上的片段'));
+    console.log('    先别急着 save。想整体丢弃这次 patch：git checkout -- <上面列的文件>');
+    console.log('');
+    return;
+  }
+
+  console.log('\n  下一步：');
+  console.log('    ① 刷新页面看效果（后端会自动热重载）');
+  console.log('    ② 满意 → node version.js save "这次改了什么"');
+  console.log('    ③ 不满意 → git checkout -- <上面列的文件>  整体丢弃这次 patch');
+  if (dirtyBefore) {
+    console.log('\n  注意：应用前工作区本来就有 ' + dirtyBefore + ' 个文件改动，' +
+      'save 时会把它们和 patch 一起提交，确认一下是否需要。');
+  }
+  console.log('');
+}
+
 // ---------- 交互式菜单 ----------
 function ask(rl, question) {
   return new Promise((resolve) => rl.question(question, resolve));
@@ -293,11 +407,21 @@ async function menu() {
     cmdRollback(argv.slice(1).join(' '));
     return;
   }
+  if (cmd === 'base') {
+    cmdBase();
+    return;
+  }
+  if (cmd === 'apply') {
+    cmdApply(argv[1]);
+    return;
+  }
 
   console.log('\n  ML Suite · 版本管理\n');
   console.log('  用法：');
   console.log('    node version.js save "改动说明"       保存当前版本');
   console.log('    node version.js list                  查看历史版本');
   console.log('    node version.js rollback <编号|标签>   回滚到指定版本');
+  console.log('    node version.js base                  查看当前基座（交给外部 AI 用）');
+  console.log('    node version.js apply <patch文件>      应用外部 AI 给的 patch');
   console.log('    node version.js                       打开交互菜单\n');
 })();

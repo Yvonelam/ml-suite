@@ -12,7 +12,10 @@
     "fixed-domain": "node setup-named-tunnel.js",
     "save": "node version.js save",
     "versions": "node version.js list",
-    "rollback": "node version.js rollback"
+    "rollback": "node version.js rollback",
+    "base": "node version.js base",
+    "apply": "node version.js apply",
+    "handoff": "node handoff.js"
   },
   "dependencies": {
     "express": "^4.21.2",
