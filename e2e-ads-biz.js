@@ -124,6 +124,48 @@ const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = 
     console.log('控制台错误:', errs.length ? errs : '（无）');
     console.log('失败请求:', badUrls.length ? badUrls : '（无）');
 
+    // —— 分时图：自然单 / 广告单 双色堆叠 ——
+    const chartProbe = `(function(){
+      var svg=document.querySelector('#adsHourBody svg');
+      var leg=document.querySelector('#adsHourBody .leg-h');
+      var note=document.querySelector('#adsHourBody .leg-note');
+      var neg=0;
+      document.querySelectorAll('#adsHourBody rect').forEach(function(r){ if(Number(r.getAttribute('height'))<0) neg++; });
+      return JSON.stringify({
+        hasChart:!!svg,
+        leg:leg?leg.textContent.replace(/\\s+/g,' ').trim():'',
+        note:note?note.textContent.replace(/\\s+/g,' ').trim().slice(0,34):'',
+        adBars:document.querySelectorAll('#adsHourBody .hb').length,
+        natBars:document.querySelectorAll('#adsHourBody .hb-nat').length,
+        negHeights:neg
+      });
+    })()`;
+
+    const cToday = JSON.parse(await evaluate(chartProbe));
+    console.log('分时图(今天):', JSON.stringify(cToday));
+    if (!cToday.hasChart) throw new Error('分时图没渲染出来');
+    if (cToday.negHeights) throw new Error('分时图出现负高度矩形：' + cToday.negHeights);
+    if (cToday.leg.indexOf('广告单') < 0 || cToday.leg.indexOf('自然单') < 0) throw new Error('图例没显示 广告单/自然单：' + cToday.leg);
+
+    // 切「近 7 天」，让广告单量非 0，验证两种柱子确实同时出现
+    await evaluate("(function(){var b=[].slice.call(document.querySelectorAll('#adsRange button')).filter(function(x){return x.dataset.r==='7'})[0];if(b)b.click();})()");
+    await sleep(15000);
+    const c7 = JSON.parse(await evaluate(chartProbe));
+    console.log('分时图(近7天):', JSON.stringify(c7));
+    if (c7.negHeights) throw new Error('分时图出现负高度矩形：' + c7.negHeights);
+    if (!c7.natBars) throw new Error('近 7 天没有自然单柱（.hb-nat）——拆分没生效');
+    if (!c7.adBars) console.log('  ⚠️ 近 7 天广告单为 0，柱子全是自然单淡色（数据如此，非 bug）');
+
+    // 切「花费」模式：不该分色
+    await evaluate("(function(){var b=[].slice.call(document.querySelectorAll('#adsHourMetric button')).filter(function(x){return x.dataset.m==='cost'})[0];if(b)b.click();})()");
+    await sleep(1500);
+    const cCost = JSON.parse(await evaluate(chartProbe));
+    console.log('分时图(花费模式):', JSON.stringify(cCost));
+    if (cCost.natBars) throw new Error('「花费」模式下不应出现自然单柱（花费无自然/广告之分）');
+    // 切回出单，便于截图
+    await evaluate("(function(){var b=[].slice.call(document.querySelectorAll('#adsHourMetric button')).filter(function(x){return x.dataset.m==='orders'})[0];if(b)b.click();})()");
+    await sleep(1500);
+
     const m = await send('Page.getLayoutMetrics'); const cs = m.cssContentSize || { height: H };
     const height = Math.min(Math.max(H, Math.ceil(cs.height) + 24), 7000);
     const r2 = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: 0, y: 0, width: W, height, scale: SCALE } });

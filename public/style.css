@@ -486,6 +486,9 @@ a.lti:hover{color:var(--ac)}
 .hchart svg{width:100%;height:auto;display:block;overflow:visible}
 .hb{fill:url(#hbg);transition:opacity .15s}
 .hb:hover{opacity:.78}
+/* 自然单：同色系淡版，柱顶那一段（广告单在下、实色；自然单在上、淡色） */
+.hb-nat{fill:url(#hbg-nat);transition:opacity .15s}
+.hb-nat:hover{opacity:.72}
 .hline{fill:none;stroke:#f59e0b;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;opacity:.92}
 .hdot{fill:var(--s1);stroke:#f59e0b;stroke-width:1.8}
 .hgl{stroke:#ffffff0d;stroke-width:1}
@@ -499,6 +502,10 @@ a.lti:hover{color:var(--ac)}
 .leg-h i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 .leg-h .k-cost i{background:#f59e0b}
 .leg-h .k-ord i{background:linear-gradient(140deg,#60a5fa,#3b82f6)}
+.leg-h .k-ad i{background:linear-gradient(140deg,#60a5fa,#3b82f6)}
+.leg-h .k-nat i{background:linear-gradient(140deg,rgba(96,165,250,.42),rgba(37,99,235,.30))}
+.leg-note{text-align:center;font-size:11px;color:var(--mut);margin-top:7px;line-height:1.5}
+.leg-note b{color:var(--tx2);font-weight:600}
 /* 热力图 */
 .heat-wrap{overflow:auto;max-height:520px;padding:6px 4px 2px}
 .heat{border-collapse:separate;border-spacing:3px;font-size:11px}

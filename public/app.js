@@ -1946,10 +1946,31 @@ function renderAdsHour() {
   }
 }
 
+// 美客多广告单只有「按天」口径（units_quantity），而分时是「按小时」。
+// 这里把当天的广告单按该天的出单小时分布分摊到 24 小时（近似），并钳制不超过该小时总单，
+// 保证 Σ(广告单) ≤ Σ(总单) —— 自然单不会出现负数。
+function adsHourAdSplit(d) {
+  const out = new Array(24).fill(0);
+  for (const day of (d.byDay || [])) {
+    const aq = Number(day.adUnits) || 0;
+    if (!aq) continue;
+    const tot = Number(day.orders) || 0;
+    const hrs = day.hours || [];
+    for (let h = 0; h < 24; h++) {
+      const o = Number(hrs[h]) || 0;
+      out[h] += Math.min(tot > 0 ? aq * (o / tot) : aq / 24, o);
+    }
+  }
+  return out;
+}
+const r1 = v => Math.round((Number(v) || 0) * 10) / 10;
+
 function drawHourChart(d) {
   const body = $('#adsHourBody'); if (!body) return;
   const cur = d.currency || 'BRL';
   const m = adsHour.metric;
+  // 只有「出单数量」才分自然/广告；花费无此区分。广告按天数据不可用时也不拆（免得把总单全涂成自然单）
+  const split = (m === 'orders' && d.adsAvailable) ? adsHourAdSplit(d) : null;
   const P = d.hourly.map(h => m === 'cost' ? h.cost : h.orders);
   const S = d.hourly.map(h => m === 'cost' ? h.orders : h.cost);
   const W = 1000, H = 320, L = 58, R = 60, T = 18, B = 42;
@@ -1973,9 +1994,18 @@ function drawHourChart(d) {
   let bars = '';
   for (let i = 0; i < 24; i++) {
     const vb = P[i];
-    const bh = Math.max(0, T + ph - yp(vb));
-    const x = L + i * bw + bw * 0.19;
-    bars += '<rect class="hb" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yp(vb).toFixed(1) + '" width="' + (bw * 0.62).toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="2.5"/>';
+    const x = L + i * bw + bw * 0.19, w = bw * 0.62;
+    if (!split) {
+      const bh = Math.max(0, T + ph - yp(vb));
+      bars += '<rect class="hb" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yp(vb).toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="2.5"/>';
+      continue;
+    }
+    // 下段 = 广告单（实色），上段 = 自然单（淡色）
+    const adV = Math.min(split[i], vb), natV = Math.max(0, vb - adV);
+    const adH = (adV / pmax) * ph, natH = (natV / pmax) * ph;
+    const yAd = T + ph - adH, yNat = yAd - natH;
+    if (adH > 0.4) bars += '<rect class="hb" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yAd.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + adH.toFixed(1) + '" rx="' + (natH > 0.4 ? 1.5 : 2.5) + '"/>';
+    if (natH > 0.4) bars += '<rect class="hb-nat" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yNat.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + natH.toFixed(1) + '" rx="2.5"/>';
   }
   const pts = S.map((v, i) => xc(i).toFixed(1) + ',' + ys(v).toFixed(1)).join(' ');
   let dots = '';
@@ -1987,13 +2017,21 @@ function drawHourChart(d) {
   const mLabel = m === 'cost' ? '花费' : '出单数量';
   const sLabel = m === 'cost' ? '出单数量' : '花费';
 
+  const leg = split
+    ? '<span class="k-ad"><i></i>广告单（柱 · 实色）</span><span class="k-nat"><i></i>自然单（柱 · 淡色）</span><span class="k-cost"><i></i>花费（线 · 右轴）</span>'
+    : '<span class="k-ord"><i></i>' + mLabel + '（柱）</span><span class="k-cost"><i></i>' + sLabel + '（线 · 右轴）</span>';
+  const legNote = split
+    ? '<div class="leg-note">美客多广告单量只提供<b>按天</b>口径，已按当天出单时间分布分摊到各小时（近似）；<b>自然单 = 出单 − 广告单</b>。切到「花费」即不分色。</div>'
+    : '';
+
   body.innerHTML = '<div class="hchart">'
     + '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-label="分时图">'
-    + '<defs><linearGradient id="hbg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#60a5fa"/><stop offset="1" stop-color="#2563eb"/></linearGradient></defs>'
+    + '<defs><linearGradient id="hbg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#60a5fa"/><stop offset="1" stop-color="#2563eb"/></linearGradient>'
+    + '<linearGradient id="hbg-nat" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#60a5fa" stop-opacity=".44"/><stop offset="1" stop-color="#2563eb" stop-opacity=".30"/></linearGradient></defs>'
     + g + bars + '<polyline class="hline" points="' + pts + '"/>' + dots + xlab
     + '<line class="hgl" id="hhl" x1="0" x2="0" y1="' + T + '" y2="' + (T + ph) + '" style="stroke:#7dd3fc66;stroke-dasharray:3 3;opacity:0"/>'
     + '</svg><div class="htip" id="hhTip"></div></div>'
-    + '<div class="leg-h"><span class="k-ord"><i></i>' + mLabel + '（柱）</span><span class="k-cost"><i></i>' + sLabel + '（线 · 右轴）</span></div>';
+    + '<div class="leg-h">' + leg + '</div>' + legNote;
 
   const svg = body.querySelector('svg'), tipEl = $('#hhTip'), hl = $('#hhl');
   svg.onmousemove = e => {
@@ -2001,9 +2039,16 @@ function drawHourChart(d) {
     const px = (e.clientX - rc.left) / rc.width * W;
     const i = Math.max(0, Math.min(23, Math.floor((px - L) / bw)));
     const h = d.hourly[i];
+    let splitLine = '';
+    if (split) {
+      const adV = Math.min(split[i], h.orders), natV = Math.max(0, h.orders - adV);
+      splitLine = '<br><span style="color:#93c5fd">▪ 广告单 ' + r1(adV) + ' 单（估算分摊）</span>'
+        + '<br><span>▪ 自然单 ' + r1(natV) + ' 单</span>';
+    }
     hl.setAttribute('x1', xc(i)); hl.setAttribute('x2', xc(i)); hl.style.opacity = 1;
     tipEl.innerHTML = '<b>' + String(i).padStart(2, '0') + ':00 – ' + String((i + 1) % 24).padStart(2, '0') + ':00</b>'
-      + '<span>出单 ' + h.orders + ' 单</span><br><span>花费 ' + money(h.cost, cur) + '（' + hourSrcLabel(h, d) + '）</span>'
+      + '<span>出单 ' + h.orders + ' 单</span>' + splitLine
+      + '<br><span>花费 ' + money(h.cost, cur) + '（' + hourSrcLabel(h, d) + '）</span>'
       + '<br><span>销售额 ' + money(h.amount, cur) + '</span>';
     tipEl.style.left = (xc(i) / W * 100) + '%';
     tipEl.style.top = Math.min(ys(S[i]), yp(P[i])) / H * rc.height + 'px';
