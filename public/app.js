@@ -1854,21 +1854,25 @@ function bindAdsEvents() {
     }
     adsView.range = 'custom'; adsView.from = from; adsView.to = to;
     const rr = $('#adsRange'); if (rr) rr.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.r === 'custom'));
-    loadAds(true);
-    loadAdsHourly(true);
+    refreshAds();
   };
   const rf = $('#adsRefresh');
-  if (rf) rf.onclick = () => { loadAds(true); loadAdsHourly(true); };
+  if (rf) rf.onclick = () => refreshAds();
   const au = $('#adsAuto');
   if (au) au.onchange = () => { adsView.auto = au.checked; toast(au.checked ? '已开启自动刷新（每 5 分钟）' : '已暂停自动刷新'); };
   bindAdsHourEvents();
   setAdsRange('today');
 }
 
+// 广告分时 / 广告总览已合并进同一张「广告投放」卡，共用一个刷新按钮：一次把两块都刷掉
+async function refreshAds() {
+  await Promise.all([loadAds(true), loadAdsHourly(true)]);
+}
+
 function startAdsTimer() {
   if (adsView.timer) return;
   adsView.timer = setInterval(() => {
-    if (adsView.auto && currentView === 'ads' && !document.hidden) loadAds();
+    if (adsView.auto && currentView === 'ads' && !document.hidden) refreshAds();
   }, 300000);
 }
 
@@ -1888,6 +1892,8 @@ async function loadAdsHourly(force) {
   if (!adsView.from || !adsView.to) setAdsRange('today');   // 自愈：范围未初始化时兜底为当天
   const body = $('#adsHourBody');
   if (!force && adsHour.data && adsHour.key === adsHourRangeKey() && Date.now() - adsHour.at < 60000) return;
+  const btn = $('#adsRefresh');            // 与总览共用同一个刷新按钮（已合卡）
+  if (btn) btn.classList.add('spin');
   if (body) body.innerHTML = '<div class="empty">正在按小时统计订单…（首次约需数秒）</div>';
   try {
     const q = '?from=' + encodeURIComponent(adsView.from) + '&to=' + encodeURIComponent(adsView.to);
@@ -1898,6 +1904,8 @@ async function loadAdsHourly(force) {
     const p = e.payload || {};
     if (body) body.innerHTML = '<div class="empty">分时数据加载失败：' + escHtml(p.error || e.message) + '<br><button class="btn" id="hhRetry" style="margin-top:12px">重试</button></div>';
     const rb = $('#hhRetry'); if (rb) rb.onclick = () => loadAdsHourly(true);
+  } finally {
+    setTimeout(() => { if (btn) btn.classList.remove('spin'); }, 480);
   }
 }
 
@@ -2053,8 +2061,8 @@ function bindAdsHourEvents() {
     adsHour.metric = b.dataset.m;
     if (adsHour.data) renderAdsHour();
   });
-  const r = $('#adsHourRefresh');
-  if (r) r.onclick = () => loadAdsHourly(true);
+  // 分时 / 总览已合并进同一张「广告投放」卡，刷新按钮统一走 #adsRefresh（见 bindAdsEvents），
+  // 这里不再单独绑 #adsHourRefresh（该按钮已从 DOM 移除）。
 }
 
 /* ---- 订单管理（售后） ---- */
