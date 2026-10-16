@@ -1276,7 +1276,7 @@ function hideMlHint() { const e = $('#mlHint'); if (e) e.style.display = 'none';
 
 async function loadOrderSummary(force) {
   if (!force && mlSummaryAt && Date.now() - mlSummaryAt < 60000) return;
-  const btn = $('#mlRefresh');
+  const btn = $('#ovRefresh');
   if (btn) btn.classList.add('spin');
   setStateEl($('#mlState'), 'warn', '同步中');
   try {
@@ -1381,7 +1381,7 @@ function hideSalesNote() { const e = $('#salesNote'); if (e) e.style.display = '
 
 async function loadSales(force) {
   if (!force && salesView.at && Date.now() - salesView.at < 15000) return;
-  const btn = $('#salesRefresh');
+  const btn = $('#ovRefresh');
   if (btn) btn.classList.add('spin');
   setStateEl($('#salesState'), 'warn', '同步中');
   try {
@@ -1510,8 +1510,7 @@ function bindSalesEvents() {
     const rr = $('#salesRange'); if (rr) rr.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.r === 'custom'));
     loadSales(true);
   };
-  const rf = $('#salesRefresh');
-  if (rf) rf.onclick = () => loadSales(true);
+  // 刷新按钮已合并到「经营看板」的共用按钮（#ovRefresh），这里不再单独绑
   const au = $('#salesAuto');
   if (au) au.onchange = () => {
     salesView.auto = au.checked;
@@ -1520,10 +1519,18 @@ function bindSalesEvents() {
   setSalesRange('today');
 }
 
+/* 经营看板：三块（Listing 出单 / 实时订单 / 销售流水）吃的是同一份订单数据，
+   所以共用一个刷新按钮、一次全刷 —— 并行发请求，比原来点三次快。 */
+async function refreshOverview() {
+  await Promise.all([loadOrderSummary(true), loadSales(true), loadListings(true)]);
+}
+
 function startSalesTimer() {
   if (salesView.timer) return;
   salesView.timer = setInterval(() => {
-    if (salesView.auto && currentView === 'hub' && !document.hidden) loadSales();
+    if (!salesView.auto || currentView !== 'hub' || document.hidden) return;
+    // 三个各自带节流（订单 60s、销售/Listing 各 15s），所以 30s 一轮不会造成重复请求
+    loadOrderSummary(); loadSales(); loadListings();
   }, 30000);
 }
 
@@ -1581,7 +1588,7 @@ function hideListingNote() { const e = $('#listingNote'); if (e) e.style.display
 
 async function loadListings(force) {
   if (!force && listingView.at && Date.now() - listingView.at < 15000) return;
-  const btn = $('#listingRefresh');
+  const btn = $('#ovRefresh');
   if (btn) btn.classList.add('spin');
   setStateEl($('#listingState'), 'warn', '同步中');
   try {
@@ -1664,8 +1671,7 @@ function bindListingEvents() {
     const rr = $('#listingRange'); if (rr) rr.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.r === 'custom'));
     loadListings(true);
   };
-  const rf = $('#listingRefresh');
-  if (rf) rf.onclick = () => loadListings(true);
+  // 刷新按钮已合并到「经营看板」的共用按钮（#ovRefresh），这里不再单独绑
   setListingRange('today');
 }
 
@@ -2738,7 +2744,7 @@ async function catchOAuthCode() {
 
 function bindMlEvents() {
   const on = (id, fn) => { const e = $('#' + id); if (e) e.onclick = fn; };
-  on('mlRefresh', () => loadOrderSummary(true));
+  on('ovRefresh', () => refreshOverview());
   on('mlCfgBtn', openMlModal);
   on('mlClose', closeMlModal);
   on('mlSave', saveMlConfig);
@@ -2774,6 +2780,29 @@ function bindMlEvents() {
   on('claimDemoBtn', () => { claimView.demo = !claimView.demo; claimView.cat = 'todo'; loadClaims(); });
 }
 
+
+function bindAccountEvents(){
+  const toggle=$('#accountToggle'),menu=$('#accountMenu'),shade=$('#accountSwitchDialog'),form=$('#accountSwitchForm'),status=$('#accountSwitchStatus'),submit=$('#accountSwitchSubmit');
+  if(!toggle||!menu)return;
+  const closeMenu=()=>{menu.hidden=true;toggle.setAttribute('aria-expanded','false');};
+  const closeDialog=()=>{shade.hidden=true;status.textContent='';status.classList.remove('error');form.reset();};
+  toggle.addEventListener('click',()=>{menu.hidden=!menu.hidden;toggle.setAttribute('aria-expanded',String(!menu.hidden));});
+  document.addEventListener('click',e=>{if(!menu.hidden&&!menu.contains(e.target)&&!toggle.contains(e.target))closeMenu();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMenu();if(!shade.hidden)closeDialog();}});
+  fetch('/api/auth/me',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('登录已失效');return r.json();}).then(u=>{
+    const name=String(u.username||'账户'),initial=name.slice(0,1).toUpperCase();$('#accountName').textContent=name;$('#accountRole').textContent=u.role==='admin'?'管理员账户':'普通账户';$('#accountInitial').textContent=initial;toggle.textContent=initial;toggle.setAttribute('aria-label','账户菜单：'+name);
+  }).catch(()=>{ $('#accountName').textContent='当前账户'; });
+  $('#accountSwitch').addEventListener('click',()=>{closeMenu();shade.hidden=false;$('#accountSwitchUser').focus();});
+  $('#accountSwitchCancel').addEventListener('click',closeDialog);
+  shade.addEventListener('click',e=>{if(e.target===shade)closeDialog();});
+  form.addEventListener('submit',async e=>{
+    e.preventDefault();if(submit.disabled)return;submit.disabled=true;submit.textContent='正在验证…';status.classList.remove('error');status.textContent='正在验证新账号，原账号保持登录。';
+    try{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:$('#accountSwitchUser').value,password:$('#accountSwitchPass').value})});const d=await r.json();if(!r.ok)throw Error(d.error||'切换账户失败');status.textContent='验证成功，正在切换…';location.reload();}
+    catch(err){status.classList.add('error');status.textContent=err.message;submit.disabled=false;submit.textContent='验证并切换';}
+  });
+  $('#accountLogout').addEventListener('click',async()=>{closeMenu();const b=$('#accountLogout');b.disabled=true;try{const r=await fetch('/api/auth/logout',{method:'POST'});if(!r.ok)throw Error('退出失败，请重试');location.replace('/login.html?logout=1');}catch(err){b.disabled=false;if(typeof toast==='function')toast(err.message,'err');}});
+}
+
 /* =========================================================
    6. 启动
    ========================================================= */
@@ -2782,6 +2811,7 @@ function init() {
   bindConfigEvents();
   bindBoxEvents();
   bindMlEvents();
+  bindAccountEvents();
   bindSalesEvents();
   bindListingEvents();
   bindAdsEvents();

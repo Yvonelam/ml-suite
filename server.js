@@ -42,7 +42,7 @@ const DEFAULT_CONFIG = {
   proxy:process.env.HTTPS_PROXY||process.env.HTTP_PROXY||'http://127.0.0.1:7897',
   scheduleEnabled:false,scheduleHour:14,scheduleMinute:0,smtpHost:'smtp.qq.com',smtpPort:465,smtpUser:'',smtpPass:'',
   mlAppId:'',mlSecret:'',mlAccessToken:'',mlRefreshToken:'',mlTokenExpireAt:0,mlUserId:'',mlSite:'',mlRedirectUri:'',mlPkce:false,
-  mlAdvertiserId:'',mlAdvertiserSite:'',pushToken:'',pushEnabled:false,pushIntervalMin:5,dmApiKey:'',dmHotSite:'MLB',dmHotTtlHours:24,
+  mlAdvertiserId:'',mlAdvertiserSite:'',pushToken:'',pushEnabled:false,pushIntervalMin:5,pushClaims:true,dmApiKey:'',dmHotSite:'MLB',dmHotTtlHours:24,
   dmHotKeywords:[{k:'fone de ouvido bluetooth',z:'蓝牙耳机'},{k:'headset gamer',z:'游戏耳机'},{k:'fone de ouvido com fio',z:'有线耳机'},{k:'fone de ouvido jbl',z:'JBL 耳机'},{k:'fone de ouvido cancelamento de ruido',z:'降噪耳机'}]
 };
 function accountConfigPath(id){const k=String(id||'admin');if(!/^[A-Za-z0-9_-]{1,64}$/.test(k))throw Error('非法账号标识');return path.join(AUTH_CONFIG_DIR,k+'.json');}
@@ -2398,7 +2398,7 @@ function publicPushStatus() {
     tokenTail: cfg.pushToken ? String(cfg.pushToken).slice(-4) : '',
     intervalMin: pushIntervalMin(cfg),
     claimsEnabled: cfg.pushClaims !== false,
-    running: !!pushTimer,
+    running: pushTimers.has(auth.currentUserId()),
     baselineDone: pushState.baselineDone,
     seenCount: pushState.seen.length,
     lastCheckAt: pushState.lastCheckAt,
@@ -2416,28 +2416,53 @@ function publicPushStatus() {
   };
 }
 
-// 开关 / 间隔变化后重新排期
-function schedulePushMonitor() {
-  if (pushTimer) { clearInterval(pushTimer); pushTimer = null; }
-  if (pushBootTimer) { clearTimeout(pushBootTimer); pushBootTimer = null; }
-  const cfg = loadConfig();
+// 每个账号各自一份监控定时器（配置与推送状态都是按账号隔离的）
+const pushTimers = new Map();   // uid -> { tick, boot }
+
+function stopPushMonitor(uid) {
+  const s = pushTimers.get(String(uid));
+  if (!s) return;
+  if (s.tick) clearInterval(s.tick);
+  if (s.boot) clearTimeout(s.boot);
+  pushTimers.delete(String(uid));
+}
+
+// 开关 / 间隔变化后重新排期（uid 省略 = 当前请求所在的账号）
+function schedulePushMonitor(uid) {
+  const targetId = String(uid || auth.currentUserId());
+  stopPushMonitor(targetId);
+  const cfg = auth.runAsUser(targetId, () => loadConfig());
   if (!cfg.pushEnabled || !cfg.pushToken) return;
   const min = pushIntervalMin(cfg);
   const claimsOn = cfg.pushClaims !== false;
-  // 一轮 = 售前提问 + 售后，各自独立 try，一个挂了不影响另一个
-  const tick = async () => {
+  // 一轮 = 售前提问 + 售后，各自独立 try，一个挂了不影响另一个。
+  // 必须包在 runAsUser 里：定时器回调没有请求上下文，否则 loadConfig / pushState / privateDataFile
+  // 都会落到默认账号 admin 上，等于替别人检查。
+  const tick = () => auth.runAsUser(targetId, async () => {
     try { await checkNewQuestions(); }
-    catch (e) { pushState.lastCheckAt = Date.now(); pushState.lastError = e.message; savePushState(); console.warn('[微信提醒] 提问检查失败：', e.message); }
+    catch (e) { pushState.lastCheckAt = Date.now(); pushState.lastError = e.message; savePushState(); console.warn(`[微信提醒] ${targetId} 提问检查失败：`, e.message); }
     if (!claimsOn) return;
     try { await checkNewClaims(); }
-    catch (e) { pushState.lastClaimCheckAt = Date.now(); pushState.lastClaimError = e.message; savePushState(); console.warn('[微信提醒] 售后检查失败：', e.message); }
-  };
-  pushTimer = setInterval(tick, min * 60000);
-  if (pushTimer.unref) pushTimer.unref();
+    catch (e) { pushState.lastClaimCheckAt = Date.now(); pushState.lastClaimError = e.message; savePushState(); console.warn(`[微信提醒] ${targetId} 售后检查失败：`, e.message); }
+  });
+  const slot = {};
+  slot.tick = setInterval(tick, min * 60000);
+  if (slot.tick.unref) slot.tick.unref();
   // 开启后 15 秒先跑一次（建立基线 / 抢救刚到的提问）
-  pushBootTimer = setTimeout(tick, 15000);
-  if (pushBootTimer.unref) pushBootTimer.unref();
-  console.log(`[微信提醒] 监控已启动，每 ${min} 分钟检查一次（提问${claimsOn ? ' + 售后' : ''}）`);
+  slot.boot = setTimeout(tick, 15000);
+  if (slot.boot.unref) slot.boot.unref();
+  pushTimers.set(targetId, slot);
+  console.log(`[微信提醒] 账号 ${targetId} 监控已启动，每 ${min} 分钟检查一次（提问${claimsOn ? ' + 售后' : ''}）`);
+}
+
+// 启动时给所有已审批账号排期
+function scheduleAllPushMonitors() {
+  let n = 0;
+  for (const u of auth.users()) {
+    if (u.status !== 'approved') continue;
+    try { schedulePushMonitor(u.id); n++; } catch (e) { console.warn('[微信提醒] 账号 ' + u.id + ' 排期失败：' + e.message); }
+  }
+  return n;
 }
 
 // ---- 微信提醒接口 ----
@@ -3057,8 +3082,8 @@ const server = app.listen(PORT, () => {
   startScheduler();
   // 启动广告花费采样器（每 5 分钟记录当天累计花费，用于反推真实小时花费）
   startAdsSampler();
-  // 启动售前提问微信提醒监控（已配置且开启时才真正排期）
-  schedulePushMonitor();
+  // 启动微信提醒监控：给所有已审批账号各排一份（各自只在自己配置开启时才真正排期）
+  scheduleAllPushMonitors();
   // 大麦热搜词：只在缓存过期时后台刷新（不阻塞启动，也不重复扣积分）
   scheduleDmHot();
   const config = loadConfig();

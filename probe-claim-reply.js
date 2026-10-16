@@ -21,7 +21,12 @@ const fs = require('fs');
 const path = require('path');
 const { ProxyAgent, setGlobalDispatcher } = require('undici');
 
-const CFG = path.join(__dirname, 'daily-search-config.json');
+const CFG_LEGACY = path.join(__dirname, 'daily-search-config.json');
+// 账号隔离后配置按账号存放（auth-data/configs/<uid>.json），旧的根目录文件只是遗留
+const CFG = (() => {
+  const p = process.env.ML_CFG || path.join(__dirname, 'auth-data', 'configs', 'admin.json');
+  return fs.existsSync(p) ? p : CFG_LEGACY;
+})();
 const BASE = 'https://api.mercadolibre.com';
 setGlobalDispatcher(new ProxyAgent(process.env.HTTPS_PROXY || process.env.HTTP_PROXY || 'http://127.0.0.1:7897'));
 
@@ -58,6 +63,7 @@ const pad = (s, n) => String(s == null ? '' : s).padEnd(n, ' ');
 (async () => {
   const ids = process.argv.slice(2);
   if (!ids.length) { console.log('用法：node probe-claim-reply.js <索赔ID> [更多ID...]'); process.exit(0); }
+  console.log('配置来源：' + CFG);
   const t = await token();
   for (const ID of ids) {
     const c = (await req('GET', '/post-purchase/v1/claims/' + ID, t)).data || {};

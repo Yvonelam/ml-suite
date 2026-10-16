@@ -57,7 +57,14 @@
     <div class="tr">
       <span class="env" id="envTag"><i></i>本地运行</span>
       <button class="ghost" id="replay">重播开屏</button>
-      <span class="av">运</span>
+      <div class="account-wrap">
+        <button class="av" id="accountToggle" type="button" aria-label="账户菜单" aria-haspopup="menu" aria-expanded="false">运</button>
+        <div class="account-menu" id="accountMenu" role="menu" hidden>
+          <div class="account-menu-head"><span class="account-menu-avatar" id="accountInitial">运</span><span><b id="accountName">正在读取账号…</b><small id="accountRole">ML Suite 账户</small></span></div>
+          <button class="account-menu-item" id="accountSwitch" type="button" role="menuitem"><i>⇄</i>切换账户</button>
+          <button class="account-menu-item danger" id="accountLogout" type="button" role="menuitem"><i>↪</i>退出账户</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -72,112 +79,101 @@
         <div class="card kpi"><label>产品标题数</label><b id="kpi-titles">—</b><div class="dl" id="kpi-titles-dl">—</div><div class="spk" data-v="0,0,0,0,0,0,0,0"></div></div>
       </div>
 
-      <!-- 实时订单看板 -->
-      <div class="card pad order-band">
+      <!-- 经营看板：Listing 出单 / 实时订单 / 销售流水
+           三块其实吃的是同一份订单数据，所以合并成一个区块、共用一个刷新按钮；
+           Listing 出单统计放最前 —— 进来第一眼就能看到哪款产品出单多。 -->
+      <div class="card pad biz-band">
         <div class="ob-head">
           <div class="ob-title">
-            <h3>实时订单</h3>
+            <h3>经营看板</h3>
             <span id="mlUpdated">尚未同步</span>
           </div>
           <div class="ob-actions">
             <span class="st" id="mlState"><i class="off"></i>未连接</span>
-            <button class="ghost" id="mlCfgBtn" title="配置美客多 API 凭证">API 设置</button>
-            <button class="btn y" id="mlRefresh">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
-              刷新
-            </button>
-          </div>
-        </div>
-        <div class="ostat-grid">
-          <div class="ostat"><span>今日订单</span><b id="ml-today">—</b><small id="ml-today-amt">—</small></div>
-          <div class="ostat"><span>待我发货</span><b id="ml-pending">—</b><small id="ml-pending-sub">自发货/打面单才提醒</small></div>
-          <div class="ostat"><span>已发货</span><b id="ml-shipped">—</b><small>运输中 / 已签收</small></div>
-          <div class="ostat"><span>已取消</span><b id="ml-cancelled">—</b><small>含退款与关闭</small></div>
-        </div>
-        <div class="note" id="mlHint" style="display:none"></div>
-      </div>
-
-      <!-- 销售金额 · 实时流水（按巴西时区） -->
-      <div class="card pad sales-band">
-        <div class="ob-head">
-          <div class="ob-title">
-            <h3>销售金额 · 实时流水</h3>
-            <span id="salesTzNote">按巴西时间（GMT-3）统计 · 来源：美客多官方订单接口</span>
-          </div>
-          <div class="ob-actions">
-            <span class="st" id="salesState"><i class="off"></i>未连接</span>
             <label class="sales-auto" title="开启后每 30 秒自动同步一次"><input type="checkbox" id="salesAuto" checked><span>自动刷新</span></label>
-            <button class="btn y" id="salesRefresh">
+            <button class="ghost" id="mlCfgBtn" title="配置美客多 API 凭证">API 设置</button>
+            <button class="btn y" id="ovRefresh">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
               刷新
             </button>
           </div>
         </div>
 
-        <div class="ostat-grid sales-kpis">
-          <div class="ostat"><span>订单数</span><b id="sk-orders">—</b><small id="sk-orders-sub">—</small></div>
-          <div class="ostat good"><span>销售金额</span><b id="sk-amount">—</b><small id="sk-amount-sub">—</small></div>
-          <div class="ostat"><span>售出件数</span><b id="sk-items">—</b><small>含多件下单</small></div>
-          <div class="ostat"><span>客单价</span><b id="sk-avg">—</b><small>销售金额 ÷ 订单数</small></div>
-        </div>
-
-        <div class="sales-filter">
-          <div class="seg" id="salesRange">
-            <button data-r="today" class="on">今天</button>
-            <button data-r="7">近 7 天</button>
-            <button data-r="30">近 30 天</button>
-            <button data-r="month">本月</button>
-            <button data-r="custom">自定义</button>
+        <!-- ① Listing 出单统计（放最前：一眼看到哪款出得多） -->
+        <section class="biz-sec">
+          <div class="biz-sec-h">
+            <h4>Listing 出单统计</h4>
+            <span class="biz-note" id="listingTzNote">按商品聚合出单数量与金额 · 默认当天</span>
+            <span class="st" id="listingState"><i class="off"></i>未连接</span>
           </div>
-          <div class="sales-dates">
-            <input type="date" id="salesFrom"><span>至</span><input type="date" id="salesTo">
-            <button class="btn" id="salesApply">应用</button>
-          </div>
-          <div class="sales-gran">
-            <span class="sg-label">聚合</span>
-            <div class="seg" id="salesGran">
-              <button data-g="order" class="on">按单</button>
-              <button data-g="hour">按小时</button>
-              <button data-g="day">按天</button>
+          <div class="sales-filter">
+            <div class="seg" id="listingRange">
+              <button data-r="today" class="on">当天</button>
+              <button data-r="7">7 天</button>
+              <button data-r="30">30 天</button>
+              <button data-r="custom">自定义</button>
+            </div>
+            <div class="sales-dates">
+              <input type="date" id="listingFrom"><span>至</span><input type="date" id="listingTo">
+              <button class="btn" id="listingApply">应用</button>
             </div>
           </div>
-        </div>
+          <div id="listingBody"><div class="empty">正在加载 Listing 出单数据…</div></div>
+          <div class="note" id="listingNote" style="display:none"></div>
+        </section>
 
-        <div id="salesBody"><div class="empty">正在加载销售数据…</div></div>
-        <div class="note" id="salesNote" style="display:none"></div>
-      </div>
+        <!-- ② 实时订单 -->
+        <section class="biz-sec">
+          <div class="biz-sec-h">
+            <h4>实时订单</h4>
+            <span class="biz-note">今日成交 · 待发货 · 在途 · 取消</span>
+          </div>
+          <div class="ostat-grid">
+            <div class="ostat"><span>今日订单</span><b id="ml-today">—</b><small id="ml-today-amt">—</small></div>
+            <div class="ostat"><span>待我发货</span><b id="ml-pending">—</b><small id="ml-pending-sub">自发货/打面单才提醒</small></div>
+            <div class="ostat"><span>已发货</span><b id="ml-shipped">—</b><small>运输中 / 已签收</small></div>
+            <div class="ostat"><span>已取消</span><b id="ml-cancelled">—</b><small>含退款与关闭</small></div>
+          </div>
+          <div class="note" id="mlHint" style="display:none"></div>
+        </section>
 
-      <!-- Listing 出单统计 -->
-      <div class="card pad sales-band">
-        <div class="ob-head">
-          <div class="ob-title">
-            <h3>Listing 出单统计</h3>
-            <span id="listingTzNote">按商品聚合出单数量与金额 · 默认当天</span>
+        <!-- ③ 销售金额 · 实时流水（按巴西时区） -->
+        <section class="biz-sec">
+          <div class="biz-sec-h">
+            <h4>销售金额 · 实时流水</h4>
+            <span class="biz-note" id="salesTzNote">按巴西时间（GMT-3）统计 · 来源：美客多官方订单接口</span>
+            <span class="st" id="salesState"><i class="off"></i>未连接</span>
           </div>
-          <div class="ob-actions">
-            <span class="st" id="listingState"><i class="off"></i>未连接</span>
-            <button class="btn y" id="listingRefresh">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
-              刷新
-            </button>
+          <div class="ostat-grid sales-kpis">
+            <div class="ostat"><span>订单数</span><b id="sk-orders">—</b><small id="sk-orders-sub">—</small></div>
+            <div class="ostat good"><span>销售金额</span><b id="sk-amount">—</b><small id="sk-amount-sub">—</small></div>
+            <div class="ostat"><span>售出件数</span><b id="sk-items">—</b><small>含多件下单</small></div>
+            <div class="ostat"><span>客单价</span><b id="sk-avg">—</b><small>销售金额 ÷ 订单数</small></div>
           </div>
-        </div>
-
-        <div class="sales-filter">
-          <div class="seg" id="listingRange">
-            <button data-r="today" class="on">当天</button>
-            <button data-r="7">7 天</button>
-            <button data-r="30">30 天</button>
-            <button data-r="custom">自定义</button>
+          <div class="sales-filter">
+            <div class="seg" id="salesRange">
+              <button data-r="today" class="on">今天</button>
+              <button data-r="7">近 7 天</button>
+              <button data-r="30">近 30 天</button>
+              <button data-r="month">本月</button>
+              <button data-r="custom">自定义</button>
+            </div>
+            <div class="sales-dates">
+              <input type="date" id="salesFrom"><span>至</span><input type="date" id="salesTo">
+              <button class="btn" id="salesApply">应用</button>
+            </div>
+            <div class="sales-gran">
+              <span class="sg-label">聚合</span>
+              <div class="seg" id="salesGran">
+                <button data-g="order" class="on">按单</button>
+                <button data-g="hour">按小时</button>
+                <button data-g="day">按天</button>
+              </div>
+            </div>
           </div>
-          <div class="sales-dates">
-            <input type="date" id="listingFrom"><span>至</span><input type="date" id="listingTo">
-            <button class="btn" id="listingApply">应用</button>
-          </div>
-        </div>
-
-        <div id="listingBody"><div class="empty">正在加载 Listing 出单数据…</div></div>
-        <div class="note" id="listingNote" style="display:none"></div>
+          <div id="salesBody"><div class="empty">正在加载销售数据…</div></div>
+          <div class="note" id="salesNote" style="display:none"></div>
+        </section>
       </div>
 
       <div class="g2">
@@ -646,6 +642,17 @@
   </div>
 </div>
 
+<div class="account-shade" id="accountSwitchDialog" hidden>
+  <section class="account-dialog" role="dialog" aria-modal="true" aria-labelledby="accountDialogTitle">
+    <h2 id="accountDialogTitle">切换账户</h2><p>输入另一个 ML Suite 账号。验证成功后会切换当前会话。</p>
+    <form id="accountSwitchForm">
+      <label class="account-field">账号<input id="accountSwitchUser" autocomplete="username" placeholder="输入账号名" required></label>
+      <label class="account-field">密码<input id="accountSwitchPass" type="password" autocomplete="current-password" placeholder="输入密码" required></label>
+      <div class="account-status" id="accountSwitchStatus" aria-live="polite"></div>
+      <div class="account-dialog-actions"><button class="ghost" id="accountSwitchCancel" type="button">取消</button><button class="btn" id="accountSwitchSubmit" type="submit">验证并切换</button></div>
+    </form>
+  </section>
+</div>
 <div id="toast" class="toast"></div>
 
 <script src="vendor/pdf-lib.min.js"></script>
