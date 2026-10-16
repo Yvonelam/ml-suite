@@ -2079,19 +2079,43 @@ function drawDayChart(d) {
 }
 
 // 美客多广告单只有「按天」口径（units_quantity），而分时是「按小时」。
-// 这里把当天的广告单按该天的出单小时分布分摊到 24 小时（近似），并钳制不超过该小时总单，
-// 保证 Σ(广告单) ≤ Σ(总单) —— 自然单不会出现负数。
-// 单天：把该天的广告单按当天的出单小时分布分摊到 24 小时
-// 钳到「不超过该小时总单」—— adUnits 是件数、orders 是订单条数，口径不同，不钳会出现"自然单为负"
+// 这里把当天的广告单按该天的出单小时分布分摊到 24 小时。
+//
+// 关键：**结果必须是整数**。订单是「条」，不存在 0.5 单；
+// 之前用等比切分（adUnits × 该小时单量 ÷ 当天单量）会在单量少时算出 0.5，看着像 bug。
+// 改用「最大余数法」配额分配：先按占比取整，余数最大的小时依次补 1，
+// 既保证 Σ(广告单) ≡ 当天广告单量，也保证每格都是整数、且不超过该小时总单（自然单不为负）。
 function adSplitForDay(day) {
   const out = new Array(24).fill(0);
-  const aq = Number(day && day.adUnits) || 0;
-  if (!aq) return out;
-  const tot = Number(day.orders) || 0;
   const hrs = (day && day.hours) || [];
+  const at = h => Number(hrs[h]) || 0;
+
+  const tot = Math.max(0, Math.round(Number(day && day.orders) || 0));
+  // adUnits 是「件数」、orders 是「订单条数」，口径不同 → 先钳到不超过当天总单
+  const cap = Math.min(Math.max(0, Math.round(Number(day && day.adUnits) || 0)), tot);
+  if (cap <= 0 || tot <= 0) return out;
+  // 全是广告单：直接整份给出去
+  if (cap >= tot) { for (let h = 0; h < 24; h++) out[h] = at(h); return out; }
+
+  const frac = new Array(24).fill(0);
+  let used = 0;
   for (let h = 0; h < 24; h++) {
-    const o = Number(hrs[h]) || 0;
-    out[h] = Math.min(tot > 0 ? aq * (o / tot) : aq / 24, o);
+    const o = at(h);
+    const q = o > 0 ? cap * (o / tot) : 0;
+    const f = Math.floor(q);
+    out[h] = f; used += f;
+    frac[h] = q - f;
+  }
+
+  // 余数大的先补；并列时「出单多的小时」优先，再并列取更早的小时 → 结果稳定可复现
+  const order = [];
+  for (let h = 0; h < 24; h++) order.push(h);
+  order.sort((a, b) => (frac[b] - frac[a]) || (at(b) - at(a)) || (a - b));
+
+  let left = cap - used;
+  for (const h of order) {
+    if (left <= 0) break;
+    if (out[h] < at(h)) { out[h] += 1; left -= 1; }
   }
   return out;
 }
@@ -2104,7 +2128,6 @@ function adsHourAdSplit(d) {
   }
   return out;
 }
-const r1 = v => Math.round((Number(v) || 0) * 10) / 10;
 
 function drawHourChart(d) {
   const body = $('#adsHourBody'); if (!body) return;
@@ -2162,7 +2185,7 @@ function drawHourChart(d) {
     ? '<span class="k-ad"><i></i>广告单（柱 · 实色）</span><span class="k-nat"><i></i>自然单（柱 · 淡色）</span><span class="k-cost"><i></i>花费（线 · 右轴）</span>'
     : '<span class="k-ord"><i></i>' + mLabel + '（柱）</span><span class="k-cost"><i></i>' + sLabel + '（线 · 右轴）</span>';
   const legNote = split
-    ? '<div class="leg-note">美客多广告单量只提供<b>按天</b>口径，已按当天出单时间分布分摊到各小时（近似）；<b>自然单 = 出单 − 广告单</b>。切到「花费」即不分色。</div>'
+    ? '<div class="leg-note">美客多广告单量只提供<b>按天</b>口径，已按当天出单时间分布拆到各小时（<b>整数</b>，加总恒等于当天广告单量，且不超过该小时订单数）；<b>自然单 = 出单 − 广告单</b>。切到「花费」即不分色。</div>'
     : '';
 
   body.innerHTML = '<div class="hchart">'
@@ -2182,9 +2205,11 @@ function drawHourChart(d) {
     const h = d.hourly[i];
     let splitLine = '';
     if (split) {
-      const adV = Math.min(split[i], h.orders), natV = Math.max(0, h.orders - adV);
-      splitLine = '<br><span style="color:#93c5fd">▪ 广告单 ' + r1(adV) + ' 单（估算分摊）</span>'
-        + '<br><span>▪ 自然单 ' + r1(natV) + ' 单</span>';
+      // split 已经是整数（最大余数法分配），这里再兜一次底，防止越界
+      const adV = Math.max(0, Math.min(Math.round(split[i]), h.orders));
+      const natV = Math.max(0, h.orders - adV);
+      splitLine = '<br><span style="color:#93c5fd">▪ 广告单 ' + adV + ' 单（按天总量估算）</span>'
+        + '<br><span>▪ 自然单 ' + natV + ' 单</span>';
     }
     hl.setAttribute('x1', xc(i)); hl.setAttribute('x2', xc(i)); hl.style.opacity = 1;
     tipEl.innerHTML = '<b>' + String(i).padStart(2, '0') + ':00 – ' + String((i + 1) % 24).padStart(2, '0') + ':00</b>'
@@ -2224,7 +2249,7 @@ function drawHeat(d) {
       const txt = v <= 0 ? '' : (m === 'cost' ? Math.round(v) : v);
       const src = srcs[h] || 'est';
       const adH = adSplit[h], natH = Math.max(0, (Number(r.hours[h]) || 0) - adH);
-      tds += '<td class="c' + (v > 0 ? '' : ' dim') + (src === 'measured' ? ' ms' : '') + '" style="background:' + bg + '" title="' + r.date + ' ' + String(h).padStart(2, '0') + ':00 · 出单 ' + r.hours[h] + ' 单（广告 ' + r1(adH) + ' / 自然 ' + r1(natH) + '） · 花费 ' + money(r.hoursCost[h], cur) + '（' + (SRC_CN[src] || '估算') + '）">' + txt + '</td>';
+      tds += '<td class="c' + (v > 0 ? '' : ' dim') + (src === 'measured' ? ' ms' : '') + '" style="background:' + bg + '" title="' + r.date + ' ' + String(h).padStart(2, '0') + ':00 · 出单 ' + r.hours[h] + ' 单（广告 ' + adH + ' / 自然 ' + natH + '） · 花费 ' + money(r.hoursCost[h], cur) + '（' + (SRC_CN[src] || '估算') + '）">' + txt + '</td>';
     }
     const srcN = srcs.filter(s => s === 'measured').length;
     const srcTxt = srcN >= 24 ? '全实测' : (srcN > 0 ? '实测 ' + srcN + '/24' : '估算');
