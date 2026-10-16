@@ -47,13 +47,14 @@ const DEFAULT_CONFIG = {
 };
 function accountConfigPath(id){const k=String(id||'admin');if(!/^[A-Za-z0-9_-]{1,64}$/.test(k))throw Error('非法账号标识');return path.join(AUTH_CONFIG_DIR,k+'.json');}
 function readLegacyConfig(){try{return JSON.parse(fs.readFileSync(LEGACY_CONFIG_PATH,'utf8'));}catch{return {};}}
-function loadConfig(){const id=auth?auth.currentUserId():'admin';try{return {...DEFAULT_CONFIG,...JSON.parse(fs.readFileSync(accountConfigPath(id),'utf8'))};}catch{return id==='admin'?{...DEFAULT_CONFIG,...readLegacyConfig()}:{...DEFAULT_CONFIG};}}
+function readAccountConfig(id){try{return {...DEFAULT_CONFIG,...JSON.parse(fs.readFileSync(accountConfigPath(id),'utf8'))};}catch{return id==='admin'?{...DEFAULT_CONFIG,...readLegacyConfig()}:{...DEFAULT_CONFIG};}}
+function loadConfig(){const id=auth?auth.currentUserId():'admin';return readAccountConfig(id);}
 function saveAccountConfig(id,cfg){fs.mkdirSync(AUTH_CONFIG_DIR,{recursive:true});fs.writeFileSync(accountConfigPath(id),JSON.stringify(cfg,null,2),'utf8');}
 function saveConfig(cfg){saveAccountConfig(auth.currentUserId(),cfg);}
 function privateDataFile(name){return auth.userDataFile(name);}
 function loadReportState(){try{return JSON.parse(fs.readFileSync(privateDataFile('report-state.json'),'utf8'));}catch{return {};}}
 function saveReportState(patch){try{const p=privateDataFile('report-state.json'),next=Object.assign(loadReportState(),patch);fs.writeFileSync(p,JSON.stringify(next,null,2),'utf8');return next;}catch(e){console.error('[报告] 写入发送状态失败:',e.message);return loadReportState();}}
-const auth=createAuth(express,{publicDir:path.join(__dirname,'public'),readLegacyConfig,migrateAdminConfig:()=>{const c=readLegacyConfig();delete c.accessPassword;saveAccountConfig('admin',{...DEFAULT_CONFIG,...c});}});
+const auth=createAuth(express,{publicDir:path.join(__dirname,'public'),readLegacyConfig,readAccountApiStatus:id=>{const c=readAccountConfig(id);return {mercadoLibre:{configured:!!(c.mlAppId&&c.mlSecret),authorized:!!c.mlAccessToken},dmMcp:{configured:!!c.dmApiKey},smtp:{configured:!!(c.smtpUser&&c.smtpPass)},pushPlus:{configured:!!c.pushToken,enabled:!!c.pushEnabled}};},migrateAdminConfig:()=>{const c=readLegacyConfig();delete c.accessPassword;saveAccountConfig('admin',{...DEFAULT_CONFIG,...c});}});
 app.use('/api/auth',auth.publicRouter);
 app.use(auth.middleware);
 app.use('/api/admin',auth.adminRouter);

@@ -2782,7 +2782,7 @@ function bindMlEvents() {
 
 
 function bindAccountEvents(){
-  const toggle=$('#accountToggle'),menu=$('#accountMenu'),shade=$('#accountSwitchDialog'),form=$('#accountSwitchForm'),status=$('#accountSwitchStatus'),submit=$('#accountSwitchSubmit');
+  const toggle=$('#accountToggle'),menu=$('#accountMenu'),shade=$('#accountSwitchDialog'),form=$('#accountSwitchForm'),status=$('#accountSwitchStatus'),submit=$('#accountSwitchSubmit'),adminLinks=$('#accountAdminLinks');
   if(!toggle||!menu)return;
   const closeMenu=()=>{menu.hidden=true;toggle.setAttribute('aria-expanded','false');};
   const closeDialog=()=>{shade.hidden=true;status.textContent='';status.classList.remove('error');form.reset();};
@@ -2790,8 +2790,10 @@ function bindAccountEvents(){
   document.addEventListener('click',e=>{if(!menu.hidden&&!menu.contains(e.target)&&!toggle.contains(e.target))closeMenu();});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMenu();if(!shade.hidden)closeDialog();}});
   fetch('/api/auth/me',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('登录已失效');return r.json();}).then(u=>{
-    const name=String(u.username||'账户'),initial=name.slice(0,1).toUpperCase();$('#accountName').textContent=name;$('#accountRole').textContent=u.role==='admin'?'管理员账户':'普通账户';$('#accountInitial').textContent=initial;toggle.textContent=initial;toggle.setAttribute('aria-label','账户菜单：'+name);
+    const name=String(u.username||'账户'),initial=name.slice(0,1).toUpperCase();$('#accountName').textContent=name;$('#accountRole').textContent=u.role==='admin'?'管理员账户':'普通账户';$('#accountInitial').textContent=initial;toggle.textContent=initial;toggle.setAttribute('aria-label','账户菜单：'+name);if(adminLinks)adminLinks.hidden=u.role!=='admin';
   }).catch(()=>{ $('#accountName').textContent='当前账户'; });
+  $('#accountApprovals')?.addEventListener('click',()=>{location.href='/admin.html?view=approvals';});
+  $('#accountApiQuery')?.addEventListener('click',()=>{location.href='/admin.html?view=apis';});
   $('#accountSwitch').addEventListener('click',()=>{closeMenu();shade.hidden=false;$('#accountSwitchUser').focus();});
   $('#accountSwitchCancel').addEventListener('click',closeDialog);
   shade.addEventListener('click',e=>{if(e.target===shade)closeDialog();});

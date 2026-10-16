@@ -93,6 +93,10 @@ function createAuth(express, opts) {
   const adminRouter=express.Router();
   adminRouter.use((req,res,next)=>req.user&&req.user.role==='admin'?next():res.status(403).json({error:'仅管理员可审批账号'}));
   adminRouter.get('/pending',(req,res)=>res.json({pending:users().filter(u=>u.status==='pending').map(u=>({id:u.id,username:u.username,createdAt:u.createdAt}))}));
+  adminRouter.get('/accounts',(req,res)=>{
+    const accounts=users().map(u=>({id:u.id,username:u.username,role:u.role,status:u.status,createdAt:u.createdAt,apiStatus:typeof opts.readAccountApiStatus==='function'?opts.readAccountApiStatus(u.id):{}}));
+    res.json({accounts});
+  });
   adminRouter.post('/users/:id/approve',(req,res)=>{const a=users(),u=a.find(x=>x.id===req.params.id);if(!u||u.role==='admin')return res.status(404).json({error:'账号不存在'});if(u.status!=='pending')return res.status(409).json({error:'该申请已处理'});u.status='approved';u.approvedAt=new Date().toISOString();saveUsers(a);res.json({ok:true});});
   adminRouter.post('/users/:id/reject',(req,res)=>{const a=users(),u=a.find(x=>x.id===req.params.id);if(!u||u.role==='admin')return res.status(404).json({error:'账号不存在'});if(u.status!=='pending')return res.status(409).json({error:'该申请已处理'});u.status='rejected';u.sessionVersion=Number(u.sessionVersion||0)+1;saveUsers(a);res.json({ok:true});});
   return {publicRouter,adminRouter,middleware,currentUserId,runAsUser,userDataFile,users};

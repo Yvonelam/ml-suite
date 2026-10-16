@@ -514,3 +514,5 @@ a.lti:hover{color:var(--ac)}
 /* 实测小时：细边框微标记 */
 .heat td.c.ms{border-color:rgba(255,255,255,.24)}
 .heat td.c.ms:hover{border-color:#7dd3fc}
+
+.account-admin-links[hidden]{display:none!important}.account-menu-label{padding:10px 9px 4px;color:var(--cyan);font-size:9px;letter-spacing:.12em;text-transform:uppercase}.account-menu-item:focus-visible{outline:1px solid var(--cyan);outline-offset:1px}
