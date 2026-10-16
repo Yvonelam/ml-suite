@@ -77,6 +77,7 @@ const DEFAULT_CONFIG = {
   pushToken: '',
   pushEnabled: false,
   pushIntervalMin: 5,
+  pushClaims: true,           // 是否同时推送售后（纠纷 / 平台调解）提醒
   // ---- 大麦数据（MCP）· 真实热搜词 ----
   dmApiKey: '',               // 真实 Key 放 daily-search-config.json，不写进源码
   dmHotSite: 'MLB',
@@ -2252,7 +2253,13 @@ const PUSHPLUS_URL = 'https://www.pushplus.plus/send';
 const PUSH_STATE_PATH = path.join(__dirname, 'push-state.json');
 
 // 已推送过的提问 id / 运行状态（持久化，重启不重复推）
-const pushState = { seen: [], baselineDone: false, lastCheckAt: 0, lastPushAt: 0, lastError: '', lastFresh: 0, lastSummary: '' };
+const pushState = {
+  seen: [], baselineDone: false, lastCheckAt: 0, lastPushAt: 0, lastError: '', lastFresh: 0, lastSummary: '',
+  // ---- 售后（纠纷 / 平台调解）----
+  claimSeen: {},            // claimId -> 信号串（最后一条消息的「发送方|时间」），变了就是有新动向
+  claimBaselineDone: false, // 首次运行只建基线，不把存量纠纷一次性刷屏
+  lastClaimCheckAt: 0, lastClaimPushAt: 0, lastClaimError: '', lastClaimSummary: '', lastClaimFresh: 0,
+};
 let pushTimer = null;
 let pushBootTimer = null;
 
@@ -2266,6 +2273,13 @@ function loadPushState() {
     pushState.lastError = d.lastError || '';
     pushState.lastFresh = d.lastFresh || 0;
     pushState.lastSummary = d.lastSummary || '';
+    if (d.claimSeen && typeof d.claimSeen === 'object' && !Array.isArray(d.claimSeen)) pushState.claimSeen = d.claimSeen;
+    pushState.claimBaselineDone = !!d.claimBaselineDone;
+    pushState.lastClaimCheckAt = d.lastClaimCheckAt || 0;
+    pushState.lastClaimPushAt = d.lastClaimPushAt || 0;
+    pushState.lastClaimError = d.lastClaimError || '';
+    pushState.lastClaimSummary = d.lastClaimSummary || '';
+    pushState.lastClaimFresh = d.lastClaimFresh || 0;
   } catch { /* 首次运行没有状态文件，忽略 */ }
 }
 function savePushState() {
@@ -2386,6 +2400,152 @@ async function checkNewQuestions({ manual = false } = {}) {
   return { ok: true, fresh: fresh.length, pushed: payload.length, total: list.length, summary: pushState.lastSummary };
 }
 
+/* ============ 售后（纠纷 / 平台调解）推送 ============
+ * 为什么单独一条链路：售前提问靠 /questions/search 就能发现「新提问」，
+ * 但售后没有「新」这个概念 —— 一条纠纷会持续存在很久，真正的新动向是「对方又说话了」。
+ * 所以这里的判据是「信号变了」：把每条待关注纠纷的「最后一条消息的 发送方|时间」记下来，
+ * 只有变了、且最后说话的不是我方（respondent）时，才推一条。
+ * 这样既能抓到平台调解员发来的新方案，也不会因为我方刚回复就把自己吵醒。
+ */
+const PUBLIC_URL_FILE = path.join(__dirname, '公网地址.txt');
+const TUNNEL_CFG_FILE = path.join(__dirname, 'tunnel-config.json');
+
+// 公网地址：优先读「公网地址.txt」，退回 tunnel-config.json 的 hostname；都没有就不放链接
+function publicBaseUrl() {
+  try {
+    const t = String(fs.readFileSync(PUBLIC_URL_FILE, 'utf8')).trim().split(/\s+/)[0];
+    if (/^https?:\/\//i.test(t)) return t.replace(/\/+$/, '');
+  } catch { /* 走下面 */ }
+  try {
+    const h = String((JSON.parse(fs.readFileSync(TUNNEL_CFG_FILE, 'utf8')) || {}).hostname || '').trim();
+    if (h) return 'https://' + h.replace(/\/+$/, '');
+  } catch { /* 都没有 */ }
+  return '';
+}
+
+// 值得打扰用户的分类：平台调解 / 买家咨询（= 需要我处理）；「无需操作」不推
+function claimNeedsAttention(cat) { return cat === 'mediation' || cat === 'buyer'; }
+
+// 一条纠纷的信号 = 最后一条消息的「发送方|时间」；完全没有消息时退回纠纷的 last_updated
+function claimSignalOf(thread, nc) {
+  const list = thread.messages || [];
+  const last = list[list.length - 1];
+  return last ? (last.sender + '|' + (last.date || '')) : ('none|' + (nc.lastUpdated || ''));
+}
+
+function claimPushHtml(rows, siteName) {
+  const head = `<div style="font-size:13px;color:#888;margin-bottom:8px">${escPush(siteName || '')} · 共 ${rows.length} 条售后需要关注</div>`;
+  const body = rows.map(r => {
+    const color = r.awaiting ? '#ef4444' : '#f59e0b';
+    const seg = ['<div style="padding:12px 0;border-bottom:1px dashed #e0e0e0">'];
+    seg.push(`<div style="font-size:12px;color:#fff;background:${color};border-radius:4px;padding:2px 7px;display:inline-block">${escPush(r.badge)}</div>`);
+    seg.push(`<div style="font-size:15px;font-weight:600;color:#111;margin:8px 0 4px;line-height:1.6">纠纷 #${escPush(r.id)}</div>`);
+    seg.push(`<div style="color:#555;font-size:13px;line-height:1.7">原因：${escPush(r.reason)}<br>关联订单：${escPush(r.resourceId)}</div>`);
+    if (r.lastText) seg.push(`<div style="margin-top:6px;color:#333;font-size:13px;line-height:1.6;background:#f6f6f6;border-radius:6px;padding:8px 10px">${escPush(r.lastFrom)}：${escPush(r.lastText)}</div>`);
+    seg.push(`<div style="color:#999;font-size:12px;margin-top:6px">${escPush(r.time)}（巴西时间）</div>`);
+    if (r.link) seg.push(`<div style="margin-top:8px"><a href="${escPush(r.link)}" style="color:#3b82f6">👉 打开工作台去处理</a></div>`);
+    seg.push('</div>');
+    return seg.join('');
+  }).join('');
+  return head + body;
+}
+
+async function checkNewClaims({ manual = false } = {}) {
+  const cfg = loadConfig();
+  if (!mlConfigured(cfg)) throw Object.assign(new Error('尚未配置美客多 API 凭证'), { status: 400, needConfig: true });
+  if (!mlAuthorized(cfg)) throw Object.assign(new Error('还没有完成美客多账号授权'), { status: 401, needAuth: true });
+
+  const u = await mlUser();
+  const siteCode = String(mlEffectiveSite(cfg.mlSite) || u.site_id || 'MLB').toUpperCase();
+  const site = mlSite(siteCode);
+  const d = await mlRequest('/post-purchase/v1/claims/search?status=opened&limit=50');
+  const list = (d && (d.data || d.results || d.claims)) || [];
+  const reasons = await mlClaimReasons(list.map(c => c.reason_id));
+
+  // 逐条取线程（mlClaimThread 自带 60 秒缓存，正常只有个位数纠纷，串行足够）
+  const rows = [];
+  for (const c of list) {
+    const nc = normalizeClaim(c, reasons);
+    const t = await mlClaimThread(nc.id);
+    const cat = classifyClaim(nc, t);
+    if (!claimNeedsAttention(cat)) continue;
+    rows.push({ nc, t, cat, signal: claimSignalOf(t, nc) });
+  }
+
+  pushState.lastClaimCheckAt = Date.now();
+
+  // 首轮只建基线：把存量纠纷记下来，避免服务一开就刷一堆历史
+  if (!pushState.claimBaselineDone) {
+    const m = {};
+    for (const r of rows) m[r.nc.id] = r.signal;
+    pushState.claimSeen = m;
+    pushState.claimBaselineDone = true;
+    pushState.lastClaimFresh = 0;
+    pushState.lastClaimError = '';
+    pushState.lastClaimSummary = `已建立基线：现存待关注售后 ${rows.length} 条已记录，之后有新动向才推送`;
+    savePushState();
+    return { ok: true, baseline: true, total: rows.length, pushed: 0, summary: pushState.lastClaimSummary };
+  }
+
+  const fresh = rows.filter(r => {
+    const old = pushState.claimSeen[r.nc.id];
+    if (old === undefined) return true;            // 新出现的纠纷
+    if (old === r.signal) return false;            // 信号没变
+    return r.t.lastSender !== 'respondent';        // 变成「对方说话」才算新动向
+  });
+
+  // 重算记录表：只保留仍在「待关注」名单里的，已关闭/已归档的自然淘汰，避免无限增长
+  const alive = {};
+  for (const r of rows) alive[r.nc.id] = r.signal;
+  pushState.claimSeen = alive;
+
+  if (!fresh.length) {
+    pushState.lastClaimFresh = 0;
+    pushState.lastClaimError = '';
+    pushState.lastClaimSummary = `无售后新动向（当前待关注 ${rows.length} 条）`;
+    savePushState();
+    return { ok: true, fresh: 0, total: rows.length, pushed: 0, summary: pushState.lastClaimSummary };
+  }
+
+  const batch = fresh.slice(0, 10);   // 单次最多推 10 条，避免刷屏
+  const base = publicBaseUrl();
+  const payload = batch.map(r => {
+    const list2 = r.t.messages || [];
+    const last = list2[list2.length - 1];
+    const awaiting = !!(r.t.awaitingSeller && r.nc.canSendNow);
+    const badge = awaiting ? '⚡ 等你回复'
+      : (r.cat === 'mediation' ? '⚖️ 平台调解有新动向' : '💬 买家有新消息');
+    return {
+      id: r.nc.id,
+      badge, awaiting,
+      reason: r.nc.reason || r.nc.reasonId || '-',
+      resourceId: r.nc.resourceId || '-',
+      time: brStamp(r.nc.lastUpdated || ''),
+      lastFrom: last ? (/mediator/i.test(last.sender) ? '调解员'
+        : (/complainant|buyer/i.test(last.sender) ? '买家' : '我方')) : '',
+      lastText: last ? String(last.text || '').slice(0, 160) : '',
+      link: base ? (base + '/index.html#claims') : '',
+    };
+  });
+
+  const urgent = payload.filter(p => p.awaiting).length;
+  await pushplusSend({
+    title: urgent
+      ? `⚖️ 美客多售后 ${urgent} 条等你回复 · ${site.name}`
+      : `⚖️ 美客多售后新动向 ${payload.length} 条 · ${site.name}`,
+    content: claimPushHtml(payload, site.name),
+  });
+
+  pushState.lastClaimFresh = payload.length;
+  pushState.lastClaimPushAt = Date.now();
+  pushState.lastClaimError = '';
+  pushState.lastClaimSummary = fresh.length > payload.length
+    ? `已推送 ${payload.length} 条售后（还有 ${fresh.length - payload.length} 条将在下轮推送），待关注共 ${rows.length} 条`
+    : `已推送 ${payload.length} 条售后，待关注共 ${rows.length} 条`;
+  savePushState();
+  return { ok: true, fresh: fresh.length, pushed: payload.length, total: rows.length, summary: pushState.lastClaimSummary };
+}
+
 function pushIntervalMin(cfg = loadConfig()) {
   return Math.min(Math.max(parseInt(cfg.pushIntervalMin) || 5, 1), 120);
 }
@@ -2396,6 +2556,7 @@ function publicPushStatus() {
     hasToken: !!cfg.pushToken,
     tokenTail: cfg.pushToken ? String(cfg.pushToken).slice(-4) : '',
     intervalMin: pushIntervalMin(cfg),
+    claimsEnabled: cfg.pushClaims !== false,
     running: !!pushTimer,
     baselineDone: pushState.baselineDone,
     seenCount: pushState.seen.length,
@@ -2403,6 +2564,14 @@ function publicPushStatus() {
     lastPushAt: pushState.lastPushAt,
     lastError: pushState.lastError,
     lastSummary: pushState.lastSummary,
+    // ---- 售后 ----
+    claimBaselineDone: pushState.claimBaselineDone,
+    claimSeenCount: Object.keys(pushState.claimSeen || {}).length,
+    lastClaimCheckAt: pushState.lastClaimCheckAt,
+    lastClaimPushAt: pushState.lastClaimPushAt,
+    lastClaimError: pushState.lastClaimError,
+    lastClaimSummary: pushState.lastClaimSummary,
+    hasPublicUrl: !!publicBaseUrl(),
   };
 }
 
@@ -2413,18 +2582,21 @@ function schedulePushMonitor() {
   const cfg = loadConfig();
   if (!cfg.pushEnabled || !cfg.pushToken) return;
   const min = pushIntervalMin(cfg);
-  pushTimer = setInterval(async () => {
+  const claimsOn = cfg.pushClaims !== false;
+  // 一轮 = 售前提问 + 售后，各自独立 try，一个挂了不影响另一个
+  const tick = async () => {
     try { await checkNewQuestions(); }
-    catch (e) { pushState.lastCheckAt = Date.now(); pushState.lastError = e.message; savePushState(); console.warn('[微信提醒] 检查失败：', e.message); }
-  }, min * 60000);
+    catch (e) { pushState.lastCheckAt = Date.now(); pushState.lastError = e.message; savePushState(); console.warn('[微信提醒] 提问检查失败：', e.message); }
+    if (!claimsOn) return;
+    try { await checkNewClaims(); }
+    catch (e) { pushState.lastClaimCheckAt = Date.now(); pushState.lastClaimError = e.message; savePushState(); console.warn('[微信提醒] 售后检查失败：', e.message); }
+  };
+  pushTimer = setInterval(tick, min * 60000);
   if (pushTimer.unref) pushTimer.unref();
   // 开启后 15 秒先跑一次（建立基线 / 抢救刚到的提问）
-  pushBootTimer = setTimeout(async () => {
-    try { await checkNewQuestions(); }
-    catch (e) { pushState.lastCheckAt = Date.now(); pushState.lastError = e.message; savePushState(); }
-  }, 15000);
+  pushBootTimer = setTimeout(tick, 15000);
   if (pushBootTimer.unref) pushBootTimer.unref();
-  console.log(`[微信提醒] 售前提问监控已启动，每 ${min} 分钟检查一次`);
+  console.log(`[微信提醒] 监控已启动，每 ${min} 分钟检查一次（提问${claimsOn ? ' + 售后' : ''}）`);
 }
 
 // ---- 微信提醒接口 ----
@@ -2440,10 +2612,11 @@ app.post('/api/push/config', (req, res) => {
     const next = { ...cur };
     if (typeof b.pushToken === 'string') next.pushToken = b.pushToken.trim();
     if (typeof b.pushEnabled === 'boolean') next.pushEnabled = b.pushEnabled;
+    if (typeof b.pushClaims === 'boolean') next.pushClaims = b.pushClaims;
     if (b.pushIntervalMin != null) next.pushIntervalMin = Math.min(Math.max(parseInt(b.pushIntervalMin) || 5, 1), 120);
     saveConfig(next);
     schedulePushMonitor();
-    console.log('[微信提醒] 配置已更新：', { token: next.pushToken ? '已设置' : '空', enabled: !!next.pushEnabled, interval: pushIntervalMin(next) });
+    console.log('[微信提醒] 配置已更新：', { token: next.pushToken ? '已设置' : '空', enabled: !!next.pushEnabled, claims: next.pushClaims !== false, interval: pushIntervalMin(next) });
     res.json({ ok: true, ...publicPushStatus() });
   } catch (e) { res.status(500).json({ ok: false, error: '保存失败: ' + e.message }); }
 });
@@ -2460,7 +2633,7 @@ app.post('/api/push/test', async (req, res) => {
     await pushplusSend({
       title: '✅ ML Suite · 微信提醒测试',
       content: '<div style="font-size:15px;line-height:1.7">这条是测试消息，收到即代表通道打通。</div>'
-        + '<div style="color:#666;font-size:13px;margin-top:10px">之后只要有买家提新的售前问题，就会推送到这里。</div>'
+        + '<div style="color:#666;font-size:13px;margin-top:10px">之后<b>买家提新售前问题</b>、以及<b>售后有新动向</b>（平台调解员发来新方案 / 买家新留言）都会推到这里。</div>'
         + `<div style="color:#999;font-size:12px;margin-top:10px">发送于 ${brStamp(new Date().toISOString())}（巴西时间）</div>`,
     }, token);
     res.json({ ok: true, message: '测试消息已发送，去微信看看', ...publicPushStatus() });
@@ -2469,11 +2642,19 @@ app.post('/api/push/test', async (req, res) => {
   }
 });
 
-// 立即检查一次
+// 立即检查一次（默认「提问 + 售后」都查；?only=claims / ?only=questions 可单独查）
 app.post('/api/push/check', async (req, res) => {
   try {
-    const r = await checkNewQuestions({ manual: true });
-    res.json({ ok: true, ...r, ...publicPushStatus() });
+    const only = String((req.query && req.query.only) || (req.body && req.body.only) || '').toLowerCase();
+    const out = {};
+    if (only !== 'claims') out.questions = await checkNewQuestions({ manual: true });
+    if (only !== 'questions') out.claims = await checkNewClaims({ manual: true });
+    const first = out.questions || out.claims || {};
+    res.json({
+      ok: true, ...first,
+      summary: [out.questions && out.questions.summary, out.claims && out.claims.summary].filter(Boolean).join(' ｜ '),
+      ...publicPushStatus(),
+    });
   } catch (e) { sendMlError(res, e); }
 });
 

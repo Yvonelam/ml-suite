@@ -198,7 +198,7 @@
               <div class="li"><span class="nm">巴西 MLB<small id="lat-MLB">检测中…</small></span><span class="st" id="status-MLB"><i></i>检测中</span></div>
               <div class="li"><span class="nm">阿根廷 MLA<small id="lat-MLA">检测中…</small></span><span class="st" id="status-MLA"><i></i>检测中</span></div>
               <div class="li"><span class="nm">每日排名报告<small id="task-schedule">未启用</small></span><span class="st" id="status-schedule"><i class="off"></i>未启用</span></div>
-              <div class="li"><span class="nm">售前提问微信提醒<small id="task-push">未配置</small></span><span class="st" id="status-push"><i class="off"></i>未开启</span></div>
+              <div class="li"><span class="nm">微信提醒<small id="task-push">未配置</small></span><span class="st" id="status-push"><i class="off"></i>未开启</span></div>
             </div>
           </div>
         </div>
@@ -615,9 +615,9 @@
         <label class="fld">Refresh Token <small id="mlRefreshHint"></small><input id="mlRefresh" type="password" placeholder="TG-开头，留空则保留原值" autocomplete="off"></label>
       </details>
       <details class="oauth-more" id="pushSection">
-        <summary>🔔 微信提醒 · 售前提问（推送到手机微信）</summary>
+        <summary>🔔 微信提醒 · 售前提问 + 售后（推送到手机微信）</summary>
         <div class="oauth-d" style="margin-top:10px">
-          有买家提<b>新的售前问题</b>时，自动推一条微信给你，带问题原文、商品名和直达链接。走 <b>PushPlus</b>，不用服务器、免费。
+          两类事件自动推微信：<b>① 买家提新的售前问题</b>；<b>② 售后有新动向</b>（平台调解员发来新方案、买家新留言、新纠纷）。都走 <b>PushPlus</b>，不用服务器、免费。
         </div>
         <div class="oauth-d" style="background:var(--s3);border-radius:8px;padding:9px 11px;margin-top:6px">
           <b>怎么拿 token：</b>手机微信搜公众号「<b>pushplus 推送加</b>」并关注 → 进去点菜单登录 → 在「一对一推送」页面复制 <b>token</b> → 粘贴到下面。
@@ -626,6 +626,9 @@
         <label class="fld">PushPlus Token <small id="pushTokenHint"></small><input id="pushToken" type="password" placeholder="粘贴 32 位 token，留空则保留原值" autocomplete="off"></label>
         <div class="push-row">
           <label class="oauth-chk"><input type="checkbox" id="pushEnabled"> 开启新提问提醒</label>
+          <label class="oauth-chk"><input type="checkbox" id="pushClaims"> 同时推送售后（纠纷 / 平台调解）</label>
+        </div>
+        <div class="push-row">
           <label class="push-int">每 <input id="pushInterval" type="number" min="1" max="120" value="5"> 分钟检查一次</label>
         </div>
         <div class="push-actions">

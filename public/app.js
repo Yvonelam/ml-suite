@@ -2573,17 +2573,27 @@ function renderPushStatus(s) {
     const hint = $('#pushTokenHint');
     if (hint) hint.textContent = s.hasToken ? ('（已设置 · 尾号 ' + (s.tokenTail || '****') + '，留空不修改）') : '（尚未设置）';
     const en = $('#pushEnabled'); if (en) en.checked = !!s.enabled;
+    const cl = $('#pushClaims'); if (cl) cl.checked = s.claimsEnabled !== false;
     const iv = $('#pushInterval'); if (iv && document.activeElement !== iv) iv.value = s.intervalMin || 5;
     const box = $('#pushState');
     if (box) {
       const parts = [];
       parts.push(s.enabled ? (s.hasToken ? '✅ 已开启' : '⚠️ 已勾选但还没填 token') : '⏸ 未开启');
       parts.push('每 ' + (s.intervalMin || 5) + ' 分钟检查');
-      if (s.lastCheckAt) parts.push('上次检查 ' + brClock(s.lastCheckAt));
-      if (s.lastPushAt) parts.push('上次推送 ' + brClock(s.lastPushAt));
+      if (s.lastCheckAt) parts.push('提问上次检查 ' + brClock(s.lastCheckAt));
+      if (s.lastPushAt) parts.push('提问上次推送 ' + brClock(s.lastPushAt));
       parts.push('已记录 ' + fmt(s.seenCount) + ' 条提问');
+      if (s.claimsEnabled !== false) {
+        if (s.lastClaimCheckAt) parts.push('售后上次检查 ' + brClock(s.lastClaimCheckAt));
+        if (s.lastClaimPushAt) parts.push('售后上次推送 ' + brClock(s.lastClaimPushAt));
+        parts.push('已记录 ' + fmt(s.claimSeenCount || 0) + ' 条售后');
+      } else {
+        parts.push('售后提醒已关闭');
+      }
       if (s.lastSummary) parts.push(s.lastSummary);
-      if (s.lastError) parts.push('❌ ' + s.lastError);
+      if (s.claimsEnabled !== false && s.lastClaimSummary) parts.push(s.lastClaimSummary);
+      if (s.lastError) parts.push('❌ 提问：' + s.lastError);
+      if (s.claimsEnabled !== false && s.lastClaimError) parts.push('❌ 售后：' + s.lastClaimError);
       box.innerHTML = parts.map(escHtml).join(' · ');
     }
   }
@@ -2594,7 +2604,7 @@ function renderPushStatus(s) {
     else if (!s.hasToken) { tp.textContent = '未填 token'; setStateEl(sp, 'warn', '未开启'); }
     else if (!s.enabled) { tp.textContent = '已配置 · 未开启'; setStateEl(sp, '', '未开启'); }
     else {
-      tp.textContent = '每 ' + (s.intervalMin || 5) + ' 分钟检查' + (s.lastCheckAt ? ' · 上次 ' + brClock(s.lastCheckAt) : '');
+      tp.textContent = '提问 + 售后 · 每 ' + (s.intervalMin || 5) + ' 分钟' + (s.lastCheckAt ? ' · 上次 ' + brClock(s.lastCheckAt) : '');
       setStateEl(sp, 'ok', '运行中');
     }
   }
@@ -2608,6 +2618,7 @@ async function loadPushStatus() {
 async function savePushConfig(silent) {
   const body = {
     pushEnabled: !!($('#pushEnabled') && $('#pushEnabled').checked),
+    pushClaims: !!($('#pushClaims') && $('#pushClaims').checked),
     pushIntervalMin: parseInt($('#pushInterval') && $('#pushInterval').value, 10) || 5,
   };
   const tk = $('#pushToken') ? $('#pushToken').value.trim() : '';
@@ -2620,7 +2631,9 @@ async function savePushConfig(silent) {
     if (!(r.ok && d.ok)) { if (!silent) mlCfgStatus('❌ 微信提醒保存失败：' + (d.error || '未知错误'), 'error'); return false; }
     renderPushStatus(d);
     if (tk) { const e = $('#pushToken'); if (e) e.value = ''; }
-    if (!silent) toast(body.pushEnabled ? '✅ 微信提醒已开启（每 ' + body.pushIntervalMin + ' 分钟检查）' : '已保存微信提醒设置');
+    if (!silent) toast(body.pushEnabled
+      ? ('✅ 微信提醒已开启（每 ' + body.pushIntervalMin + ' 分钟检查' + (body.pushClaims ? '，含售后' : '') + '）')
+      : '已保存微信提醒设置');
     return true;
   } catch (e) { if (!silent) mlCfgStatus('❌ 请求失败：' + e.message, 'error'); return false; }
 }
@@ -2641,7 +2654,7 @@ async function testPush() {
 }
 async function checkPushNow() {
   const btn = $('#pushCheck'); if (btn) btn.disabled = true;
-  const st = $('#pushState'); if (st) { st.textContent = '⏳ 正在检查新提问…'; st.style.color = 'var(--mut)'; }
+  const st = $('#pushState'); if (st) { st.textContent = '⏳ 正在检查新提问与售后动向…'; st.style.color = 'var(--mut)'; }
   try {
     const r = await fetch(API_BASE + '/api/push/check', { method: 'POST' });
     const d = await r.json();
