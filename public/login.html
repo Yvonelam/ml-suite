@@ -1,0 +1,97 @@
+﻿<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ML Suite · 登录</title></head><body style="margin:0;background:#09090b"><div id="mlsuite-auth-preview">
+  <style>
+    #mlsuite-auth-preview { --bg:#09090b; --s1:#0e0e11; --s2:#131316; --s3:#1a1a1f; --bd:#242429; --bd2:#31313a; --ink:#ededf0; --tx2:#a1a1aa; --mut:#71717a; --ac:#3b82f6; --ok:#22c55e; --cyan:#38bdf8; --violet:#818cf8; --glass:rgba(255,255,255,.045); --glass-border:rgba(255,255,255,.10); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter','PingFang SC','Microsoft YaHei',sans-serif; min-height:590px; padding:26px; position:relative; overflow:hidden; border:1px solid #202027; border-radius:20px; background:radial-gradient(ellipse at 18% 12%,rgba(56,189,248,.12),transparent 34%),radial-gradient(ellipse at 77% 88%,rgba(129,140,248,.11),transparent 35%),var(--bg); }
+    #mlsuite-auth-preview:before { content:""; position:absolute; inset:0; opacity:.2; pointer-events:none; background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px); background-size:34px 34px; mask-image:linear-gradient(to bottom,black,transparent 85%); }
+    #mlsuite-auth-preview * { box-sizing:border-box; }
+    #mlsuite-auth-preview .shell { position:relative; z-index:1; max-width:1030px; min-height:538px; margin:auto; display:grid; grid-template-rows:auto 1fr auto; }
+    #mlsuite-auth-preview .topbar { display:flex; align-items:center; justify-content:space-between; padding:2px 4px 24px; color:var(--mut); font-size:11px; letter-spacing:.1em; text-transform:uppercase; }
+    #mlsuite-auth-preview .brand { display:flex; align-items:center; gap:10px; color:var(--ink); font-size:12px; letter-spacing:.16em; font-weight:700; }
+    #mlsuite-auth-preview .brand-mark { width:29px; height:29px; display:grid; place-items:center; border-radius:9px; color:#06111b; font-size:11px; letter-spacing:0; background:linear-gradient(140deg,var(--cyan),var(--violet)); box-shadow:0 0 24px rgba(56,189,248,.24); }
+    #mlsuite-auth-preview .live { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--bd); border-radius:999px; padding:7px 10px; background:rgba(255,255,255,.025); letter-spacing:.06em; }
+    #mlsuite-auth-preview .live i { width:6px; height:6px; border-radius:50%; background:var(--ok); box-shadow:0 0 10px rgba(34,197,94,.65); }
+    #mlsuite-auth-preview .main { display:grid; grid-template-columns:1fr 420px; align-items:center; gap:70px; padding:12px 6.5% 28px; }
+    #mlsuite-auth-preview .intro { max-width:410px; }
+    #mlsuite-auth-preview .eyebrow { display:flex; align-items:center; gap:9px; color:var(--cyan); font-size:11px; letter-spacing:.17em; text-transform:uppercase; }
+    #mlsuite-auth-preview .eyebrow:before { content:""; width:22px; height:1px; background:var(--cyan); box-shadow:0 0 9px var(--cyan); }
+    #mlsuite-auth-preview h1 { margin:20px 0 13px; max-width:360px; color:var(--ink); font-size:clamp(30px,4vw,43px); line-height:1.12; letter-spacing:-.045em; font-weight:600; }
+    #mlsuite-auth-preview h1 span { color:transparent; background:linear-gradient(100deg,var(--cyan),var(--violet)); background-clip:text; }
+    #mlsuite-auth-preview .lead { max-width:350px; margin:0; color:var(--tx2); font-size:14px; line-height:1.8; }
+    #mlsuite-auth-preview .feature-list { display:grid; gap:11px; margin-top:29px; }
+    #mlsuite-auth-preview .feature { display:flex; align-items:center; gap:12px; color:#c5c5ce; font-size:12px; }
+    #mlsuite-auth-preview .feature-mark { display:grid; place-items:center; width:25px; height:25px; flex:none; border:1px solid rgba(56,189,248,.2); border-radius:8px; color:var(--cyan); background:rgba(56,189,248,.07); font-size:12px; }
+    #mlsuite-auth-preview .auth-card { padding:27px; border:1px solid var(--glass-border); border-radius:16px; background:linear-gradient(145deg,rgba(255,255,255,.065),rgba(255,255,255,.025)); box-shadow:0 22px 70px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.045); backdrop-filter:blur(16px); }
+    #mlsuite-auth-preview .card-head { margin-bottom:21px; }
+    #mlsuite-auth-preview h2 { margin:0; font-size:20px; letter-spacing:-.02em; font-weight:600; }
+    #mlsuite-auth-preview .sub { margin:6px 0 0; color:var(--mut); font-size:12px; }
+    #mlsuite-auth-preview .tabs { display:grid; grid-template-columns:1fr 1fr; padding:4px; gap:4px; border:1px solid var(--bd); border-radius:10px; background:rgba(0,0,0,.22); }
+    #mlsuite-auth-preview .tab { border:0; border-radius:7px; padding:9px 10px; color:var(--mut); background:transparent; font:inherit; font-size:12px; cursor:pointer; }
+    #mlsuite-auth-preview .tab.active { color:var(--ink); background:linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,.045)); box-shadow:inset 0 0 0 1px rgba(255,255,255,.065); }
+    #mlsuite-auth-preview .form { display:grid; gap:14px; margin-top:20px; }
+    #mlsuite-auth-preview .field { display:grid; gap:7px; color:#c9c9d1; font-size:11px; }
+    #mlsuite-auth-preview .input-wrap { position:relative; }
+    #mlsuite-auth-preview .input { display:block; width:100%; height:43px; border:1px solid var(--bd2); border-radius:9px; padding:0 12px; outline:none; background:rgba(7,7,10,.55); color:var(--ink); font:inherit; font-size:13px; transition:border-color .16s,box-shadow .16s; }
+    #mlsuite-auth-preview .input::placeholder { color:#55555f; }
+    #mlsuite-auth-preview .input:focus { border-color:rgba(56,189,248,.55); box-shadow:0 0 0 3px rgba(56,189,248,.08); }
+    #mlsuite-auth-preview .submit { display:flex; align-items:center; justify-content:center; gap:9px; width:100%; min-height:43px; margin-top:3px; border:1px solid rgba(96,165,250,.35); border-radius:9px; background:linear-gradient(105deg,#2563eb,#3b82f6 58%,#4f83eb); box-shadow:0 7px 24px rgba(59,130,246,.2),inset 0 1px 0 rgba(255,255,255,.2); color:white; font:inherit; font-size:13px; font-weight:600; cursor:pointer; }
+    #mlsuite-auth-preview .submit:hover { filter:brightness(1.08); }
+    #mlsuite-auth-preview .submit b { font-size:16px; font-weight:400; }
+    #mlsuite-auth-preview .hint { margin:14px 0 0; color:#777783; font-size:10px; line-height:1.65; text-align:center; }
+    #mlsuite-auth-preview .foot { display:flex; justify-content:space-between; padding:13px 5px 0; border-top:1px solid rgba(255,255,255,.07); color:#62626b; font-size:10px; letter-spacing:.04em; }
+    #mlsuite-auth-preview [hidden] { display:none !important; }
+    @media(max-width:760px) { #mlsuite-auth-preview { padding:18px; } #mlsuite-auth-preview .main { grid-template-columns:1fr; gap:30px; padding:18px 0 25px; } #mlsuite-auth-preview .intro { max-width:none; } #mlsuite-auth-preview h1 { max-width:none; margin-top:13px; font-size:30px; } #mlsuite-auth-preview .lead { max-width:none; } #mlsuite-auth-preview .feature-list { grid-template-columns:1fr 1fr; margin-top:17px; } #mlsuite-auth-preview .auth-card { width:100%; max-width:460px; justify-self:center; } #mlsuite-auth-preview .foot { gap:12px; flex-wrap:wrap; } }
+    @media(max-width:420px) { #mlsuite-auth-preview .feature-list { grid-template-columns:1fr; } #mlsuite-auth-preview .auth-card { padding:21px; } #mlsuite-auth-preview .topbar { padding-bottom:14px; } }
+  </style>
+  <div class="shell">
+    <header class="topbar"><div class="brand"><span class="brand-mark">ML</span><span>ML SUITE</span></div><span class="live"><i aria-hidden="true"></i> WORKSPACE ACCESS</span></header>
+    <main class="main">
+      <section class="intro">
+        <div class="eyebrow">运营工作台 · 安全入口</div>
+        <h1>每个账号，<br><span>独立运行。</span></h1>
+        <p class="lead">登录 ML Suite，进入属于你的运营工作空间。API 凭据、配置与业务数据按账号隔离。</p>
+        <div class="feature-list" aria-label="账号安全特性">
+          <div class="feature"><span class="feature-mark">⌘</span><span>API 凭据独立保存</span></div>
+          <div class="feature"><span class="feature-mark">▦</span><span>业务数据分账号隔离</span></div>
+          <div class="feature"><span class="feature-mark">✓</span><span>新账号经管理员审批</span></div>
+        </div>
+      </section>
+      <section class="auth-card" aria-label="ML Suite 账号入口">
+        <div class="card-head"><h2>进入工作台</h2><p class="sub">使用你的 ML Suite 账号继续</p></div>
+        <div class="tabs" role="tablist" aria-label="账号操作">
+          <button class="tab active" id="ml-login-tab" role="tab" aria-controls="ml-login-panel" aria-selected="true" type="button">账号登录</button>
+          <button class="tab" id="ml-register-tab" role="tab" aria-controls="ml-register-panel" aria-selected="false" type="button">创建账号</button>
+        </div>
+        <section id="ml-login-panel" role="tabpanel" aria-labelledby="ml-login-tab">
+          <form class="form" id="login-form">
+            <label class="field">账号<div class="input-wrap"><input class="input" id="login-user" autocomplete="username" placeholder="输入你的账号" aria-label="账号" required></div></label>
+            <label class="field">密码<div class="input-wrap"><input class="input" id="login-pass" type="password" autocomplete="current-password" placeholder="输入登录密码" aria-label="密码" required></div></label>
+            <button class="submit" id="login-submit" type="submit">安全登录 <b aria-hidden="true">→</b></button>
+          </form>
+          <p class="hint" id="auth-message" aria-live="polite">登录后仅能访问此账号授权的 API 与数据</p>
+        </section>
+        <section id="ml-register-panel" role="tabpanel" aria-labelledby="ml-register-tab" hidden>
+          <form class="form" id="register-form">
+            <label class="field">账号<div class="input-wrap"><input class="input" id="reg-user" autocomplete="username" placeholder="设置账号名" aria-label="设置账号名" required></div></label>
+            <label class="field">密码<div class="input-wrap"><input class="input" id="reg-pass" type="password" autocomplete="new-password" placeholder="至少 8 位" aria-label="设置密码" required></div></label>
+            <label class="field">确认密码<div class="input-wrap"><input class="input" id="reg-confirm" type="password" autocomplete="new-password" placeholder="再次输入密码" aria-label="确认密码" required></div></label>
+            <button class="submit" id="reg-submit" type="submit">提交审批 <b aria-hidden="true">→</b></button>
+          </form>
+          <p class="hint">注册申请提交后等待管理员审批，通过后即可登录。</p>
+        </section>
+      </section>
+    </main>
+    <footer class="foot"><span>ML SUITE · MERCADO LIBRE OPERATIONS</span><span>独立空间 · 私有配置 · 管理员审批</span></footer>
+  </div>
+  <script>
+    const root = document.getElementById('mlsuite-auth-preview');
+    const tabs = [...root.querySelectorAll('[role="tab"]')];
+    const panels = [...root.querySelectorAll('[role="tabpanel"]')];
+    tabs.forEach((tab,index)=>tab.addEventListener('click',()=>{
+      tabs.forEach((item,i)=>{item.classList.toggle('active',i===index);item.setAttribute('aria-selected',String(i===index));});
+      panels.forEach((panel,i)=>{panel.hidden=i!==index;});
+    }));
+  </script>
+<script>
+(async()=>{const msg=document.getElementById('auth-message');const req=async(url,data)=>{const r=await fetch('/api/auth/'+url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const d=await r.json();if(!r.ok)throw Error(d.error||'请求失败');return d;};try{const s=await fetch('/api/auth/status').then(r=>r.json());if(s.authenticated){location.href=s.user.role==='admin'?'/admin.html':'/';return;}if(s.bootstrapRequired){msg.textContent='首次初始化管理员：请在创建账号页使用账号 Yvonelam，旧版访问口令验证后设置管理员密码。';}}catch(e){msg.textContent=e.message;}
+document.getElementById('login-form').addEventListener('submit',async e=>{e.preventDefault();try{const d=await req('login',{username:document.getElementById('login-user').value,password:document.getElementById('login-pass').value});location.href=d.role==='admin'?'/admin.html':'/';}catch(x){msg.textContent=x.message;}});
+document.getElementById('register-form').addEventListener('submit',async e=>{e.preventDefault();try{const status=await fetch('/api/auth/status').then(r=>r.json());const username=document.getElementById('reg-user').value,password=document.getElementById('reg-pass').value,confirmPassword=document.getElementById('reg-confirm').value;let d;if(status.bootstrapRequired){const legacyPassword=prompt('请输入旧版访问口令以初始化管理员');if(!legacyPassword)return;d=await req('bootstrap',{username,password,confirmPassword,legacyPassword});location.href='/admin.html';}else{d=await req('register',{username,password,confirmPassword});msg.textContent=d.message;}}catch(x){msg.textContent=x.message;}});})();
+</script></div></body></html>

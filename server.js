@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { randomBytes } = require('crypto');
+const createAuth = require('./auth');
 const { ProxyAgent, setGlobalDispatcher } = require('undici');
 const nodemailer = require('nodemailer');
 const reportSchedule = require('./report-schedule');
@@ -22,15 +23,6 @@ process.on('unhandledRejection', (reason) => logCrash('unhandledRejection', reas
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 允许所有来源跨域访问（预览浏览器需要）
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
-  next();
-});
-
 // 所有 API 响应禁止浏览器缓存：否则忽略/回复后刷新页面可能拿到旧数据
 app.use((req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
@@ -42,149 +34,29 @@ app.use((req, res, next) => {
 // JSON body 解析
 app.use(express.json());
 
-// ==================== 配置文件管理 ====================
-const CONFIG_PATH = path.join(__dirname, 'daily-search-config.json');
 
+const LEGACY_CONFIG_PATH = path.join(__dirname, 'daily-search-config.json');
+const AUTH_CONFIG_DIR = path.join(__dirname, 'auth-data', 'configs');
 const DEFAULT_CONFIG = {
-  keyword: '',
-  productTitles: [],
-  sites: ['MLM'],
-  pages: 5,
-  email: '',
-  proxy: process.env.HTTPS_PROXY || process.env.HTTP_PROXY || 'http://127.0.0.1:7897',
-  scheduleEnabled: false,
-  scheduleHour: 14,
-  scheduleMinute: 0,
-  smtpHost: 'smtp.qq.com',
-  smtpPort: 465,
-  // 注意：这里不写真实凭据。真实值只放 daily-search-config.json（已被 .gitignore 排除）。
-  smtpUser: '',
-  smtpPass: '',
-  // ---- 美客多官方 API ----
-  mlAppId: '',
-  mlSecret: '',
-  mlAccessToken: '',
-  mlRefreshToken: '',
-  mlTokenExpireAt: 0,
-  mlUserId: '',
-  mlSite: '',
-  mlRedirectUri: '',
-  mlPkce: false,
-  // ---- 商品广告（Mercado Ads）----
-  mlAdvertiserId: '',
-  mlAdvertiserSite: '',
-  // ---- 微信提醒（PushPlus）----
-  pushToken: '',
-  pushEnabled: false,
-  pushIntervalMin: 5,
-  pushClaims: true,           // 是否同时推送售后（纠纷 / 平台调解）提醒
-  // ---- 大麦数据（MCP）· 真实热搜词 ----
-  dmApiKey: '',               // 真实 Key 放 daily-search-config.json，不写进源码
-  dmHotSite: 'MLB',
-  dmHotTtlHours: 24,          // 缓存有效期（小时）= 一天刷新一次；每次刷新按关键词个数扣积分
-  dmHotKeywords: [
-    { k: 'fone de ouvido bluetooth', z: '蓝牙耳机' },
-    { k: 'headset gamer', z: '游戏耳机' },
-    { k: 'fone de ouvido com fio', z: '有线耳机' },
-    { k: 'fone de ouvido jbl', z: 'JBL 耳机' },
-    { k: 'fone de ouvido cancelamento de ruido', z: '降噪耳机' },
-  ],
+  keyword:'',productTitles:[],sites:['MLM'],pages:5,email:'',
+  proxy:process.env.HTTPS_PROXY||process.env.HTTP_PROXY||'http://127.0.0.1:7897',
+  scheduleEnabled:false,scheduleHour:14,scheduleMinute:0,smtpHost:'smtp.qq.com',smtpPort:465,smtpUser:'',smtpPass:'',
+  mlAppId:'',mlSecret:'',mlAccessToken:'',mlRefreshToken:'',mlTokenExpireAt:0,mlUserId:'',mlSite:'',mlRedirectUri:'',mlPkce:false,
+  mlAdvertiserId:'',mlAdvertiserSite:'',pushToken:'',pushEnabled:false,pushIntervalMin:5,dmApiKey:'',dmHotSite:'MLB',dmHotTtlHours:24,
+  dmHotKeywords:[{k:'fone de ouvido bluetooth',z:'蓝牙耳机'},{k:'headset gamer',z:'游戏耳机'},{k:'fone de ouvido com fio',z:'有线耳机'},{k:'fone de ouvido jbl',z:'JBL 耳机'},{k:'fone de ouvido cancelamento de ruido',z:'降噪耳机'}]
 };
-
-function loadConfig() {
-  try {
-    const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
-    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
-  } catch {
-    return { ...DEFAULT_CONFIG };
-  }
-}
-
-function saveConfig(cfg) {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
-}
-
-// ==================== 报告发送状态 ====================
-// 单独一个文件，不写进用户配置：一是语义清晰，二是避免和 /api/config 的写入互相覆盖。
-// 作用：记录「今天发过没」，让「过了点就补发」的逻辑不会把邮件发重。
-const REPORT_STATE_PATH = path.join(__dirname, 'report-state.json');
-
-function loadReportState() {
-  try {
-    return JSON.parse(fs.readFileSync(REPORT_STATE_PATH, 'utf8'));
-  } catch (e) {
-    return {};
-  }
-}
-
-function saveReportState(patch) {
-  try {
-    const next = Object.assign(loadReportState(), patch);
-    fs.writeFileSync(REPORT_STATE_PATH, JSON.stringify(next, null, 2), 'utf8');
-    return next;
-  } catch (e) {
-    console.error('[报告] 写入发送状态失败:', e.message);
-    return loadReportState();
-  }
-}
-
-// ==================== 公网访问口令 ====================
-// 仅拦截「通过隧道进入」的流量；本机直连（开发/自用）不校验，互不影响。
-function isViaTunnel(req) {
-  return !!(req.headers['cf-connecting-ip'] || req.headers['cf-ray'] || req.headers['x-forwarded-for']);
-}
-
-function getAccessPassword() {
-  const cfg = loadConfig();
-  if (!cfg.accessPassword) {
-    cfg.accessPassword = Math.random().toString(36).slice(2, 8);
-    saveConfig(cfg);
-    console.log(`\n[安全] 已自动生成公网访问口令: ${cfg.accessPassword}`);
-    console.log(`[安全] 如需修改，编辑 daily-search-config.json 的 accessPassword 字段\n`);
-  }
-  return cfg.accessPassword;
-}
-
-function loginPage() {
-  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ML Suite · 访问验证</title>
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#09090b;color:#ededf0;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif}
-.card{background:#131316;border:1px solid #242429;border-radius:14px;padding:34px 32px;width:min(340px,86vw);text-align:center}
-h1{font-size:18px;margin:0 0 6px}p{color:#71717a;font-size:13px;margin:0 0 22px}
-input{width:100%;box-sizing:border-box;background:#1a1a1f;border:1px solid #31313a;border-radius:8px;padding:11px 13px;color:#ededf0;font-size:15px;outline:none}
-input:focus{border-color:#3b82f6}button{width:100%;margin-top:14px;padding:11px;border:0;border-radius:8px;background:#3b82f6;color:#fff;font-size:15px;font-weight:600;cursor:pointer}
-button:hover{background:#2f6fe0}#msg{color:#ef4444;font-size:13px;height:18px;margin-top:10px}</style></head>
-<body><div class="card"><h1>ML Suite</h1><p>请输入访问口令</p>
-<input id="pw" type="password" placeholder="访问口令" autofocus><div id="msg"></div><button id="go">进入</button></div>
-<script>async function login(){const pw=document.getElementById('pw').value;if(!pw)return;const m=document.getElementById('msg');m.textContent='';
-try{const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});const d=await r.json();
-if(d.success){location.href='/'}else{m.textContent=d.error||'口令错误'}}catch(e){m.textContent='请求失败'}}
-document.getElementById('go').onclick=login;document.getElementById('pw').addEventListener('keypress',e=>{if(e.key==='Enter')login()});</script></body></html>`;
-}
-
-// 登录接口（放行）
-app.post('/api/login', (req, res) => {
-  const pw = getAccessPassword();
-  const input = (req.body && req.body.password) || '';
-  if (input === pw) {
-    res.setHeader('Set-Cookie', `ml_auth=${encodeURIComponent(pw)}; Path=/; Max-Age=2592000; SameSite=Lax`);
-    return res.json({ success: true });
-  }
-  res.status(401).json({ success: false, error: '口令错误' });
-});
-
-// 访问门禁：隧道流量必须通过口令；本机直连直接放行
-app.use((req, res, next) => {
-  if (!isViaTunnel(req)) return next();       // 本机直连（开发/自用）放行
-  const pw = getAccessPassword();             // 不存在则自动生成
-  if (!pw) return next();
-  const cookie = req.headers.cookie || '';
-  const m = cookie.match(/(?:^|;\s*)ml_auth=([^;]+)/);
-  if (m && decodeURIComponent(m[1]) === pw) return next();
-  if (req.path === '/api/ml/oauth/callback') return next(); // OAuth 回调放行，避免丢失 code
-  if (req.path.startsWith('/api/')) return res.status(401).json({ error: '需要访问口令，请先登录' });
-  return res.type('html').send(loginPage());
-});
-
+function accountConfigPath(id){const k=String(id||'admin');if(!/^[A-Za-z0-9_-]{1,64}$/.test(k))throw Error('非法账号标识');return path.join(AUTH_CONFIG_DIR,k+'.json');}
+function readLegacyConfig(){try{return JSON.parse(fs.readFileSync(LEGACY_CONFIG_PATH,'utf8'));}catch{return {};}}
+function loadConfig(){const id=auth?auth.currentUserId():'admin';try{return {...DEFAULT_CONFIG,...JSON.parse(fs.readFileSync(accountConfigPath(id),'utf8'))};}catch{return id==='admin'?{...DEFAULT_CONFIG,...readLegacyConfig()}:{...DEFAULT_CONFIG};}}
+function saveAccountConfig(id,cfg){fs.mkdirSync(AUTH_CONFIG_DIR,{recursive:true});fs.writeFileSync(accountConfigPath(id),JSON.stringify(cfg,null,2),'utf8');}
+function saveConfig(cfg){saveAccountConfig(auth.currentUserId(),cfg);}
+function privateDataFile(name){return auth.userDataFile(name);}
+function loadReportState(){try{return JSON.parse(fs.readFileSync(privateDataFile('report-state.json'),'utf8'));}catch{return {};}}
+function saveReportState(patch){try{const p=privateDataFile('report-state.json'),next=Object.assign(loadReportState(),patch);fs.writeFileSync(p,JSON.stringify(next,null,2),'utf8');return next;}catch(e){console.error('[报告] 写入发送状态失败:',e.message);return loadReportState();}}
+const auth=createAuth(express,{publicDir:path.join(__dirname,'public'),readLegacyConfig,migrateAdminConfig:()=>{const c=readLegacyConfig();delete c.accessPassword;saveAccountConfig('admin',{...DEFAULT_CONFIG,...c});}});
+app.use('/api/auth',auth.publicRouter);
+app.use(auth.middleware);
+app.use('/api/admin',auth.adminRouter);
 // 读取代理配置：环境变量优先 → 配置文件 → 关闭
 function resolveProxyUrl() {
   const fromEnv = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy;
@@ -901,18 +773,14 @@ function normalizeOrder(o) {
 
 /* ============ 发货方式分类：官方发货不用管，自发货/要打面单的才提示 ============ */
 // 分类结果持久缓存（发货方式不会变，缓存一次终身受用）
-const SHIP_CACHE_PATH = path.join(__dirname, 'ship-cache.json');
-let shipCache = null;
+const shipCaches = new Map();
 function loadShipCache() {
-  if (shipCache) return shipCache;
-  try {
-    const d = JSON.parse(fs.readFileSync(SHIP_CACHE_PATH, 'utf8'));
-    shipCache = (d && typeof d === 'object' && !Array.isArray(d)) ? d : {};
-  } catch { shipCache = {}; }
-  return shipCache;
+  const id=auth.currentUserId(); if(shipCaches.has(id))return shipCaches.get(id);
+  try { const d=JSON.parse(fs.readFileSync(privateDataFile('ship-cache.json'),'utf8'));shipCaches.set(id,(d&&typeof d==='object'&&!Array.isArray(d))?d:{}); }
+  catch { shipCaches.set(id,{}); } return shipCaches.get(id);
 }
 function saveShipCache() {
-  try { fs.writeFileSync(SHIP_CACHE_PATH, JSON.stringify(shipCache || {}, null, 2), 'utf8'); } catch { }
+  try { fs.writeFileSync(privateDataFile('ship-cache.json'), JSON.stringify(loadShipCache(), null, 2), 'utf8'); } catch { }
 }
 // 发货方式中文标签
 function shipLabel(mode, logistic) {
@@ -980,11 +848,12 @@ async function mlClaimReasons(ids) {
   const uniq = [...new Set((ids || []).filter(Boolean).map(String))];
   const out = {};
   await Promise.all(uniq.map(async (rid) => {
-    if (claimReasonCache.has(rid)) { out[rid] = claimReasonCache.get(rid); return; }
+    const cacheKey=auth.currentUserId()+':'+rid;
+    if (claimReasonCache.has(cacheKey)) { out[rid] = claimReasonCache.get(cacheKey); return; }
     try {
       const d = await mlRequest(`/post-purchase/v1/claims/reasons/${encodeURIComponent(rid)}`);
       const r = { name: d.name || '', detail: d.detail || '', expected: ((d.settings || {}).expected_resolutions) || [] };
-      claimReasonCache.set(rid, r); out[rid] = r;
+      claimReasonCache.set(cacheKey, r); out[rid] = r;
     } catch { /* 拿不到原因不影响主流程 */ }
   }));
   return out;
@@ -1081,7 +950,8 @@ function classifyClaim(nc, thread = {}) {
 const claimThreadCache = new Map(); // id -> { at, data }
 async function mlClaimThread(id) {
   const key = String(id);
-  const hit = claimThreadCache.get(key);
+  const scopedKey=auth.currentUserId()+':'+key;
+  const hit = claimThreadCache.get(scopedKey);
   if (hit && Date.now() - hit.at < 60000) return hit.data;
   let list = [];
   try {
@@ -1110,7 +980,7 @@ async function mlClaimThread(id) {
     // 最后一条是对方（买家/调解员）发的 → 大概率在等我方回复
     awaitingSeller: !!last && /complainant|buyer|mediator/i.test(last.sender),
   };
-  claimThreadCache.set(key, { at: Date.now(), data });
+  claimThreadCache.set(scopedKey, { at: Date.now(), data });
   return data;
 }
 
@@ -1264,7 +1134,7 @@ app.get('/api/ml/sales', async (req, res) => {
     const site = mlSite(siteCode);
     const uid = u.id;
 
-    const key = `${uid}|${from}|${to}`;
+    const key = auth.currentUserId() + '|' + uid + '|' + from + '|' + to;
     if (salesCache.key === key && Date.now() - salesCache.at < 20000) {
       return res.json({ ...salesCache.data, cached: true });
     }
@@ -1497,7 +1367,7 @@ app.get('/api/ml/ads', async (req, res) => {
     const site = mlSite(siteCode);
     const adv = await mlAdvertiser(siteCode);
 
-    const key = `${adv.id}|${from}|${to}`;
+    const key = auth.currentUserId() + '|' + adv.id + '|' + from + '|' + to;
     if (adsCache.key === key && Date.now() - adsCache.at < 20000) return res.json({ ...adsCache.data, cached: true });
 
     const qs = (extra) => `/advertising/${adv.site}/advertisers/${adv.id}/product_ads/campaigns/search?date_from=${from}&date_to=${to}&metrics=${ADS_FIELDS}&${extra}`;
@@ -1567,8 +1437,7 @@ app.get('/api/ml/ads', async (req, res) => {
 // 解决办法：每 5 分钟把「当天累计花费」记一次，形成累计曲线；用相邻两次采样的差值
 // 反推出每个小时真实花了多少，并在小时结束后「定档」写死（此后永不再变）。
 //   实际花费 = 累计花费(小时结束) − 累计花费(小时开始)
-const ADS_SAMPLE_PATH = path.join(__dirname, 'ads-cost-samples.json');
-const ADS_LEDGER_PATH = path.join(__dirname, 'ads-hourly.json');
+
 const ADS_SETTLE_MS = 12 * 60 * 1000;    // 小时结束后多久定档：美客多落账延迟约 1-3 分钟 + 采样间隔 5 分钟，12 分钟足够（原来 2 小时太保守，导致过去的小时长期停留在分摊估算上而漂移）
 const ADS_SAMPLE_EVERY_MS = 5 * 60 * 1000;
 
@@ -1589,11 +1458,11 @@ function acctHour(ts) { return new Date(ts + BR_OFFSET_MIN * 60000).getUTCHours(
 function acctHourStart(dateStr, hour) { return Date.parse(dateStr + 'T00:00:00Z') + hour * 3600000 - BR_OFFSET_MIN * 60000; }
 
 function loadLedger() {
-  const o = loadJsonSafe(ADS_LEDGER_PATH, null) || {};
+  const o = loadJsonSafe(privateDataFile('ads-hourly.json'), null) || {};
   if (!o.days || typeof o.days !== 'object') o.days = {};
   return o;
 }
-function saveLedger(o) { saveJsonSafe(ADS_LEDGER_PATH, o); }
+function saveLedger(o) { saveJsonSafe(privateDataFile('ads-hourly.json'), o); }
 
 // 累计曲线在 T 时刻的值（相邻采样线性插值）
 function cumAt(arr, T) {
@@ -1650,7 +1519,7 @@ async function adsSampleOnce() {
     );
     const rows = (((d && d.results) || [])).map(adsRow);
     const now = Date.now();
-    const samples = loadJsonSafe(ADS_SAMPLE_PATH, {});
+    const samples = loadJsonSafe(privateDataFile('ads-cost-samples.json'), {});
     rows.forEach(r => {
       if (!r.date) return;
       const arr = samples[r.date] || (samples[r.date] = []);
@@ -1663,7 +1532,7 @@ async function adsSampleOnce() {
     const keep = new Set();
     for (let i = 0; i <= 6; i++) keep.add(addDaysStr(today, -i));
     Object.keys(samples).forEach(k => { if (!keep.has(k)) delete samples[k]; });
-    saveJsonSafe(ADS_SAMPLE_PATH, samples);
+    saveJsonSafe(privateDataFile('ads-cost-samples.json'), samples);
     materializeLedger(samples);
   } catch { /* 采样失败静默，下轮再试 */ }
 }
@@ -1764,7 +1633,7 @@ app.get('/api/ml/ads/hourly', async (req, res) => {
 
     // 3) 汇总：优先用「实测」台账（采样反推出的真实小时花费），没实测才退回出单占比分摊
     const led = loadLedger();
-    const samples = loadJsonSafe(ADS_SAMPLE_PATH, {});   // 采样累计曲线：过去小时按「该小时结束时刻的累计花费」固定分摊
+    const samples = loadJsonSafe(privateDataFile('ads-cost-samples.json'), {});   // 采样累计曲线：过去小时按「该小时结束时刻的累计花费」固定分摊
     const hourly = Array.from({ length: 24 }, (_, h) => ({ hour: h, orders: 0, amount: 0, cost: 0, measured: 0 }));
     const byDay = [];
     let totOrders = 0, totAmount = 0, totUnits = 0, totCost = 0, totAdUnits = 0, totAdAmount = 0;
@@ -2060,25 +1929,25 @@ function demoClaimDetail(id) {
 
 /* ============ 售后「忽略」：把已经无法回复 / 不想再处理的纠纷收起来 ============ */
 // 持久化到本地文件；示例数据（demo- 前缀）只在本进程内存里生效，不落盘
-const CLAIM_IGNORE_PATH = path.join(__dirname, 'claim-ignore.json');
+
 const demoIgnored = new Set();
 function loadIgnored() {
   try {
-    const d = JSON.parse(fs.readFileSync(CLAIM_IGNORE_PATH, 'utf8'));
+    const d = JSON.parse(fs.readFileSync(privateDataFile('claim-ignore.json'), 'utf8'));
     return (d && typeof d === 'object' && !Array.isArray(d)) ? d : {};
   } catch { return {}; }
 }
 function saveIgnored(map) {
-  try { fs.writeFileSync(CLAIM_IGNORE_PATH, JSON.stringify(map, null, 2), 'utf8'); } catch { }
+  try { fs.writeFileSync(privateDataFile('claim-ignore.json'), JSON.stringify(map, null, 2), 'utf8'); } catch { }
 }
 function isIgnored(id) {
   const key = String(id);
-  if (/^demo/i.test(key)) return demoIgnored.has(key);
+  if (/^demo/i.test(key)) return demoIgnored.has(auth.currentUserId()+':'+key);
   return !!loadIgnored()[key];
 }
 function setIgnored(id, on) {
   const key = String(id);
-  if (/^demo/i.test(key)) { on ? demoIgnored.add(key) : demoIgnored.delete(key); return; }
+  if (/^demo/i.test(key)) { const k=auth.currentUserId()+':'+key; on ? demoIgnored.add(k) : demoIgnored.delete(k); return; }
   const map = loadIgnored();
   if (on) map[key] = { at: new Date().toISOString() };
   else delete map[key];
@@ -2250,42 +2119,14 @@ app.post('/api/ml/config', (req, res) => {
 
 // ==================== 微信提醒（PushPlus）：售前提问实时提醒 ====================
 const PUSHPLUS_URL = 'https://www.pushplus.plus/send';
-const PUSH_STATE_PATH = path.join(__dirname, 'push-state.json');
 
-// 已推送过的提问 id / 运行状态（持久化，重启不重复推）
-const pushState = {
-  seen: [], baselineDone: false, lastCheckAt: 0, lastPushAt: 0, lastError: '', lastFresh: 0, lastSummary: '',
-  // ---- 售后（纠纷 / 平台调解）----
-  claimSeen: {},            // claimId -> 信号串（最后一条消息的「发送方|时间」），变了就是有新动向
-  claimBaselineDone: false, // 首次运行只建基线，不把存量纠纷一次性刷屏
-  lastClaimCheckAt: 0, lastClaimPushAt: 0, lastClaimError: '', lastClaimSummary: '', lastClaimFresh: 0,
-};
-let pushTimer = null;
-let pushBootTimer = null;
 
-function loadPushState() {
-  try {
-    const d = JSON.parse(fs.readFileSync(PUSH_STATE_PATH, 'utf8'));
-    if (Array.isArray(d.seen)) pushState.seen = d.seen.map(String).slice(0, 1000);
-    pushState.baselineDone = !!d.baselineDone;
-    pushState.lastCheckAt = d.lastCheckAt || 0;
-    pushState.lastPushAt = d.lastPushAt || 0;
-    pushState.lastError = d.lastError || '';
-    pushState.lastFresh = d.lastFresh || 0;
-    pushState.lastSummary = d.lastSummary || '';
-    if (d.claimSeen && typeof d.claimSeen === 'object' && !Array.isArray(d.claimSeen)) pushState.claimSeen = d.claimSeen;
-    pushState.claimBaselineDone = !!d.claimBaselineDone;
-    pushState.lastClaimCheckAt = d.lastClaimCheckAt || 0;
-    pushState.lastClaimPushAt = d.lastClaimPushAt || 0;
-    pushState.lastClaimError = d.lastClaimError || '';
-    pushState.lastClaimSummary = d.lastClaimSummary || '';
-    pushState.lastClaimFresh = d.lastClaimFresh || 0;
-  } catch { /* 首次运行没有状态文件，忽略 */ }
-}
-function savePushState() {
-  try { fs.writeFileSync(PUSH_STATE_PATH, JSON.stringify(pushState, null, 2), 'utf8'); } catch { }
-}
-loadPushState();
+// 各账号独立的持久推送状态
+const pushStates=new Map();
+const pushDefault={seen:[],baselineDone:false,lastCheckAt:0,lastPushAt:0,lastError:'',lastFresh:0,lastSummary:'',claimSeen:{},claimBaselineDone:false,lastClaimCheckAt:0,lastClaimPushAt:0,lastClaimError:'',lastClaimSummary:'',lastClaimFresh:0};
+function getPushState(){const id=auth.currentUserId();if(pushStates.has(id))return pushStates.get(id);let d={...pushDefault,claimSeen:{}};try{d={...d,...JSON.parse(fs.readFileSync(privateDataFile('push-state.json'),'utf8'))};}catch{}pushStates.set(id,d);return d;}
+const pushState=new Proxy({}, {get(_t,k){return getPushState()[k];},set(_t,k,v){getPushState()[k]=v;return true;}});
+function savePushState(){try{fs.writeFileSync(privateDataFile('push-state.json'),JSON.stringify(getPushState(),null,2),'utf8');}catch{}}
 
 // 服务端 HTML 转义（消息正文里会拼商品标题和提问原文）
 function escPush(s) {
@@ -2665,22 +2506,23 @@ app.post('/api/push/check', async (req, res) => {
 // 关键约束：单次 MCP 调用实测约 25 秒，所以接口永远只回缓存；
 //          缓存过期时在后台异步刷新，绝不阻塞 HTTP 请求。
 const dmClient = require('./dm-client');
-const DM_HOT_CACHE = path.join(__dirname, 'dm-hot-cache.json');
+
 const DM_HOT_FORCE_MIN_MS = 5 * 60 * 1000;   // 手动刷新的最小间隔，防止误点连刷白扣积分
 
-let dmHotMem = null;
-let dmHotBusy = false;
+const dmHotMemByUser=new Map();
+const dmHotBusyByUser=new Set();
+function dmBusy(){return dmHotBusyByUser.has(auth.currentUserId());}
+function dmMem(){return dmHotMemByUser.get(auth.currentUserId())||null;}
 let dmHotTimer = null;
 
 function loadDmHot() {
-  if (dmHotMem) return dmHotMem;
-  try { dmHotMem = JSON.parse(fs.readFileSync(DM_HOT_CACHE, 'utf8')); }
-  catch (e) { dmHotMem = null; }
-  return dmHotMem;
+  const id=auth.currentUserId();if(dmHotMemByUser.has(id))return dmHotMemByUser.get(id);
+  let d=null;try{d=JSON.parse(fs.readFileSync(privateDataFile('dm-hot-cache.json'),'utf8'));}catch{}
+  dmHotMemByUser.set(id,d);return d;
 }
 function saveDmHot(snap) {
-  dmHotMem = snap;
-  try { fs.writeFileSync(DM_HOT_CACHE, JSON.stringify(snap, null, 2), 'utf8'); } catch (e) { }
+  dmHotMemByUser.set(auth.currentUserId(),snap);
+  try { fs.writeFileSync(privateDataFile('dm-hot-cache.json'), JSON.stringify(snap, null, 2), 'utf8'); } catch (e) { }
 }
 function dmHotTtlHours(cfg) {
   const h = Number(cfg.dmHotTtlHours);
@@ -2699,11 +2541,11 @@ function dmHotStale(cfg) {
 }
 
 async function refreshDmHot(reason) {
-  if (dmHotBusy) return { ok: false, busy: true };
+  if (dmBusy()) return { ok: false, busy: true };
   const cfg = loadConfig();
   const site = dmHotSiteName(cfg);
   const list = dmHotKeywordList(cfg);
-  dmHotBusy = true;
+  dmHotBusyByUser.add(auth.currentUserId());
   const t0 = Date.now();
   console.log(`[大麦] 开始刷新热搜词（${reason}）：${list.length} 个关键词 @ ${site}`);
   try {
@@ -2744,7 +2586,7 @@ async function refreshDmHot(reason) {
     console.warn('[大麦] 热搜词刷新失败：' + e.message);
     return { ok: false, error: e.message };
   } finally {
-    dmHotBusy = false;
+    dmHotBusyByUser.delete(auth.currentUserId());
   }
 }
 
@@ -2753,7 +2595,7 @@ function scheduleDmHot() {
   if (dmHotTimer) clearInterval(dmHotTimer);
   dmHotTimer = setInterval(() => {
     const cfg = loadConfig();
-    if (dmHotStale(cfg) && !dmHotBusy) refreshDmHot('定时刷新').catch(() => { });
+    if (dmHotStale(cfg) && !dmBusy()) refreshDmHot('定时刷新').catch(() => { });
   }, 10 * 60 * 1000);
   if (dmHotTimer.unref) dmHotTimer.unref();
 }
@@ -2766,7 +2608,7 @@ app.get('/api/dm/hot-keywords', (req, res) => {
     const stale = dmHotStale(cfg);
     const lastAt = (snap && snap.at) || 0;
     const canForce = req.query.force === '1' && (Date.now() - lastAt) > DM_HOT_FORCE_MIN_MS;
-    if ((stale || canForce) && !dmHotBusy) {
+    if ((stale || canForce) && !dmBusy()) {
       refreshDmHot(canForce ? '手动刷新' : '缓存过期').catch(() => { });
     }
     res.json({
@@ -2775,7 +2617,7 @@ app.get('/api/dm/hot-keywords', (req, res) => {
       updatedAt: lastAt,
       ttlHours: dmHotTtlHours(cfg),
       cost: (snap && snap.cost) || dmHotKeywordList(cfg).length,
-      refreshing: !!(dmHotBusy || stale),
+      refreshing: !!(dmBusy() || stale),
       source: '大麦数据 MCP · search_product_snapshots',
       items: (snap && snap.items) || [],
     });

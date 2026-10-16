@@ -39,3 +39,6 @@ ml-suite-share/
 
 # ---- 本地一次性工具（推送脚本等）----
 push-to-github.bat
+
+# 账号、会话、每账号配置和私有缓存
+auth-data/
