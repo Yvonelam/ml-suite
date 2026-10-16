@@ -28,6 +28,28 @@ const STOP_FLAG = path.join(ROOT, '.stop-flag');
 try { fs.unlinkSync(STOP_FLAG); } catch (e) { }
 function stopRequested() { try { return fs.existsSync(STOP_FLAG); } catch (e) { return false; } }
 
+// ---- 单实例锁 ----
+// 开机自启（启动文件夹）和手动双击「启动公网服务.bat」可能同时把启动器拉起来。
+// 两个启动器 = 两条 cloudflared 连同一个隧道（能跑但噪音大、难排查），所以用 pid 文件锁住。
+const LOCK_FILE = path.join(ROOT, '.launcher.pid');
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+// 返回已在跑的启动器 PID；没有则抢占锁并返回 0
+function acquireLock() {
+  try {
+    const old = parseInt(fs.readFileSync(LOCK_FILE, 'utf8'), 10);
+    if (old && old !== process.pid && pidAlive(old)) return old;
+  } catch (e) { }
+  try { fs.writeFileSync(LOCK_FILE, String(process.pid)); } catch (e) { }
+  return 0;
+}
+function releaseLock() {
+  try {
+    if (parseInt(fs.readFileSync(LOCK_FILE, 'utf8'), 10) === process.pid) fs.unlinkSync(LOCK_FILE);
+  } catch (e) { }
+}
+
 function banner(msg) {
   const line = '='.repeat(60);
   console.log('\n' + line + '\n  ' + msg + '\n' + line);
@@ -75,6 +97,7 @@ function shutdown() {
   try { if (watcher) watcher.stop(); } catch (e) { }
   try { if (tunnel) tunnel.kill(); } catch (e) { }
   try { if (server) server.kill(); } catch (e) { }
+  releaseLock();
   process.exit(0);
 }
 
@@ -224,6 +247,13 @@ function startTunnel() {
 }
 
 (async () => {
+  // 先抢单实例锁：开机自启 + 手动双击撞车时，后来者直接退出
+  const otherPid = acquireLock();
+  if (otherPid) {
+    console.log('[启动器] 已有实例在运行（PID ' + otherPid + '），本次退出，不重复起隧道。');
+    process.exit(0);
+  }
+
   const busy = await isPortBusy(PORT);
 
   if (busy) {
@@ -243,4 +273,5 @@ function startTunnel() {
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  process.on('exit', releaseLock);   // 异常路径也别把锁留下（否则下次启动会被自己挡住）
 })();

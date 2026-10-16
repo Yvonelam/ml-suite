@@ -28,8 +28,10 @@
 ```
 ml-suite/
 ├── server.js                 # Express 主服务（路由 + 业务逻辑）
-├── start-public.js           # 启动器：本地服务 + Cloudflare 隧道（带崩溃自愈）
+├── start-public.js           # 启动器：本地服务 + Cloudflare 隧道（带崩溃自愈 + 单实例锁）
 ├── stop-public.js            # 停止器：写 .stop-flag 并结束进程
+├── autostart-watchdog.js     # 看门狗：每分钟探端口，服务掉了自动拉起（开机自启用）
+├── autostart.vbs             # 开机自启入口（纯 ASCII，放启动文件夹；由「开机自启-开启.bat」安装）
 ├── setup-tunnel.js           # 首次下载/配置 cloudflared 快速隧道
 ├── setup-named-tunnel.js     # 配置固定域名（命名隧道）
 ├── check-domain.js           # 检查域名/隧道状态
@@ -52,7 +54,7 @@ ml-suite/
 │
 ├── config.example.json       # 配置模板（全部凭据留空）
 ├── daily-search-config.json  # ← 真实配置，含凭据（已被 .gitignore 排除，需自行创建）
-└── *.bat                     # Windows 双击脚本（启动/停止/版本管理/交接给AI/改界面风格/配置域名/推送代码）
+└── *.bat                     # Windows 双击脚本（启动/停止/开机自启/版本管理/交接给AI/改界面风格/配置域名/推送代码）
 ```
 
 ---
@@ -237,6 +239,29 @@ node handoff.js shots    # 只截图（也可 node shots.js hub ads 只截指定
 4. 想固定域名：双击 **`配置固定域名.bat`** → 按提示登录 Cloudflare 授权
 
 **自愈机制**：`start-public.js` 会在服务/隧道异常退出后 **3 秒自动重启**（每分钟限流 10 次），并监听 `.stop-flag` 以支持优雅停止。`server.js` 顶部挂了 `uncaughtException` / `unhandledRejection` 兜底，避免任何未捕获异常直接把整站打挂。
+
+---
+
+## 开机自启（没人管也能自己回来）
+
+三层保护，按「谁死了」分工：
+
+| 挂掉的东西 | 谁来救 | 多久 |
+|---|---|---|
+| `server.js` 或 `cloudflared` | `start-public.js` 自带的守护 | 3 秒 |
+| 整个启动器被关窗口 / 被系统回收 | `autostart-watchdog.js` 看门狗 | ≤ 60 秒 |
+| 机器重启 / 重新登录 | 启动文件夹里的 `ML-Suite-Autostart.vbs` | 登录即拉起 |
+
+**开启**：双击 **`开机自启-开启.bat`** —— 往启动文件夹放一个入口，并立刻把看门狗跑起来。
+**关闭**：双击 **`开机自启-关闭.bat`** —— 移除入口 + 结束看门狗（不影响正在跑的服务）。
+**临时停服务**：仍然是双击 **`停止公网服务.bat`**。它会写 `.stop-flag`，看门狗看到这个标记就**闭嘴**，不会你刚停完又给你拉起来。
+
+细节：
+
+- 看门狗每分钟探一次 `127.0.0.1:3000`，不通才拉起；拉起后有 3 分钟冷却，避免端口还没起来就狂拉。
+- `start-public.js` 带 **单实例锁**（`.launcher.pid`）：开机自启和手动双击撞车时，后来者直接退出，不会跑出两条隧道。
+- `autostart.vbs` **必须保持纯 ASCII** —— Windows Script Host 按 ANSI 读它，写 UTF-8 中文注释会乱码。
+- 日志统一追加到 **`运行日志.txt`**（前带 `[看门狗]` 前缀的就是它干的）。
 
 ---
 
