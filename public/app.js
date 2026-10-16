@@ -94,8 +94,9 @@ function hideSplash() {
 $('#skip').onclick = hideSplash;
 $('#replay').onclick = splash;
 
-const TT = { hub: '概览', ads: '广告投放', orders: '订单管理', questions: '商品问答', claims: '退货与投诉', rank: '关键词排名', box: '箱唛裁切' };
+const TT = { hub: '概览', ads: '广告投放', orders: '订单管理', questions: '商品问答', claims: '退货与投诉', rank: '关键词排名', box: '箱唛裁切', profit: '产品利润' };
 let currentView = 'hub';
+let profitItems = [];
 
 function go(v, push = true) {
   currentView = v;
@@ -104,11 +105,41 @@ function go(v, push = true) {
   if (v === 'orders') loadOrders();
   if (v === 'questions') loadQuestions();
   if (v === 'claims') loadClaims();
+  if (v === 'profit') loadProfitListings();
   $$('.view').forEach(e => e.classList.toggle('on', e.id === 'v-' + v));
   $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.go === v));
   $('#ct').textContent = TT[v];
   if (push && history.replaceState) history.replaceState(null, '', '#' + v);
   scrollTo(0, 0);
+}
+
+function profitMoney(v, cur) { return v == null || !Number.isFinite(Number(v)) ? '—' : money(v, cur); }
+function profitCalc(x) {
+  const rate=Number(x.fxRate)||0, cost=(Number(x.cost?.costCny)||0)*rate, freight=(Number(x.cost?.freightCny)||0)*rate;
+  if (!rate || x.fee==null || x.shipping==null || x.cost?.costCny==='' || x.cost?.costCny==null || x.cost?.freightCny==='' || x.cost?.freightCny==null) return null;
+  return Number(x.price||0)-Number(x.fee||0)-Number(x.shipping)-cost-freight-(Number(x.cost?.otherFee)||0);
+}
+function renderProfitListings() {
+  const q=($('#profitSearch')?.value||'').trim().toLowerCase(), rows=$('#profitRows'); if(!rows)return;
+  const list=profitItems.filter(x=>!q||x.title.toLowerCase().includes(q)||x.id.toLowerCase().includes(q));
+  rows.innerHTML=list.length?list.map(x=>{const p=profitCalc(x), margin=p==null||!x.price?null:p/Number(x.price)*100, cur=escHtml(x.currency);
+    const missingCost=x.cost?.costCny===''||x.cost?.costCny==null||x.cost?.freightCny===''||x.cost?.freightCny==null;
+    return '<tr><td><div class="profit-product">'+(x.thumbnail?'<img src="'+escHtml(x.thumbnail)+'" alt="">':'<span class="profit-thumb">ML</span>')+'<div><a target="_blank" rel="noopener" href="'+escHtml(x.permalink)+'">'+escHtml(x.title)+'</a><small>'+escHtml(x.id)+' · '+escHtml(x.site)+'</small></div></div></td><td>'+profitMoney(x.price,x.currency)+'</td><td>'+profitMoney(x.fee,x.currency)+(x.fee==null?'<small class="profit-sub">费率暂不可用</small>':'')+'</td><td>'+profitMoney(x.shipping,x.currency)+(x.shipping==null?'<small class="profit-sub">暂不可用</small>':'')+'</td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="costCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.costCny??'')+'" placeholder="0.00"></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="freightCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.freightCny??'')+'" placeholder="0.00"></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="otherFee" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.otherFee??'')+'" placeholder="0.00"><small class="profit-sub">'+cur+'</small></td><td class="profit-value '+(p!=null&&p<0?'negative':'')+'">'+(p==null?(x.shipping==null?'等待运费估算':(missingCost?'填写产品成本和头程':'等待汇率或平台费用')):profitMoney(p,x.currency))+'</td><td>'+(margin==null?'—':margin.toFixed(1)+'%')+'</td></tr>';
+  }).join(''):'<tr><td colspan="9" class="empty">'+(profitItems.length?'没有匹配的商品':'当前账户没有读取到在售 Listing')+'</td></tr>';
+  $('#profitStatus').textContent=profitItems.length?'已加载 '+profitItems.length+' 个在售 Listing。输入人民币成本或头程后自动保存。':'暂时没有可显示的 Listing。';
+}
+async function loadProfitListings(refresh=false) {
+  const status=$('#profitStatus');if(!status)return;status.textContent='正在同步当前账户的在售 Listing…';
+  try { const d=await mlGet('/api/ml/profit/listings'+(refresh?'?refresh=1':''));profitItems=d.items||[];const rates=[...new Set(profitItems.map(x=>x.fxRate).filter(Boolean))];$('#profitFxNote').textContent=rates.length?'成本换算使用美客多 CNY→当地币汇率；各 Listing 汇率可能不同。':'暂未取得美客多人民币汇率，成本暂无法换算。';renderProfitListings(); }
+  catch(e){profitItems=[];status.textContent=e.message;$('#profitRows').innerHTML='<tr><td colspan="9" class="empty">'+escHtml(e.message)+'</td></tr>';}
+}
+function bindProfitEvents(){
+  $('#profitRefresh')?.addEventListener('click',()=>loadProfitListings(true));$('#profitSearch')?.addEventListener('input',renderProfitListings);
+  $('#profitRows')?.addEventListener('change',async e=>{const input=e.target.closest('.profit-input');if(!input)return;const x=profitItems.find(v=>v.id===input.dataset.id);if(!x)return;const field=input.dataset.field,val=input.value===''?'':Number(input.value);if(val!==''&&(!Number.isFinite(val)||val<0)){input.value='';return;}
+    x.cost=x.cost||{costCny:'',freightCny:'',otherFee:''};x.cost[field]=val;renderProfitListings();
+    try{const r=await fetch('/api/ml/profit/items/'+encodeURIComponent(x.id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(x.cost)});const d=await r.json();if(!r.ok)throw Error(d.error||'保存失败');$('#profitStatus').textContent='费用已保存到当前账户。';}
+    catch(err){$('#profitStatus').textContent=err.message;}
+  });
 }
 
 document.addEventListener('click', e => {
@@ -3038,6 +3069,7 @@ function init() {
   bindBoxEvents();
   bindMlEvents();
   bindAccountEvents();
+  bindProfitEvents();
   bindSalesEvents();
   bindListingEvents();
   bindAdsEvents();

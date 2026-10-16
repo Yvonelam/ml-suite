@@ -47,6 +47,7 @@
     <a data-go="ads"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>广告投放</a>
     <a data-go="rank"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>关键词排名</a>
     <a data-go="box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>箱唛裁切</a>
+    <a data-go="profit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 14 4-4 4 3 6-7"/><path d="M17 6h4v4"/></svg>产品利润</a>
   </nav>
   <div class="sidefoot">本地版 v1.2<br>数据在本机处理</div>
 </aside>
@@ -228,6 +229,15 @@
           </a>
         </div>
       </div>
+    </section>
+
+    <section class="view" id="v-profit">
+      <div class="ph2"><h1>产品利润</h1><p>同步当前美客多账户的在售 Listing；成本和头程以人民币填写，按美客多汇率换算后估算单件利润。</p></div>
+      <div class="card pad profit-intro"><div><b>计算口径</b><p>售价 − 平台销售费用 − 预计卖家运费 − 人民币产品成本 − 人民币头程 − 其他扣款</p></div><button class="btn y" id="profitRefresh">刷新商品</button></div>
+      <div class="sales-filter profit-toolbar"><input id="profitSearch" class="profit-search" placeholder="搜索商品名称或 Listing ID"><span id="profitFxNote" class="profit-note">成本换算：等待汇率数据</span></div>
+      <div class="card pad" id="profitStatus">正在加载商品…</div>
+      <div class="card pad profit-table-wrap"><table class="profit-table"><thead><tr><th>商品 / Listing</th><th>售价</th><th>平台费</th><th>预计运费</th><th>产品成本 ¥</th><th>头程 ¥</th><th>其他扣款</th><th>单件利润</th><th>利润率</th></tr></thead><tbody id="profitRows"><tr><td colspan="9" class="empty">正在加载…</td></tr></tbody></table></div>
+      <p class="profit-disclaimer">平台费、汇率及运费来自美客多 API 估算；Listing 实际费率、税费和订单结算可能因站点、配送及活动而变化。其他扣款可按单件当地币补填。</p>
     </section>
 
     <!-- 关键词排名 -->
@@ -658,6 +668,6 @@
 
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="vendor/pdf.min.js"></script>
-<script src="app.js?v=47"></script>
+<script src="app.js?v=48"></script>
 </body>
 </html>

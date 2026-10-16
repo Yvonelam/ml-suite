@@ -631,7 +631,7 @@ function mlAuthorized(cfg = loadConfig()) {
   return !!cfg.mlAccessToken;
 }
 
-let mlUserCache = null;
+const mlUserCache = new Map();
 
 // 用 refresh_token 换新的 access_token
 async function refreshMlToken() {
@@ -662,7 +662,7 @@ async function refreshMlToken() {
     mlTokenExpireAt: Date.now() + (Number(d.expires_in) || 21600) * 1000,
     mlUserId: d.user_id ? String(d.user_id) : cfg.mlUserId,
   });
-  mlUserCache = null;
+  mlUserCache.delete(auth.currentUserId());
   console.log('[ML API] Access Token 已自动刷新，有效期 ' + (d.expires_in || 21600) + ' 秒');
   return d.access_token;
 }
@@ -718,15 +718,17 @@ async function mlRequestFirst(paths) {
 
 // 当前授权卖家信息（缓存 1 小时）
 async function mlUser() {
-  if (mlUserCache && Date.now() - mlUserCache.at < 3600000) return mlUserCache;
+  const accountId=auth.currentUserId(), cached=mlUserCache.get(accountId);
+  if (cached && Date.now() - cached.at < 3600000) return cached;
   const u = await mlRequest('/users/me');
   const cfg = loadConfig();
-  mlUserCache = {
+  const user = {
     id: String(u.id), nickname: u.nickname || '', site_id: (u.site_id || '').toUpperCase(),
     email: u.email || '', country: u.country_id || '', at: Date.now(),
   };
-  saveConfig({ ...cfg, mlUserId: mlUserCache.id, mlSite: (cfg.mlSite && cfg.mlSite !== 'CBT') ? cfg.mlSite : mlUserCache.site_id });
-  return mlUserCache;
+  mlUserCache.set(accountId,user);
+  saveConfig({ ...cfg, mlUserId: user.id, mlSite: (cfg.mlSite && cfg.mlSite !== 'CBT') ? cfg.mlSite : user.site_id });
+  return user;
 }
 
 // CBT 不是真实站点（它可能同时卖 MX/BR/AR），取真实站点时要把 CBT 忽略掉
@@ -1215,6 +1217,54 @@ app.get('/api/ml/sales', async (req, res) => {
 
 // ---- Listing 出单统计（按商品聚合出单数量与金额） ----
 const listingsCache = { key: '', at: 0, data: null };
+
+// ---- 产品利润：成本按账户私有保存，始终只读取当前登录卖家的 Listing ----
+const profitCache = new Map();
+function readProfitCosts() { try { return JSON.parse(fs.readFileSync(privateDataFile('product-profit.json'), 'utf8')) || {}; } catch { return {}; } }
+function saveProfitCosts(data) { fs.writeFileSync(privateDataFile('product-profit.json'), JSON.stringify(data, null, 2), 'utf8'); }
+app.get('/api/ml/profit/listings', async (req, res) => {
+  const cfg = loadConfig();
+  if (!mlConfigured(cfg)) return res.json({ ok:false, needConfig:true, message:'尚未配置美客多 API 凭证' });
+  if (!mlAuthorized(cfg)) return res.json({ ok:false, needAuth:true, message:'请先完成美客多账号授权' });
+  try {
+    const u = await mlUser(), key = `${auth.currentUserId()}|${u.id}`, cached = profitCache.get(key);
+    if (!req.query.refresh && cached && Date.now() - cached.at < 300000) return res.json({ ...cached.data, cached:true });
+    const ids=[]; let offset=0, total=0;
+    while (offset < 1000) {
+      const d=await mlRequest(`/users/${encodeURIComponent(u.id)}/items/search?status=active&limit=100&offset=${offset}`);
+      const batch=(d && d.results)||[]; total=Number(d?.paging?.total||batch.length); ids.push(...batch.map(String));
+      offset += batch.length; if (!batch.length || offset >= total) break;
+    }
+    const items=[];
+    for(let i=0;i<ids.length;i+=20){
+      const batch=ids.slice(i,i+20); if(!batch.length)continue;
+      const d=await mlRequest(`/items?ids=${batch.join(',')}&attributes=id,title,permalink,thumbnail,price,currency_id,site_id,category_id,listing_type_id,shipping,status`);
+      for(const row of (Array.isArray(d)?d:[])){const b=row?.body;if(b?.id&&b.status==='active')items.push(b);}
+    }
+    const costs=readProfitCosts(), currencies=[...new Set(items.map(x=>x.currency_id).filter(Boolean))], rates={};
+    for(const currency of currencies){try{const d=await mlRequest(`/currency_conversions/search?from=CNY&to=${encodeURIComponent(currency)}`);rates[currency]=Number(d?.ratio||d?.rate||0);}catch{rates[currency]=0;}}
+    const output=[];
+    for(let i=0;i<items.length;i+=8){
+      const batch=await Promise.all(items.slice(i,i+8).map(async item=>{
+        const id=String(item.id), currency=item.currency_id||'', site=item.site_id||u.site_id, price=Number(item.price)||0;
+        let fee=null, feeError='', shipping=null;
+        try { const q=new URLSearchParams({price:String(price),currency_id:currency,category_id:item.category_id||'',listing_type_id:item.listing_type_id||''}); const d=await mlRequest(`/sites/${encodeURIComponent(site)}/listing_prices?${q}`); const row=Array.isArray(d)?(d.find(x=>x.listing_type_id===item.listing_type_id)||d[0]):d; const sale=Number(row?.sale_fee_amount ?? row?.sale_fee_details?.fixed_fee ?? NaN), listing=Number(row?.listing_fee_amount||0); fee=Number.isFinite(sale)?sale+(Number.isFinite(listing)?listing:0):null; } catch(e){feeError=e.message;}
+        try { const d=await mlRequest(`/users/${encodeURIComponent(u.id)}/shipping_options/cost?item_id=${encodeURIComponent(id)}`); shipping=Number(d?.coverage?.all_country?.list_cost ?? d?.receiver?.cost ?? d?.shipping_options?.[0]?.cost ?? d?.shipping_fee); if(!Number.isFinite(shipping))shipping=null; } catch {}
+        return {id,title:item.title||`商品 ${id}`,permalink:item.permalink||'',thumbnail:item.thumbnail||'',price,currency,site,fee,feeError,shipping,fxRate:Number(rates[currency]||0),cost:costs[id]||{costCny:'',freightCny:'',otherFee:''}};
+      })); output.push(...batch);
+    }
+    const data={ok:true,items:output,total,loaded:items.length,truncated:total>ids.length,updatedAt:Date.now()}; profitCache.set(key,{at:Date.now(),data}); res.json(data);
+  } catch(e){sendMlError(res,e);}
+});
+app.put('/api/ml/profit/items/:id', (req,res)=>{
+  const id=String(req.params.id||''); if(!/^[A-Za-z0-9_-]{1,40}$/.test(id))return res.status(400).json({error:'无效 Listing ID'});
+  const num=(v)=>{if(v===''||v===null||v===undefined)return '';const n=Number(v);return Number.isFinite(n)&&n>=0?n:null;};
+  const next={costCny:num(req.body?.costCny),freightCny:num(req.body?.freightCny),otherFee:num(req.body?.otherFee)};
+  if(Object.values(next).includes(null))return res.status(400).json({error:'费用必须是大于等于 0 的数字'});
+  const all=readProfitCosts();all[id]=next;saveProfitCosts(all);
+  const prefix=auth.currentUserId()+'|'; for(const key of profitCache.keys())if(key.startsWith(prefix))profitCache.delete(key);
+  res.json({ok:true,cost:next});
+});
 
 app.get('/api/ml/listings', async (req, res) => {
   const cfg = loadConfig();
@@ -2311,7 +2361,7 @@ app.post('/api/ml/config', (req, res) => {
     if (typeof b.mlPkce === 'boolean') next.mlPkce = b.mlPkce;
     if (b.clearTokens) { next.mlAccessToken = ''; next.mlRefreshToken = ''; next.mlTokenExpireAt = 0; }
     saveConfig(next);
-    mlUserCache = null;
+    mlUserCache.delete(auth.currentUserId());
     console.log('[ML API] 凭证已更新：', { appId: next.mlAppId ? '已设置' : '空', token: next.mlAccessToken ? '已设置' : '空', refresh: next.mlRefreshToken ? '已设置' : '空', site: next.mlSite || '-' });
     res.json({ success: true });
   } catch (e) {
@@ -2926,7 +2976,7 @@ function mlSaveToken(d, siteCode, redirect) {
     mlSite: (siteCode && siteCode !== 'CBT') ? siteCode : (cfg.mlSite === 'CBT' ? '' : cfg.mlSite),
     mlRedirectUri: redirect || cfg.mlRedirectUri,
   });
-  mlUserCache = null;
+  mlUserCache.delete(auth.currentUserId());
 }
 
 function oauthResultPage(ok, title, detail, extra = '') {
