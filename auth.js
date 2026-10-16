@@ -68,11 +68,16 @@ function createAuth(express, opts) {
     saveUsers(a);res.json({ok:true,message:'申请已提交，请等待管理员审批'});
   });
   publicRouter.post('/login',(req,res)=>{
-    if(limited(req))return res.status(429).json({error:'尝试次数过多，请稍后再试'});
+    const locked=limited(req);
     const b=req.body||{},u=users().find(x=>x.username.toLowerCase()===String(b.username||'').trim().toLowerCase());
-    if(!u||!check(b.password,u.password))return res.status(401).json({error:'账号或密码不正确'});
+    if(!u||!check(b.password,u.password))return res.status(locked?429:401).json({error:locked?'尝试次数过多，请稍后再试':'账号或密码不正确'});
     if(u.status==='pending')return res.status(403).json({error:'账号正在等待管理员审批'});
     if(u.status!=='approved')return res.status(403).json({error:'账号当前不可用'});
+    // 管理员输入正确密码后允许通过当前 IP 的登录限流，输错仍然受限。
+    if(u.role==='admin'){
+      const ip=String(req.headers['cf-connecting-ip']||req.ip||req.socket.remoteAddress||'unknown');
+      attempts.delete(ip);
+    }else if(locked)return res.status(429).json({error:'尝试次数过多，请稍后再试'});
     setSession(res,req,u);res.json({ok:true,role:u.role});
   });
   publicRouter.post('/logout',(req,res)=>{clearSession(res,req);res.json({ok:true});});
