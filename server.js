@@ -1222,6 +1222,35 @@ const listingsCache = { key: '', at: 0, data: null };
 const profitCache = new Map();
 const profitOrderCache = new Map();
 const shipmentCostCache = new Map();
+// 中行网页牌价单位为每 100 单位外币对应人民币；订单与 Listing 共用公开汇率缓存。
+const bocFxCache = { at: 0, rates: {} };
+const BOC_CURRENCY_NAMES = { BRL:'巴西雷亚尔', MXN:'墨西哥比索', ARS:'阿根廷比索', CLP:'智利比索', COP:'哥伦比亚比索', USD:'美元' };
+async function getBocFxRates(currencies) {
+  if (Date.now() - bocFxCache.at > 10 * 60 * 1000 || !Object.keys(bocFxCache.rates).length) {
+    const response = await fetch('https://www.boc.cn/sourcedb/whpj/', { signal: AbortSignal.timeout(12000), headers: { Accept: 'text/html' } });
+    if (!response.ok) throw new Error('读取中国银行汇率失败（HTTP ' + response.status + '）');
+    const html = await response.text(), byName = {};
+    for (const match of html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+      const cells = [...match[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(x => x[1].replace(/<[^>]+>/g, '').replace(/&nbsp;|&#160;/gi, ' ').replace(/&amp;/gi, '&').trim());
+      if (cells.length < 7) continue;
+      const name = cells[0], spotSell = Number(cells[3]), benchmark = Number(cells[5]), cnyPer100 = Number.isFinite(spotSell) && spotSell > 0 ? spotSell : benchmark, rateType = Number.isFinite(spotSell) && spotSell > 0 ? '现汇卖出价' : '中行折算价', publishedAt = cells[6] || '';
+      if (name && Number.isFinite(cnyPer100) && cnyPer100 > 0) byName[name] = { cnyPer100, rateType, publishedAt };
+    }
+    const rates = { CNY: { localPerCny: 1, cnyPer100: 100, publishedAt: '' } };
+    for (const [code, name] of Object.entries(BOC_CURRENCY_NAMES)) {
+      const row = byName[name];
+      if (row) rates[code] = { localPerCny: 100 / row.cnyPer100, cnyPer100: row.cnyPer100, rateType: row.rateType, publishedAt: row.publishedAt };
+    }
+    if (!Object.keys(rates).some(code => code !== 'CNY')) {
+      if (Object.keys(bocFxCache.rates).length) return bocFxCache.rates;
+      throw new Error('中国银行牌价页面暂不可用');
+    }
+    bocFxCache.at = Date.now(); bocFxCache.rates = rates;
+  }
+  const out = {};
+  for (const currency of currencies || []) out[currency] = bocFxCache.rates[currency] || null;
+  return out;
+}
 function readProfitCosts() { try { return JSON.parse(fs.readFileSync(privateDataFile('product-profit.json'), 'utf8')) || {}; } catch { return {}; } }
 function saveProfitCosts(data) { fs.writeFileSync(privateDataFile('product-profit.json'), JSON.stringify(data, null, 2), 'utf8'); }
 app.get('/api/ml/profit/orders', async (req,res)=>{
@@ -1251,8 +1280,7 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     }
     const shipmentCosts={};
     for(let i=0;i<shipmentIds.length;i+=6){const part=await Promise.all(shipmentIds.slice(i,i+6).map(async id=>[id,await getShipmentCost(id)]));for(const [id,cost] of part)shipmentCosts[id]=cost;}
-    const costs=readProfitCosts(), currencies=[...new Set(validOrders.flatMap(o=>[o.currency_id,...(o.order_items||[]).map(x=>x.currency_id)].filter(Boolean)))],rates={};
-    for(const currency of currencies){try{const d=await mlRequest(`/currency_conversions/search?from=CNY&to=${encodeURIComponent(currency)}`);rates[currency]=Number(d?.ratio||d?.rate||0);}catch{rates[currency]=0;}}
+    const costs=readProfitCosts(), currencies=[...new Set(validOrders.flatMap(o=>[o.currency_id,...(o.order_items||[]).map(x=>x.currency_id)].filter(Boolean)))],rates=await getBocFxRates(currencies);
     const flattened=[];
     for(const order of validOrders){
       const items=order.order_items||[],taxRaw=order.taxes&&typeof order.taxes==='object'?order.taxes.amount:order.taxes,taxAmount=Number(taxRaw),taxKnown=taxRaw!==undefined&&taxRaw!==null&&Number.isFinite(taxAmount),currency=order.currency_id||(items[0]?.currency_id)||'';
@@ -1263,7 +1291,7 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     }
     const shipmentGroupRevenue={};for(const line of flattened)if(line.shipmentId)shipmentGroupRevenue[line.shipmentGroup]=(shipmentGroupRevenue[line.shipmentGroup]||0)+line.revenue;
     const lines=flattened.map(line=>{
-      const item=line.item,id=String(item.item?.id||''),saved=costs[id],currency=line.currency,fx=Number(rates[currency]||0),saleFeeRaw=item.sale_fee,saleFeeUnit=Number(saleFeeRaw),feeKnown=saleFeeRaw!==undefined&&saleFeeRaw!==null&&Number.isFinite(saleFeeUnit);
+      const item=line.item,id=String(item.item?.id||''),saved=costs[id],currency=line.currency,fx=Number(rates[currency]?.localPerCny||0),fxCnyPer100=Number(rates[currency]?.cnyPer100||0),saleFeeRaw=item.sale_fee,saleFeeUnit=Number(saleFeeRaw),feeKnown=saleFeeRaw!==undefined&&saleFeeRaw!==null&&Number.isFinite(saleFeeUnit);
       let shippingShare=null;
       if(line.shipmentTotal!==null&&line.shipmentCurrency===currency){const groupRevenue=shipmentGroupRevenue[line.shipmentGroup]||0;shippingShare=groupRevenue?line.shipmentTotal*line.revenue/groupRevenue:0;}
       else if(line.shipmentTotal===0&&line.shipmentCurrency===currency)shippingShare=0;
@@ -1271,10 +1299,10 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
       const costLocal=costReady&&fx?(Number(saved.costCny)+Number(saved.freightCny))*fx*line.qty+(Number(saved.otherFee)||0)*line.qty:null;
       const feeTotal=feeKnown?saleFeeUnit*line.qty:null,allKnown=feeKnown&&shippingShare!==null&&line.taxShare!==null&&costLocal!==null;
       const profit=allKnown?line.revenue-feeTotal-shippingShare-line.taxShare-costLocal:null;
-      const reasons=[];if(!id)reasons.push('订单缺少 Listing ID');else if(!saved)reasons.push('未保存该商品成本');else if(!costReady)reasons.push('未填写成本/头程');if(!fx)reasons.push('汇率缺失');if(!feeKnown)reasons.push('销售费缺失');if(shippingShare===null)reasons.push('运费缺失');if(line.taxShare===null)reasons.push('订单税额缺失');
-      return {orderId:String(line.order.id||''),date:line.order.date_created||'',status:line.order.status||'',itemId:id,title:item.item?.title||('Listing '+id),qty:line.qty,currency,unitPrice:Number(item.unit_price)||0,revenue:line.revenue,saleFee:feeTotal,shipping:shippingShare,tax:line.taxShare,cost:costLocal,profit,profitCny:profit!==null&&fx?profit/fx:null,margin:profit!==null&&line.revenue?profit/line.revenue*100:null,missing:reasons,fxRate:fx};
+      const reasons=[];if(!id)reasons.push('订单缺少 Listing ID');else if(!saved)reasons.push('未保存该商品成本');else if(!costReady)reasons.push('未填写成本/头程');if(!fx)reasons.push('中国银行暂无该币种牌价');if(!feeKnown)reasons.push('销售费缺失');if(shippingShare===null)reasons.push('运费缺失');if(line.taxShare===null)reasons.push('订单税额缺失');
+      return {orderId:String(line.order.id||''),date:line.order.date_created||'',status:line.order.status||'',itemId:id,title:item.item?.title||('Listing '+id),qty:line.qty,currency,unitPrice:Number(item.unit_price)||0,revenue:line.revenue,saleFee:feeTotal,shipping:shippingShare,tax:line.taxShare,cost:costLocal,profit,profitCny:profit!==null&&fx?profit/fx:null,revenueCny:fx?line.revenue/fx:null,saleFeeCny:feeTotal!==null&&fx?feeTotal/fx:null,shippingCny:shippingShare!==null&&fx?shippingShare/fx:null,taxCny:line.taxShare!==null&&fx?line.taxShare/fx:null,costCny:costLocal!==null&&fx?costLocal/fx:null,fxCnyPer100,fxPublishedAt:rates[currency]?.publishedAt||'',margin:profit!==null&&line.revenue?profit/line.revenue*100:null,missing:reasons,fxRate:fx};
     });
-    const complete=lines.filter(x=>x.profit!==null),totalProfitCny=complete.reduce((s,x)=>s+(x.profitCny||0),0),totalRevenueCny=complete.reduce((s,x)=>s+(x.revenue/(x.fxRate||1)),0);
+    const complete=lines.filter(x=>x.profit!==null),totalProfitCny=complete.reduce((s,x)=>s+(x.profitCny||0),0),totalRevenueCny=complete.reduce((s,x)=>s+(x.revenueCny||0),0);
     const data={ok:true,range:{from,to},currency:'CNY',truncated:apiTotal>raw.length,apiTotal,orders:lines,totals:{orders:new Set(validOrders.map(o=>String(o.id))).size,lines:lines.length,matched:complete.length,unmatched:lines.length-complete.length,units:complete.reduce((s,x)=>s+x.qty,0),profitCny:Math.round(totalProfitCny*100)/100,margin:totalRevenueCny?Math.round(totalProfitCny/totalRevenueCny*10000)/100:null},updatedAt:Date.now()};
     profitOrderCache.set(cacheKey,{at:Date.now(),data});res.json(data);
   }catch(e){sendMlError(res,e);}
@@ -1298,8 +1326,7 @@ app.get('/api/ml/profit/listings', async (req, res) => {
       const d=await mlRequest(`/items?ids=${batch.join(',')}&attributes=id,title,permalink,thumbnail,price,currency_id,site_id,category_id,listing_type_id,shipping,status`);
       for(const row of (Array.isArray(d)?d:[])){const b=row?.body;if(b?.id&&b.status==='active')items.push(b);}
     }
-    const costs=readProfitCosts(), currencies=[...new Set(items.map(x=>x.currency_id).filter(Boolean))], rates={};
-    for(const currency of currencies){try{const d=await mlRequest(`/currency_conversions/search?from=CNY&to=${encodeURIComponent(currency)}`);rates[currency]=Number(d?.ratio||d?.rate||0);}catch{rates[currency]=0;}}
+    const costs=readProfitCosts(), currencies=[...new Set(items.map(x=>x.currency_id).filter(Boolean))], rates=await getBocFxRates(currencies);
     const output=[];
     for(let i=0;i<items.length;i+=8){
       const batch=await Promise.all(items.slice(i,i+8).map(async item=>{
@@ -1307,7 +1334,7 @@ app.get('/api/ml/profit/listings', async (req, res) => {
         let fee=null, feeError='', shipping=null;
         try { const q=new URLSearchParams({price:String(price),currency_id:currency,category_id:item.category_id||'',listing_type_id:item.listing_type_id||''}); const d=await mlRequest(`/sites/${encodeURIComponent(site)}/listing_prices?${q}`); const row=Array.isArray(d)?(d.find(x=>x.listing_type_id===item.listing_type_id)||d[0]):d; const sale=Number(row?.sale_fee_amount ?? row?.sale_fee_details?.fixed_fee ?? NaN), listing=Number(row?.listing_fee_amount||0); fee=Number.isFinite(sale)?sale+(Number.isFinite(listing)?listing:0):null; } catch(e){feeError=e.message;}
         try { const d=await mlRequest(`/users/${encodeURIComponent(u.id)}/shipping_options/cost?item_id=${encodeURIComponent(id)}`); shipping=Number(d?.coverage?.all_country?.list_cost ?? d?.receiver?.cost ?? d?.shipping_options?.[0]?.cost ?? d?.shipping_fee); if(!Number.isFinite(shipping))shipping=null; } catch {}
-        return {id,title:item.title||`商品 ${id}`,permalink:item.permalink||'',thumbnail:item.thumbnail||'',price,currency,site,fee,feeError,shipping,fxRate:Number(rates[currency]||0),cost:costs[id]||{costCny:'',freightCny:'',otherFee:''}};
+        return {id,title:item.title||`商品 ${id}`,permalink:item.permalink||'',thumbnail:item.thumbnail||'',price,currency,site,fee,feeError,shipping,fxRate:Number(rates[currency]?.localPerCny||0),fxCnyPer100:Number(rates[currency]?.cnyPer100||0),fxPublishedAt:rates[currency]?.publishedAt||'',fxRateType:rates[currency]?.rateType||'',fxSource:'中国银行牌价',cost:costs[id]||{costCny:'',freightCny:'',otherFee:''}};
       })); output.push(...batch);
     }
     const data={ok:true,items:output,total,loaded:items.length,truncated:total>ids.length,updatedAt:Date.now()}; profitCache.set(key,{at:Date.now(),data}); res.json(data);

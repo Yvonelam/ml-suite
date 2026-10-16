@@ -122,15 +122,15 @@ function profitCalc(x) {
 function renderProfitListings() {
   const q=($('#profitSearch')?.value||'').trim().toLowerCase(), rows=$('#profitRows'); if(!rows)return;
   const list=profitItems.filter(x=>!q||x.title.toLowerCase().includes(q)||x.id.toLowerCase().includes(q));
-  rows.innerHTML=list.length?list.map(x=>{const p=profitCalc(x), margin=p==null||!x.price?null:p/Number(x.price)*100, cur=escHtml(x.currency);
+  rows.innerHTML=list.length?list.map(x=>{const p=profitCalc(x), fx=Number(x.fxRate)||0, profitCny=p==null||!fx?null:p/fx, margin=profitCny==null||!x.price||!fx?null:profitCny/(Number(x.price)/fx)*100, cur=escHtml(x.currency);
     const missingCost=x.cost?.costCny===''||x.cost?.costCny==null||x.cost?.freightCny===''||x.cost?.freightCny==null;
-    return '<tr><td><div class="profit-product">'+(x.thumbnail?'<img src="'+escHtml(x.thumbnail)+'" alt="">':'<span class="profit-thumb">ML</span>')+'<div><a target="_blank" rel="noopener" href="'+escHtml(x.permalink)+'">'+escHtml(x.title)+'</a><small>'+escHtml(x.id)+' · '+escHtml(x.site)+'</small></div></div></td><td>'+profitMoney(x.price,x.currency)+'</td><td>'+profitMoney(x.fee,x.currency)+(x.fee==null?'<small class="profit-sub">费率暂不可用</small>':'')+'</td><td>'+profitMoney(x.shipping,x.currency)+(x.shipping==null?'<small class="profit-sub">暂不可用</small>':'')+'</td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="costCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.costCny??'')+'" placeholder="0.00"></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="freightCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.freightCny??'')+'" placeholder="0.00"></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="otherFee" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.otherFee??'')+'" placeholder="0.00"><small class="profit-sub">'+cur+'</small></td><td class="profit-value '+(p!=null&&p<0?'negative':'')+'">'+(p==null?(x.shipping==null?'等待运费估算':(missingCost?'填写产品成本和头程':'等待汇率或平台费用')):profitMoney(p,x.currency))+'</td><td>'+(margin==null?'—':margin.toFixed(1)+'%')+'</td></tr>';
+    return '<tr><td><div class="profit-product">'+(x.thumbnail?'<img src="'+escHtml(x.thumbnail)+'" alt="">':'<span class="profit-thumb">ML</span>')+'<div><a target="_blank" rel="noopener" href="'+escHtml(x.permalink)+'">'+escHtml(x.title)+'</a><small>'+escHtml(x.id)+' · '+escHtml(x.site)+'</small></div></div></td><td>'+profitMoney(x.price,x.currency)+'</td><td>'+profitMoney(x.fee,x.currency)+(x.fee==null?'<small class="profit-sub">费率暂不可用</small>':'')+'</td><td>'+profitMoney(x.shipping,x.currency)+(x.shipping==null?'<small class="profit-sub">暂不可用</small>':'')+'</td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="costCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.costCny??'')+'" placeholder="0.00"></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="freightCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.freightCny??'')+'" placeholder="0.00"></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="otherFee" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.otherFee??'')+'" placeholder="0.00"><small class="profit-sub">'+cur+'</small></td><td class="profit-value '+(profitCny!=null&&profitCny<0?'negative':'')+'">'+(profitCny==null?(x.shipping==null?'等待运费估算':(missingCost?'填写产品成本和头程':'等待中国银行牌价或平台费用')):profitMoney(profitCny,'CNY'))+'</td><td>'+(margin==null?'—':margin.toFixed(1)+'%')+'</td></tr>';
   }).join(''):'<tr><td colspan="9" class="empty">'+(profitItems.length?'没有匹配的商品':'当前账户没有读取到在售 Listing')+'</td></tr>';
   $('#profitStatus').textContent=profitItems.length?'已加载 '+profitItems.length+' 个在售 Listing。费用会随输入自动保存；也可点击“保存数据”手动确认。':'暂时没有可显示的 Listing。';
 }
 async function loadProfitListings(refresh=false) {
   const status=$('#profitStatus');if(!status)return;status.textContent='正在同步当前账户的在售 Listing…';
-  try { const d=await mlGet('/api/ml/profit/listings'+(refresh?'?refresh=1':''));profitItems=d.items||[];const rates=[...new Set(profitItems.map(x=>x.fxRate).filter(Boolean))];$('#profitFxNote').textContent=rates.length?'成本换算使用美客多 CNY→当地币汇率；各 Listing 汇率可能不同。':'暂未取得美客多人民币汇率，成本暂无法换算。';renderProfitListings(); }
+  try { const d=await mlGet('/api/ml/profit/listings'+(refresh?'?refresh=1':''));profitItems=d.items||[];const rates=profitItems.filter(x=>x.fxCnyPer100),quote=rates.map(x=>x.fxPublishedAt).filter(Boolean).sort().at(-1);$('#profitFxNote').textContent=rates.length?'汇率：中国银行现汇卖出价（无现汇牌价时用中行折算价，人民币/100当地币）'+(quote?' · 牌价 '+quote:''):'中国银行暂无在售币种牌价，相关利润待核对。';renderProfitListings(); }
   catch(e){profitItems=[];status.textContent=e.message;$('#profitRows').innerHTML='<tr><td colspan="9" class="empty">'+escHtml(e.message)+'</td></tr>';}
 }
 function setProfitOrderRange(range,run=true){
@@ -147,16 +147,16 @@ function renderProfitOrders(data){
   if(!items.length){rows.innerHTML='<tr><td colspan="8" class="empty">所选日期范围内没有有效订单</td></tr>';return;}
   rows.innerHTML=items.map(x=>{
     const date=x.date?new Date(x.date).toLocaleString('zh-CN',{timeZone:'America/Sao_Paulo',hour12:false}):'—',complete=x.profit!==null,miss=(x.missing||[]).join('、');
-    const taxShip=x.tax===null||x.shipping===null?'待核对':money(Number(x.tax||0)+Number(x.shipping||0),x.currency);
+    const taxShip=x.taxCny===null||x.shippingCny===null?'待核对':money(Number(x.taxCny||0)+Number(x.shippingCny||0),'CNY');
     const cls=complete&&Number(x.profit)<0?'negative':'positive';
-    return '<tr><td>'+escHtml(date)+'<small>订单 '+escHtml(x.orderId)+'</small></td><td><span class="profit-order-title">'+escHtml(x.title)+'</span><small>'+escHtml(x.itemId)+'</small></td><td>'+fmt(x.qty)+'</td><td>'+money(x.revenue,x.currency)+'</td><td>'+(x.saleFee===null?'待核对':money(x.saleFee,x.currency))+'</td><td>'+taxShip+'</td><td>'+(x.cost===null?'待核对':money(x.cost,x.currency))+'</td><td class="'+(complete?cls:'pending')+'">'+(complete?money(x.profit,x.currency):'待核对')+(miss?'<small title="'+escHtml(miss)+'">'+escHtml(miss)+'</small>':'')+'</td></tr>';
+    return '<tr><td>'+escHtml(date)+'<small>订单 '+escHtml(x.orderId)+'</small></td><td><span class="profit-order-title">'+escHtml(x.title)+'</span><small>'+escHtml(x.itemId)+'</small></td><td>'+fmt(x.qty)+'</td><td>'+money(x.revenueCny,'CNY')+'</td><td>'+(x.saleFee===null?'待核对':money(x.saleFeeCny,'CNY'))+'</td><td>'+taxShip+'</td><td>'+(x.cost===null?'待核对':money(x.costCny,'CNY'))+'</td><td class="'+(complete?cls:'pending')+'">'+(complete?money(x.profitCny,'CNY'):'待核对')+(miss?'<small title="'+escHtml(miss)+'">'+escHtml(miss)+'</small>':'')+'</td></tr>';
   }).join('');
 }
 async function loadProfitOrders(refresh=false){
   const status=$('#profitOrderStatus'),from=$('#profitOrderFrom')?.value,to=$('#profitOrderTo')?.value;if(!status||!from||!to)return;
   if(from>to){status.textContent='开始日期不能晚于结束日期。';return;}
   status.textContent='正在读取订单并匹配 Listing 成本…';$('#profitOrderApply').disabled=true;
-  try{const d=await mlGet('/api/ml/profit/orders?from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+(refresh?'&refresh=1':''));renderProfitOrders(d);status.textContent='订单范围：'+d.range.from+' 至 '+d.range.to+(d.truncated?' · 订单量超过接口读取上限，汇总可能不完整。':'')+(d.cached?' · 缓存数据':' · 已更新');}
+  try{const d=await mlGet('/api/ml/profit/orders?from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+(refresh?'&refresh=1':''));renderProfitOrders(d);status.textContent='订单范围：'+d.range.from+' 至 '+d.range.to+' · 已计算 '+(d.totals?.matched||0)+' / '+(d.totals?.lines||0)+' 行'+((d.totals?.unmatched||0)?' · '+d.totals.unmatched+' 行待核对，请查看各行原因':'')+(d.truncated?' · 订单量超过接口读取上限，汇总可能不完整。':'')+(d.cached?' · 缓存数据':' · 已更新');}
   catch(e){$('#profitOrderSummary').hidden=true;$('#profitOrderRows').innerHTML='<tr><td colspan="8" class="empty">'+escHtml(e.message)+'</td></tr>';status.textContent='订单读取失败：'+e.message;}
   finally{$('#profitOrderApply').disabled=false;}
 }
@@ -174,23 +174,26 @@ function bindProfitEvents(){
       $('#profitRows')?.querySelectorAll('.profit-input').forEach(input=>{const x=profitItems.find(v=>v.id===input.dataset.id);if(!x)return;x.cost=x.cost||{};x.cost[input.dataset.field]=input.value===''?'':Number(input.value);});
       const payload={items:profitItems.map(x=>({id:x.id,costCny:x.cost?.costCny??'',freightCny:x.cost?.freightCny??'',otherFee:x.cost?.otherFee??''}))};
       const r=await fetch('/api/ml/profit/items',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw Error(d.error||'保存失败');
-      $('#profitStatus').textContent='已保存 '+d.saved+' 个 Listing 的费用数据到当前账户。';
+      $('#profitStatus').textContent='已保存 '+d.saved+' 个 Listing 的人工成本、头程和其他费用到当前账户。';
       if(typeof toast==='function')toast('费用数据已保存');
     }catch(err){$('#profitStatus').textContent='保存失败：'+err.message;}
-    finally{button.disabled=false;button.textContent='保存数据';}
+    finally{button.disabled=false;button.textContent='保存 Listing 成本/运费';}
   });
-  $('#profitCalculate')?.addEventListener('click',()=>{
+  $('#profitCalculate')?.addEventListener('click',async(e)=>{
+    const button=e.currentTarget;button.disabled=true;button.textContent='正在计算…';
     renderProfitListings();
-    const calculated=profitItems.map(x=>({item:x,profit:profitCalc(x)})).filter(x=>x.profit!=null);
-    const totalCny=calculated.reduce((sum,x)=>sum+x.profit/(Number(x.item.fxRate)||1),0),margin=calculated.length?calculated.reduce((sum,x)=>sum+x.profit/(Number(x.item.price)||1)*100,0)/calculated.length:0;
+    const calculated=profitItems.map(x=>({item:x,profit:profitCalc(x),fx:Number(x.fxRate)||0})).filter(x=>x.profit!=null&&x.fx);
+    const totalCny=calculated.reduce((sum,x)=>sum+x.profit/x.fx,0),margin=calculated.length?calculated.reduce((sum,x)=>sum+(x.profit/x.fx)/(Number(x.item.price)/x.fx)*100,0)/calculated.length:0;
     const result=$('#profitResult');result.hidden=false;
     result.innerHTML='<div class="profit-result-card"><small>成功计算</small><b>'+calculated.length+' / '+profitItems.length+' 个 Listing</b></div><div class="profit-result-card"><small>预估总利润（折合人民币）</small><b class="'+(totalCny<0?'negative':'')+'">'+(calculated.length?escHtml(money(totalCny,'CNY')):'—')+'</b></div><div class="profit-result-card"><small>平均 Listing 利润率</small><b>'+(calculated.length?margin.toFixed(1)+'%':'—')+'</b></div><p>未计入结果的 Listing 缺少成本、头程、汇率、平台费或运费数据；请补齐后再次计算。</p>';
-    $('#profitStatus').textContent='利润计算完成。结果已按已具备完整费用数据的 Listing 汇总。';
-    if(typeof toast==='function')toast('利润计算完成');
+    $('#profitStatus').textContent='Listing 预估已计算；正在更新所选日期的订单利润。';
+    await loadProfitOrders(true);
+    button.disabled=false;button.textContent='计算利润';
+    if(typeof toast==='function')toast('Listing 与订单利润已更新，金额按人民币显示');
   });
   $('#profitRows')?.addEventListener('change',async e=>{const input=e.target.closest('.profit-input');if(!input)return;const x=profitItems.find(v=>v.id===input.dataset.id);if(!x)return;const field=input.dataset.field,val=input.value===''?'':Number(input.value);if(val!==''&&(!Number.isFinite(val)||val<0)){input.value='';return;}
     x.cost=x.cost||{costCny:'',freightCny:'',otherFee:''};x.cost[field]=val;renderProfitListings();
-    try{const r=await fetch('/api/ml/profit/items/'+encodeURIComponent(x.id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(x.cost)});const d=await r.json();if(!r.ok)throw Error(d.error||'保存失败');$('#profitStatus').textContent='费用已保存到当前账户。';}
+    try{const r=await fetch('/api/ml/profit/items/'+encodeURIComponent(x.id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(x.cost)});const d=await r.json();if(!r.ok)throw Error(d.error||'保存失败');$('#profitStatus').textContent='该 Listing 的人工成本、头程和其他费用已保存到当前账户。';}
     catch(err){$('#profitStatus').textContent=err.message;}
   });
 }
