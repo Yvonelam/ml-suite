@@ -54,6 +54,10 @@ const BROWSERS = [
 ].filter(Boolean);
 const browser = BROWSERS.find(p => { try { return fs.existsSync(p); } catch (e) { return false; } });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// 巴西日期（GMT-3）与"挑一个有订单的历史日"（用于验证单天的双色柱）
+const brazilToday = new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10);
+const addDaysStr = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+const DAY_WITH_ORDERS = addDaysStr(brazilToday, -2);
 const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { res(JSON.parse(d)); } catch (e) { rej(e); } }); }).on('error', rej); });
 
 (async () => {
@@ -124,55 +128,67 @@ const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = 
     console.log('控制台错误:', errs.length ? errs : '（无）');
     console.log('失败请求:', badUrls.length ? badUrls : '（无）');
 
-    // —— 分时图：自然单 / 广告单 双色堆叠 ——
+    // —— 图表：单天=按小时（自然单/广告单双色）；多天=按天（每天只给总额）——
     const chartProbe = `(function(){
       var svg=document.querySelector('#adsHourBody svg');
       var leg=document.querySelector('#adsHourBody .leg-h');
-      var note=document.querySelector('#adsHourBody .leg-note');
       var neg=0;
       document.querySelectorAll('#adsHourBody rect').forEach(function(r){ if(Number(r.getAttribute('height'))<0) neg++; });
       return JSON.stringify({
         hasChart:!!svg,
         leg:leg?leg.textContent.replace(/\\s+/g,' ').trim():'',
-        note:note?note.textContent.replace(/\\s+/g,' ').trim().slice(0,34):'',
         adBars:document.querySelectorAll('#adsHourBody .hb').length,
         natBars:document.querySelectorAll('#adsHourBody .hb-nat').length,
         negHeights:neg
       });
     })()`;
+    const viewProbe = `JSON.stringify([].slice.call(document.querySelectorAll('#adsHourView button')).map(function(b){return b.dataset.v+'='+(b.style.display==='none'?'hide':'show')}))`;
+    const shotFull = async (name) => {
+      const m = await send('Page.getLayoutMetrics'); const cs = m.cssContentSize || { height: H };
+      const hh = Math.min(Math.max(H, Math.ceil(cs.height) + 24), 7000);
+      const png = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: 0, y: 0, width: W, height: hh, scale: SCALE } });
+      const out = path.join(__dirname, 'shots', name);
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      fs.writeFileSync(out, Buffer.from(png.data, 'base64'));
+      console.log('截图:', out, Math.round(fs.statSync(out).size / 1024) + ' KB');
+    };
 
+    // ① 单天（今天）：应为「按小时」图表，图例含 广告单/自然单
     const cToday = JSON.parse(await evaluate(chartProbe));
-    console.log('分时图(今天):', JSON.stringify(cToday));
+    const vToday = JSON.parse(await evaluate(viewProbe));
+    console.log('单天(今天) 图表:', JSON.stringify(cToday));
+    console.log('单天(今天) 视图按钮:', JSON.stringify(vToday));
     if (!cToday.hasChart) throw new Error('分时图没渲染出来');
     if (cToday.negHeights) throw new Error('分时图出现负高度矩形：' + cToday.negHeights);
     if (cToday.leg.indexOf('广告单') < 0 || cToday.leg.indexOf('自然单') < 0) throw new Error('图例没显示 广告单/自然单：' + cToday.leg);
+    if (vToday.indexOf('hour=show') < 0) throw new Error('单天应显示「按小时」按钮：' + JSON.stringify(vToday));
+    if (vToday.some(v => v === 'day=show' || v === 'heat=show')) throw new Error('单天不该显示 按天/热力图 按钮：' + JSON.stringify(vToday));
 
-    // 切「近 7 天」，让广告单量非 0，验证两种柱子确实同时出现
+    // ② 单天（挑一个有订单的历史日）：验证双色柱真的画出来 + 无负值
+    await evaluate(`(function(){document.getElementById('adsFrom').value='${DAY_WITH_ORDERS}';document.getElementById('adsTo').value='${DAY_WITH_ORDERS}';document.getElementById('adsApply').click();})()`);
+    await sleep(16000);
+    const cOne = JSON.parse(await evaluate(chartProbe));
+    console.log('单天(' + DAY_WITH_ORDERS + ') 图表:', JSON.stringify(cOne));
+    if (cOne.negHeights) throw new Error('出现负高度矩形：' + cOne.negHeights);
+    if (!cOne.adBars && !cOne.natBars) throw new Error('历史单天没有柱子，数据可能有问题');
+    if (!cOne.natBars) throw new Error('单天没画出自然单柱（.hb-nat）—— 双色拆分失效');
+    await shotFull('ads-hour-single.png');
+
+    // ③ 多天（近 7 天）：应切成「按天」，不再有自然单柱
     await evaluate("(function(){var b=[].slice.call(document.querySelectorAll('#adsRange button')).filter(function(x){return x.dataset.r==='7'})[0];if(b)b.click();})()");
-    await sleep(15000);
+    await sleep(16000);
     const c7 = JSON.parse(await evaluate(chartProbe));
-    console.log('分时图(近7天):', JSON.stringify(c7));
-    if (c7.negHeights) throw new Error('分时图出现负高度矩形：' + c7.negHeights);
-    if (!c7.natBars) throw new Error('近 7 天没有自然单柱（.hb-nat）——拆分没生效');
-    if (!c7.adBars) console.log('  ⚠️ 近 7 天广告单为 0，柱子全是自然单淡色（数据如此，非 bug）');
+    const v7 = JSON.parse(await evaluate(viewProbe));
+    console.log('近7天 图表:', JSON.stringify(c7));
+    console.log('近7天 视图按钮:', JSON.stringify(v7));
+    if (!c7.hasChart) throw new Error('多天图没渲染出来');
+    if (c7.natBars) throw new Error('多天不该再出现自然单柱（已改为按天汇总）：natBars=' + c7.natBars);
+    if (!c7.adBars) throw new Error('多天按天图没有柱子');
+    if (c7.leg.indexOf('当天总出单') < 0) throw new Error('多天图例没切成按天口径：' + c7.leg);
+    if (v7.indexOf('day=show') < 0) throw new Error('多天应显示「按天」按钮：' + JSON.stringify(v7));
+    if (v7.indexOf('hour=show') >= 0) throw new Error('多天不该显示「按小时」按钮：' + JSON.stringify(v7));
 
-    // 切「花费」模式：不该分色
-    await evaluate("(function(){var b=[].slice.call(document.querySelectorAll('#adsHourMetric button')).filter(function(x){return x.dataset.m==='cost'})[0];if(b)b.click();})()");
-    await sleep(1500);
-    const cCost = JSON.parse(await evaluate(chartProbe));
-    console.log('分时图(花费模式):', JSON.stringify(cCost));
-    if (cCost.natBars) throw new Error('「花费」模式下不应出现自然单柱（花费无自然/广告之分）');
-    // 切回出单，便于截图
-    await evaluate("(function(){var b=[].slice.call(document.querySelectorAll('#adsHourMetric button')).filter(function(x){return x.dataset.m==='orders'})[0];if(b)b.click();})()");
-    await sleep(1500);
-
-    const m = await send('Page.getLayoutMetrics'); const cs = m.cssContentSize || { height: H };
-    const height = Math.min(Math.max(H, Math.ceil(cs.height) + 24), 7000);
-    const r2 = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: 0, y: 0, width: W, height, scale: SCALE } });
-    const out = path.join(__dirname, 'shots', 'e2e-ads-biz.png');
-    fs.mkdirSync(path.dirname(out), { recursive: true });
-    fs.writeFileSync(out, Buffer.from(r2.data, 'base64'));
-    console.log('截图:', out, Math.round(fs.statSync(out).size / 1024) + ' KB');
+    await shotFull('e2e-ads-biz.png');
     child.kill(); process.exit(0);
   } catch (e) { console.error('FAIL', e.message); try { child.kill(); } catch (x) { } process.exit(1); }
 })();

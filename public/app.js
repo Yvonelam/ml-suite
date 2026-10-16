@@ -1918,32 +1918,139 @@ function renderAdsHour() {
   const d = adsHour.data;
   if (!d || !d.ok) return;
   const cur = d.currency || 'BRL';
-  const note = $('#adsHourNote');
+  const multi = (d.days || 1) > 1;
+
+  // 视图收敛：单天只能看「按小时」；多天默认「按天」
+  // （小时级广告花费只能靠分摊，多天再谈"每小时"没有意义 —— 这也是之前数据看着会变的原因之一）
+  if (multi && adsHour.view === 'hour') adsHour.view = 'day';
+  if (!multi && adsHour.view !== 'hour') adsHour.view = 'hour';
+  const vbox = $('#adsHourView');
+  if (vbox) vbox.querySelectorAll('button').forEach(b => {
+    const v = b.dataset.v;
+    const show = multi ? (v === 'day' || v === 'heat') : (v === 'hour');
+    b.style.display = show ? '' : 'none';
+    b.classList.toggle('on', v === adsHour.view);
+  });
+  // 「出单数量 / 花费」这个口径切换只对单天的按小时图有意义；按天图本来就同时画了出单和花费
+  const mbox = $('#adsHourMetric');
+  if (mbox) mbox.style.display = multi ? 'none' : '';
+
+  const led = d.ledger || {};
   const mSlots = d.measuredSlots || 0, tSlots = d.totalSlots || (d.days * 24);
-  if (note) note.textContent = '巴西时间 GMT-3 · 区间 ' + d.range.from + ' ~ ' + d.range.to
-    + '（' + d.days + ' 天）· 出单为真实值；花费已实测 ' + mSlots + '/' + tSlots + ' 小时' + (mSlots < tSlots ? '（其余为估算）' : '');
+  const note = $('#adsHourNote');
+  if (note) note.textContent = multi
+    ? '巴西时间 GMT-3 · 区间 ' + d.range.from + ' ~ ' + d.range.to + '（' + d.days + ' 天）· 按天汇总；花费为美客多官方按天值，已存入本地账本，历史日期不再变化'
+    : '巴西时间 GMT-3 · ' + d.range.from + ' · 出单为真实值；花费已实测 ' + mSlots + '/' + tSlots + ' 小时' + (mSlots < tSlots ? '（其余按当天出单占比分摊）' : '');
 
   const tot = d.orders || {}, ads = d.ads || {};
-  const peak = d.hourly[d.peakHour] || { hour: 0, orders: 0 };
-  const share = tot.total ? Math.round(peak.orders / tot.total * 100) : 0;
   const kpi = $('#adsHourKpis');
-  if (kpi) kpi.innerHTML =
-    hhKpi('高峰出单时段', String(peak.hour).padStart(2, '0') + ':00–' + String((peak.hour + 1) % 24).padStart(2, '0') + ':00', '', true)
-    + hhKpi('该时段出单', fmt(peak.orders), ' 单 · 占全天 ' + share + '%')
-    + hhKpi('区间出单总数', fmt(tot.total), ' 单' + (tot.cancelled ? '（另剔除取消 ' + tot.cancelled + '）' : ''))
-    + hhKpi('区间广告花费', money(ads.cost, cur), ' 官方按天 · 实测 ' + mSlots + '/' + tSlots + ' 小时');
+  if (kpi) {
+    if (multi) {
+      const days = d.byDay || [];
+      const best = days.reduce((a, b) => (b.orders > (a ? a.orders : -1) ? b : a), null);
+      kpi.innerHTML =
+        hhKpi('区间出单总数', fmt(tot.total), ' 单 · ' + d.days + ' 天')
+        + hhKpi('区间广告花费', money(ads.cost, cur), ' 美客多官方按天值')
+        + hhKpi('单日最高出单', best ? best.date.slice(5) + ' · ' + fmt(best.orders) + ' 单' : '—', '', true)
+        + hhKpi('已存入账本', (led.finalDays || 0) + ' / ' + d.days + ' 天', '冻结后数值不再变化');
+    } else {
+      const peak = d.hourly[d.peakHour] || { hour: 0, orders: 0 };
+      const share = tot.total ? Math.round(peak.orders / tot.total * 100) : 0;
+      kpi.innerHTML =
+        hhKpi('高峰出单时段', String(peak.hour).padStart(2, '0') + ':00–' + String((peak.hour + 1) % 24).padStart(2, '0') + ':00', '', true)
+        + hhKpi('该时段出单', fmt(peak.orders), ' 单 · 占全天 ' + share + '%')
+        + hhKpi('全天出单总数', fmt(tot.total), ' 单' + (tot.cancelled ? '（另剔除取消 ' + tot.cancelled + '）' : ''))
+        + hhKpi('当天广告花费', money(ads.cost, cur), ' 官方按天 · 实测 ' + mSlots + '/' + tSlots + ' 小时');
+    }
+  }
 
-  if (adsHour.view === 'heat') drawHeat(d); else drawHourChart(d);
+  if (!multi) drawHourChart(d);
+  else if (adsHour.view === 'heat') drawHeat(d);
+  else drawDayChart(d);
 
   const tip = $('#adsHourTip');
   if (tip) {
     const t = [d.note || ''];
     if (!d.adsAvailable) t.push('广告按天数据本次拉取失败，花费相关栏位暂为 0，可点「刷新」重试。');
     if (d.truncated) t.push('区间订单较多，仅统计前 ' + fmt(d.fetched) + ' / ' + fmt(d.apiTotal) + ' 单。');
-    if (d.range.to === brToday()) t.push('当天尚未结束，末尾小时数据偏小属正常。');
+    if (multi) t.push('多天区间只给出「每天的花费总额 + 总出单」；想看清每个小时的花费，把范围切到单天（今天 / 自定义同一天）。');
+    else if (d.range.to === brToday()) t.push('当天尚未结束，末尾小时数据偏小属正常。');
     tip.textContent = t.filter(Boolean).join(' ');
     tip.style.display = 'block';
   }
+}
+
+// 多天区间：按天画「当天总出单（柱）+ 当天花费总额（线 · 右轴）」
+// 不做小时级分摊 —— 多天的"每小时"只是把每天摊一遍再加起来，没有实际意义。
+function drawDayChart(d) {
+  const body = $('#adsHourBody'); if (!body) return;
+  const cur = d.currency || 'BRL';
+  const days = d.byDay || [];
+  if (!days.length) { body.innerHTML = '<div class="empty">该区间暂无数据</div>'; return; }
+
+  const orders = days.map(x => Number(x.orders) || 0);
+  const costs = days.map(x => Number(x.adCost) || 0);
+  const n = days.length;
+  const W = 1000, H = 320, L = 58, R = 60, T = 18, B = 42;
+  const pw = W - L - R, ph = H - T - B;
+  const omax = Math.max(1, ...orders) * 1.18;
+  const cmax = Math.max(0.0001, ...costs) * 1.18;
+  const bw = pw / n;
+  const yo = v => T + ph - (v / omax) * ph;
+  const yc = v => T + ph - (v / cmax) * ph;
+  const xc = i => L + i * bw + bw / 2;
+
+  let g = '';
+  for (let j = 0; j <= 4; j++) {
+    const yy = T + ph - (ph * j / 4);
+    g += '<line class="hgl" x1="' + L + '" x2="' + (W - R) + '" y1="' + yy.toFixed(1) + '" y2="' + yy.toFixed(1) + '"/>';
+    g += '<text class="hax-y" x="' + (L - 10) + '" y="' + (yy + 3.5).toFixed(1) + '">' + Math.round(omax * j / 4) + '</text>';
+    g += '<text class="htx" x="' + (W - R + 10) + '" y="' + (yy + 3.5).toFixed(1) + '" style="text-anchor:start;fill:#f59e0b">' + Math.round(cmax * j / 4).toLocaleString('en-US') + '</text>';
+  }
+
+  let bars = '';
+  for (let i = 0; i < n; i++) {
+    const v = orders[i];
+    if (v <= 0) continue;
+    const bh = Math.max(0, T + ph - yo(v));
+    const x = L + i * bw + bw * 0.19;
+    bars += '<rect class="hb" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yo(v).toFixed(1) + '" width="' + (bw * 0.62).toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="2.5"/>';
+  }
+  const pts = costs.map((v, i) => xc(i).toFixed(1) + ',' + yc(v).toFixed(1)).join(' ');
+  let dots = '';
+  for (let i = 0; i < n; i++) dots += '<circle class="hdot" data-i="' + i + '" cx="' + xc(i).toFixed(1) + '" cy="' + yc(costs[i]).toFixed(1) + '" r="2.4"/>';
+
+  const step = Math.max(1, Math.ceil(n / 12));
+  let xlab = '';
+  for (let i = 0; i < n; i += step) {
+    xlab += '<text class="htx" x="' + xc(i).toFixed(1) + '" y="' + (H - 16) + '" style="text-anchor:middle">' + days[i].date.slice(5) + '</text>';
+  }
+
+  body.innerHTML = '<div class="hchart">'
+    + '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-label="按天图">'
+    + '<defs><linearGradient id="hbg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#60a5fa"/><stop offset="1" stop-color="#2563eb"/></linearGradient></defs>'
+    + g + bars + '<polyline class="hline" points="' + pts + '"/>' + dots + xlab
+    + '<line class="hgl" id="hhl" x1="0" x2="0" y1="' + T + '" y2="' + (T + ph) + '" style="stroke:#7dd3fc66;stroke-dasharray:3 3;opacity:0"/>'
+    + '</svg><div class="htip" id="hhTip"></div></div>'
+    + '<div class="leg-h"><span class="k-ord"><i></i>当天总出单（柱）</span><span class="k-cost"><i></i>当天花费总额（线 · 右轴）</span></div>'
+    + '<div class="leg-note">多天区间只按天汇总：花费为<b>美客多官方按天值</b>，已写入本地账本，历史日期冻结后不再变化。想看每个小时的详细花费，把范围切到<b>单天</b>。</div>';
+
+  const svg = body.querySelector('svg'), tipEl = $('#hhTip'), hl = $('#hhl');
+  svg.onmousemove = e => {
+    const rc = svg.getBoundingClientRect();
+    const px = (e.clientX - rc.left) / rc.width * W;
+    const i = Math.max(0, Math.min(n - 1, Math.floor((px - L) / bw)));
+    const day = days[i];
+    hl.setAttribute('x1', xc(i)); hl.setAttribute('x2', xc(i)); hl.style.opacity = 1;
+    tipEl.innerHTML = '<b>' + day.date + '</b>'
+      + '<span>出单 ' + fmt(day.orders) + ' 单 · 件数 ' + fmt(day.units) + '</span><br>'
+      + '<span>花费 ' + money(day.adCost, cur) + (day.final ? '（已存账本 · 不再变化）' : '（进行中）') + '</span><br>'
+      + '<span>广告单 ' + fmt(day.adUnits) + ' · 广告销售额 ' + money(day.adAmount, cur) + '</span>';
+    tipEl.style.left = (xc(i) / W * 100) + '%';
+    tipEl.style.top = Math.min(yc(costs[i]), yo(orders[i])) / H * rc.height + 'px';
+    tipEl.style.opacity = 1;
+  };
+  svg.onmouseleave = () => { tipEl.style.opacity = 0; hl.style.opacity = 0; };
 }
 
 // 美客多广告单只有「按天」口径（units_quantity），而分时是「按小时」。

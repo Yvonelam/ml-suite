@@ -7,6 +7,17 @@ const { ProxyAgent, setGlobalDispatcher } = require('undici');
 const nodemailer = require('nodemailer');
 const reportSchedule = require('./report-schedule');
 
+// node:sqlite（广告账本用）加载时会打一条 "SQLite is an experimental feature" 警告。
+// 功能是好的、稳定的，但这条噪音会让人以为启动报错了 —— 精准挡掉它，其它警告照常放行。
+{
+  const _emitWarning = process.emitWarning;
+  process.emitWarning = function (w, ...rest) {
+    const s = typeof w === 'string' ? w : ((w && w.message) || '');
+    if (/SQLite is an experimental/i.test(s)) return;
+    return _emitWarning.call(process, w, ...rest);
+  };
+}
+
 // ---- 崩溃兜底 ----
 // 之前这里没有任何兜底：任何一处未捕获的异常 / 未处理的 Promise 拒绝，
 // 都会让 Node 以「退出码 1」整个进程结束；而 start-public.js 又会连带把
@@ -1300,6 +1311,8 @@ const ADS_FIELDS = 'clicks,prints,ctr,cost,cpc,acos,roas,cvr,sov,units_quantity,
 const ADS_MAX_DAYS = 90; // 美客多限制：指标最多回溯 90 天
 
 function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+// 小时金额用 3 位小数：单天金额可能很小（如 R$1.75 / 24 小时），只留 2 位时 24 个小时累加会差出好几分
+function round3(n) { return Math.round((Number(n) || 0) * 1000) / 1000; }
 function addDaysStr(dateStr, n) {
   const d = new Date(dateStr + 'T12:00:00Z');
   if (isNaN(d.getTime())) return dateStr;
@@ -1386,6 +1399,21 @@ app.get('/api/ml/ads', async (req, res) => {
 
     const daily = (((dailyRes && dailyRes.results) || [])).map(adsRow).sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
+    // 账本介入：① 把这次拿到的按天广告值写进账本（当天=live，跨天会被自动冻结）
+    //           ② 已冻结的天一律改用账本值（这样「次日回看」与「当天看到的」完全一致，不会越看越大）
+    daily.forEach(r => { if (r.date) adsLedgerUpsertAd(r.date, r.cost, r.totalAmount, r.units); });
+    const dailyFixed = daily.map(r => {
+      const b = adsLedgerGet(r.date);
+      if (!b || b.level !== 'final') return r;
+      const c2 = b.cost, a2 = b.adAmount, u2 = b.adUnits;
+      return {
+        ...r, cost: round2(c2), totalAmount: round2(a2), units: u2,
+        acos: a2 > 0 ? round2(c2 / a2 * 100) : 0,
+        roas: c2 > 0 ? round2(a2 / c2) : 0,
+        cpc: r.clicks ? round2(c2 / r.clicks) : 0,
+      };
+    });
+
     const campaigns = (((campRes && campRes.results) || [])).map(c => ({
       id: c.id, name: c.name || ('活动 ' + c.id),
       status: String(c.status || '').toLowerCase(),
@@ -1397,7 +1425,7 @@ app.get('/api/ml/ads', async (req, res) => {
     })).sort((a, b) => (b.cost - a.cost));
 
     // 汇总优先用账户级按天数据（完整）；没有时退化为活动求和
-    const src = daily.length ? daily : campaigns;
+    const src = dailyFixed.length ? dailyFixed : campaigns;
     const sum = (k) => src.reduce((s, r) => s + (Number(r[k]) || 0), 0);
     const clicks = sum('clicks'), prints = sum('prints'), cost = sum('cost');
     const amount = sum('totalAmount'), units = sum('units');
@@ -1424,7 +1452,7 @@ app.get('/api/ml/ads', async (req, res) => {
       campaignsTruncated: !!((campRes && campRes.paging && campRes.paging.total) > campaigns.length),
       activeCampaigns: campaigns.filter(c => c.status === 'active').length,
       pauseCampaigns: campaigns.filter(c => c.status === 'paused').length,
-      totals, daily, campaigns,
+      totals, daily: dailyFixed, campaigns,
       updatedAt: Date.now(),
     };
     adsCache.key = key; adsCache.at = Date.now(); adsCache.data = data;
@@ -1457,6 +1485,130 @@ function acctDateStr(ts) { return new Date(ts + BR_OFFSET_MIN * 60000).toISOStri
 function acctHour(ts) { return new Date(ts + BR_OFFSET_MIN * 60000).getUTCHours(); }
 // 「巴西时间 date 的 hour 点」对应的 epoch 毫秒
 function acctHourStart(dateStr, hour) { return Date.parse(dateStr + 'T00:00:00Z') + hour * 3600000 - BR_OFFSET_MIN * 60000; }
+
+// ---------- 广告账本（node:sqlite，Node 22 内置，零依赖）----------
+// 为什么要它：每小时花费里「未实测的小时」是分摊出来的，分摊口径一旦随天数变化，
+// 同一天就会「今天看一个数、次日看另一个数」。所以把每天的结果固化下来，次日直接读账本、不再重算。
+// 规则：当天 level='live' 持续更新；跨天后自动冻结为 'final' 且永不再改；只保留最近 90 天（3 个月）。
+const ADS_LEDGER_KEEP_DAYS = 90;
+
+let _adsDb = null, _adsDbPath = '';
+function adsDb() {
+  let p;
+  try { p = privateDataFile('ads-ledger.db'); } catch { return null; }
+  if (_adsDb && _adsDbPath === p) return _adsDb;
+  if (_adsDb) { try { _adsDb.close(); } catch { } _adsDb = null; _adsDbPath = ''; }
+  try {
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(p);
+    try { db.exec('PRAGMA journal_mode=WAL'); } catch { }
+    db.exec(`CREATE TABLE IF NOT EXISTS daily (
+      date         TEXT PRIMARY KEY,
+      cost         REAL    DEFAULT 0,
+      ad_amount    REAL    DEFAULT 0,
+      ad_units     INTEGER DEFAULT 0,
+      orders       INTEGER DEFAULT 0,
+      tot_units    INTEGER DEFAULT 0,
+      tot_amount   REAL    DEFAULT 0,
+      hcost        TEXT,
+      horders      TEXT,
+      hsrc         TEXT,
+      hmeasured    INTEGER DEFAULT 0,
+      level        TEXT    DEFAULT 'live',
+      observed_at  INTEGER,
+      finalized_at INTEGER
+    )`);
+    _adsDb = db; _adsDbPath = p;
+    return db;
+  } catch (e) {
+    console.error('[广告账本] 打开失败，本次退回实时计算:', e.message);
+    _adsDb = null; _adsDbPath = '';
+    return null;
+  }
+}
+const num = v => Number(v) || 0;
+const int = v => Math.round(Number(v) || 0);
+const parseArr = s => { try { const a = JSON.parse(s); return Array.isArray(a) ? a : null; } catch { return null; } };
+function mapLedgerRow(r) {
+  if (!r) return null;
+  return {
+    date: r.date, cost: num(r.cost), adAmount: num(r.ad_amount), adUnits: int(r.ad_units),
+    orders: int(r.orders), totUnits: int(r.tot_units), totAmount: num(r.tot_amount),
+    hcost: parseArr(r.hcost), horders: parseArr(r.horders), hsrc: parseArr(r.hsrc),
+    hmeasured: int(r.hmeasured), level: r.level,
+    observedAt: r.observed_at || 0, finalizedAt: r.finalized_at || 0,
+  };
+}
+function adsLedgerGet(date) {
+  const db = adsDb(); if (!db || !date) return null;
+  try { return mapLedgerRow(db.prepare('SELECT * FROM daily WHERE date=?').get(date)); } catch { return null; }
+}
+function adsLedgerRange(from, to) {
+  const db = adsDb(); if (!db) return [];
+  try { return db.prepare('SELECT * FROM daily WHERE date>=? AND date<=? ORDER BY date').all(from, to).map(mapLedgerRow); } catch { return []; }
+}
+// 采样器专用：只写「广告三项」，不碰订单/小时数据（那些由查看接口写）
+function adsLedgerUpsertAd(date, cost, adAmount, adUnits) {
+  const db = adsDb(); if (!db || !date) return false;
+  try {
+    const today = acctDateStr(Date.now());
+    const cur = adsLedgerGet(date);
+    if (cur && cur.level === 'final') return false;            // 已冻结，永不再改
+    // 只把「已经过去、且确实有花费」的天冻结；花费为 0 的先留在 live，
+    // 免得美客多还没落账（当天看着是 0）就被永久冻结成 0
+    const level = (date < today && num(cost) > 0) ? 'final' : 'live';
+    const now = Date.now();
+    db.prepare(`INSERT INTO daily (date,cost,ad_amount,ad_units,level,observed_at,finalized_at)
+      VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(date) DO UPDATE SET
+        cost=excluded.cost, ad_amount=excluded.ad_amount, ad_units=excluded.ad_units,
+        level=excluded.level, observed_at=excluded.observed_at,
+        finalized_at=COALESCE(daily.finalized_at, excluded.finalized_at)`)
+      .run(date, num(cost), num(adAmount), int(adUnits), level, now, level === 'final' ? now : null);
+    return true;
+  } catch { return false; }
+}
+// 查看接口专用：写完整一天（含订单数与 24 小时分布）
+function adsLedgerUpsertFull(day) {
+  const db = adsDb(); if (!db || !day || !day.date) return false;
+  try {
+    const today = acctDateStr(Date.now());
+    const cur = adsLedgerGet(day.date);
+    if (cur && cur.level === 'final') return false;
+    const level = (day.date < today && num(day.cost) > 0) ? 'final' : 'live';
+    const now = Date.now();
+    db.prepare(`INSERT INTO daily (date,cost,ad_amount,ad_units,orders,tot_units,tot_amount,hcost,horders,hsrc,hmeasured,level,observed_at,finalized_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(date) DO UPDATE SET
+        cost=excluded.cost, ad_amount=excluded.ad_amount, ad_units=excluded.ad_units,
+        orders=excluded.orders, tot_units=excluded.tot_units, tot_amount=excluded.tot_amount,
+        hcost=excluded.hcost, horders=excluded.horders, hsrc=excluded.hsrc, hmeasured=excluded.hmeasured,
+        level=excluded.level, observed_at=excluded.observed_at,
+        finalized_at=COALESCE(daily.finalized_at, excluded.finalized_at)`)
+      .run(day.date, num(day.cost), num(day.adAmount), int(day.adUnits), int(day.orders), int(day.totUnits), num(day.totAmount),
+        JSON.stringify(day.hcost || []), JSON.stringify(day.horders || []), JSON.stringify(day.hsrc || []), int(day.hmeasured),
+        level, now, level === 'final' ? now : null);
+    return true;
+  } catch { return false; }
+}
+// 把「已经过去的、还是 live 的」天冻结掉（跨天那一刻的兜底，防止一直停留在可改写状态）
+function adsLedgerFreezePast() {
+  const db = adsDb(); if (!db) return 0;
+  try {
+    const today = acctDateStr(Date.now());
+    const r = db.prepare("UPDATE daily SET level='final', finalized_at=COALESCE(finalized_at,?) WHERE level='live' AND date < ? AND cost > 0").run(Date.now(), today);
+    return Number(r.changes) || 0;
+  } catch { return 0; }
+}
+// 清理：只保留最近 N 天（默认 90 天 ≈ 3 个月）
+function adsLedgerPurge(keepDays) {
+  const db = adsDb(); if (!db) return 0;
+  try {
+    const cut = addDaysStr(acctDateStr(Date.now()), -(keepDays || ADS_LEDGER_KEEP_DAYS));
+    const r = db.prepare('DELETE FROM daily WHERE date < ?').run(cut);
+    return Number(r.changes) || 0;
+  } catch { return 0; }
+}
 
 function loadLedger() {
   const o = loadJsonSafe(privateDataFile('ads-hourly.json'), null) || {};
@@ -1502,6 +1654,9 @@ function materializeLedger(samples) {
     }
     (void today);
   });
+  // 与 SQLite 账本同口径：小时台账也只保留最近 N 天（否则这个 JSON 会无限长胖）
+  const cut = addDaysStr(acctDateStr(Date.now()), -ADS_LEDGER_KEEP_DAYS);
+  Object.keys(led.days).forEach(k => { if (k < cut) delete led.days[k]; });
   saveLedger(led);
 }
 
@@ -1535,12 +1690,22 @@ async function adsSampleOnce() {
     Object.keys(samples).forEach(k => { if (!keep.has(k)) delete samples[k]; });
     saveJsonSafe(privateDataFile('ads-cost-samples.json'), samples);
     materializeLedger(samples);
+
+    // 写广告账本：当天持续更新(live)，跨天自动冻结(final 后永不再改)
+    rows.forEach(r => { if (r.date) adsLedgerUpsertAd(r.date, r.cost, r.totalAmount, r.units); });
+    adsLedgerFreezePast();
+    adsLedgerPurge();   // 只留最近 90 天（3 个月）
   } catch { /* 采样失败静默，下轮再试 */ }
 }
 
 let adsSampleTimer = null;
 function startAdsSampler() {
   if (adsSampleTimer) return;
+  // 启动即清一次超出保留期的历史（默认 90 天 ≈ 3 个月）
+  try {
+    const del = adsLedgerPurge();
+    if (del) console.log(`  广告账本：已清理 ${del} 天超过保留期（${ADS_LEDGER_KEEP_DAYS} 天）的历史数据`);
+  } catch { }
   setTimeout(() => { adsSampleOnce(); }, 20000);
   adsSampleTimer = setInterval(() => { adsSampleOnce(); }, ADS_SAMPLE_EVERY_MS);
   console.log('  广告花费采样器已启动（每 5 分钟记录一次当天累计花费，用于反推真实小时花费）');
@@ -1632,75 +1797,88 @@ app.get('/api/ml/ads/hourly', async (req, res) => {
     const nowAccDate = nowParts.date || tzToday(SALES_TZ.tz, nowTs);
     const nowAccHour = (typeof nowParts.hour === 'number') ? nowParts.hour : 0;
 
-    // 3) 汇总：优先用「实测」台账（采样反推出的真实小时花费），没实测才退回出单占比分摊
+    // 3) 汇总
+    //   小时花费口径（本段是关键）：
+    //     · 已实测(定档)的小时 → 用实测值，不参与分摊；
+    //     · 其余金额 = 当天总额 − 已实测合计，按出单占比「一次性」分摊到未实测的小时。
+    //   分母统一取「未实测小时的出单总数」，所以 Σ(小时花费) 恒等于当天总额。
+    //   ⚠️ 旧代码里"过去的小时"用的是「截至该小时的累计单量」当分母，Σ 会远大于当天总额
+    //      （3 单分落 10/11/12 点时会算出 1 + 1/2 + 1/3 = 1.83 倍）——
+    //      这正是「今天看是对的、次日回看数值膨胀」的根因。
+    //   已冻结(level=final)的天：花费/广告销售额/广告单量一律读账本，不再用实时接口重算
+    //      → 同一天「今天看到的」与「次日回看的」完全一致。
     const led = loadLedger();
-    const samples = loadJsonSafe(privateDataFile('ads-cost-samples.json'), {});   // 采样累计曲线：过去小时按「该小时结束时刻的累计花费」固定分摊
     const hourly = Array.from({ length: 24 }, (_, h) => ({ hour: h, orders: 0, amount: 0, cost: 0, measured: 0 }));
     const byDay = [];
     let totOrders = 0, totAmount = 0, totUnits = 0, totCost = 0, totAdUnits = 0, totAdAmount = 0;
-    let measuredSlots = 0;
+    let measuredSlots = 0, finalDays = 0;
     const n = daysBetween(from, to) + 1;
     for (let i = 0; i < n; i++) {
       const date = addDaysStr(from, i);
       const d = dayMap.get(date) || { orders: 0, amount: 0, units: 0, hours: new Array(24).fill(0), hourAmount: new Array(24).fill(0) };
       const ad = adByDate.get(date) || { cost: 0, units: 0, totalAmount: 0 };
-      const adCost = Number(ad.cost) || 0;
-      const active = d.orders > 0;
+      const book = adsLedgerGet(date);
+      const isFinal = !!(book && book.level === 'final');   // 已冻结：账本为准
+      if (isFinal) finalDays++;
+      const adCost = isFinal ? num(book.cost) : (Number(ad.cost) || 0);
+      const adUnits = isFinal ? book.adUnits : (Number(ad.units) || 0);
+      const adAmount = isFinal ? book.adAmount : (Number(ad.totalAmount) || 0);
+
+      const isToday = (date === nowAccDate);
       const frozen = led.days[date] || {};
       const hoursCost = new Array(24).fill(0);
       const hoursSrc = new Array(24).fill('est');
-      // 截至每小时结束的累计出单（过去小时分摊的分母，用"截至该小时"而非"当天总数"，否则份额被后续订单稀释）
-      const ordersUpTo = new Array(24).fill(0);
-      { let cu = 0; for (let hh = 0; hh < 24; hh++) { cu += d.hours[hh]; ordersUpTo[hh] = cu; } }
-      const isToday = (date === nowAccDate);
-      const sampArr = (samples[date] || []).slice().sort((a, b) => a.t - b.t);
-      const dayStartTs = acctHourStart(date, 0);   // 当天 00:00（当天累计从这里由 0 起算）
+      const isMeasured = new Array(24).fill(false);
+
+      // ① 已定档的实测小时：直接用，不进分摊
+      let measuredSum = 0;
       for (let h = 0; h < 24; h++) {
         const fz = frozen[h];
-        let c, src;
-        if (fz && typeof fz.c === 'number') { c = Number(fz.c) || 0; src = 'measured'; }
-        else {
-          const hs = acctHourStart(date, h), he = hs + 3600000;
-          const ended = !isToday || he <= nowTs;
-          // ① 采样差值优先：本小时花费 = cum(结束时刻或此刻) − cum(本小时开始)
-          //    hs 早于首个采样点时，只有 hs 恰为「当天 00:00」可用 0 作基线（当天累计自 0 起算）
-          const c0 = !sampArr.length ? null
-            : (hs <= dayStartTs ? 0 : (hs < sampArr[0].t ? null : cumAt(sampArr, hs)));
-          const endT = ended ? he : Math.min(nowTs, he);
-          const c1 = (sampArr.length && endT >= sampArr[0].t) ? cumAt(sampArr, endT) : null;
-          if (c0 != null && c1 != null) {
-            c = Math.max(0, c1 - c0);
-            src = ended ? 'measured' : 'progress';
-          } else if (ended) {
-            // ② 无采样覆盖的过去小时：用「该小时结束时刻的累计花费」作固定基准做占比分摊（不随当天累计漂移）
-            const cumHe = sampArr.length ? cumAt(sampArr, he) : null;
-            const base = (cumHe == null ? adCost : cumHe);
-            const up = ordersUpTo[h];
-            c = base > 0 ? base * (up > 0 ? d.hours[h] / up : 1 / 24) : 0;
-            src = 'est';
-          } else {
-            // ③ 进行中且无采样：用当前累计实时分摊
-            c = adCost * (active ? d.hours[h] / d.orders : (adCost > 0 ? 1 / 24 : 0));
-            src = 'progress';
-          }
+        if (fz && typeof fz.c === 'number') {
+          hoursCost[h] = num(fz.c); hoursSrc[h] = 'measured'; isMeasured[h] = true; measuredSum += hoursCost[h];
         }
-        hoursCost[h] = c;
-        hoursSrc[h] = src;
-        hourly[h].orders += d.hours[h];
-        hourly[h].amount += d.hourAmount[h];
-        hourly[h].cost += c;
-        if (src === 'measured') { hourly[h].measured++; measuredSlots++; }
+      }
+      // ② 剩余金额按出单占比分摊到未实测小时（Σ 守恒）
+      const restAmt = Math.max(0, adCost - measuredSum);
+      const freeSlots = 24 - isMeasured.filter(Boolean).length;
+      if (restAmt > 0 && freeSlots > 0) {
+        let pool = 0;
+        for (let h = 0; h < 24; h++) if (!isMeasured[h]) pool += Number(d.hours[h]) || 0;
+        for (let h = 0; h < 24; h++) {
+          if (isMeasured[h]) continue;
+          const o = Number(d.hours[h]) || 0;
+          hoursCost[h] = pool > 0 ? restAmt * (o / pool) : restAmt / freeSlots;
+          const he = acctHourStart(date, h) + 3600000;
+          hoursSrc[h] = (!isToday || he <= nowTs) ? 'est' : 'progress';
+        }
+      }
+
+      for (let h = 0; h < 24; h++) {
+        hourly[h].orders += Number(d.hours[h]) || 0;
+        hourly[h].amount += Number(d.hourAmount[h]) || 0;
+        hourly[h].cost += hoursCost[h];
+        if (hoursSrc[h] === 'measured') { hourly[h].measured++; measuredSlots++; }
       }
       totOrders += d.orders; totAmount += d.amount; totUnits += d.units; totCost += adCost;
-      totAdUnits += Number(ad.units) || 0; totAdAmount += Number(ad.totalAmount) || 0;
+      totAdUnits += adUnits; totAdAmount += adAmount;
       byDay.push({
         date, orders: d.orders, amount: round2(d.amount), units: d.units,
-        adCost: round2(adCost), adUnits: Number(ad.units) || 0, adAmount: round2(Number(ad.totalAmount) || 0),
-        hours: d.hours, hoursCost: hoursCost.map(round2), hoursSrc,
+        adCost: round2(adCost), adUnits, adAmount: round2(adAmount),
+        hours: d.hours, hoursCost: hoursCost.map(round3), hoursSrc,
         measured: hoursSrc.filter(s => s === 'measured').length,
+        final: isFinal,
       });
+      // 写账本（已冻结的会被拒绝，不会覆盖）
+      if (!isFinal) {
+        adsLedgerUpsertFull({
+          date, cost: adCost, adAmount, adUnits,
+          orders: d.orders, totUnits: d.units, totAmount: d.amount,
+          hcost: hoursCost.map(round3), horders: d.hours, hsrc: hoursSrc,
+          hmeasured: hoursSrc.filter(s => s === 'measured').length,
+        });
+      }
     }
-    hourly.forEach(h => { h.amount = round2(h.amount); h.cost = round2(h.cost); });
+    hourly.forEach(h => { h.amount = round2(h.amount); h.cost = round3(h.cost); });
 
     const peak = hourly.reduce((a, b) => (b.orders > a.orders ? b : a), hourly[0]);
 
@@ -1716,7 +1894,9 @@ app.get('/api/ml/ads/hourly', async (req, res) => {
       adsAvailable: !!dailyRes,
       truncated: apiTotal > all.length, apiTotal, fetched: all.length,
       measuredSlots, totalSlots: n * 24,
-      note: '出单数量按订单创建时间（统一换算为巴西时间 GMT-3）真实分桶。每小时花费：服务器每 5 分钟记录一次「当天累计花费」，用相邻采样差值反推出每小时真实花费，小时结束后 12 分钟定档（实测，此后不再变化）。尚未能反推的小时按出单占比分摊，且「已过去的小时」一律用该小时结束时刻的累计花费作固定基准，因此不会随当天累计增长而漂移。',
+      // 账本状态：finalDays 表示这几天里已「冻结」的天数（冻结后数值不再变化）
+      ledger: { finalDays, days: n, keepDays: ADS_LEDGER_KEEP_DAYS, on: !!adsDb() },
+      note: '出单数量按订单创建时间（统一换算为巴西时间 GMT-3）真实分桶。每小时花费：服务器每 5 分钟记录一次「当天累计花费」，用相邻采样差值反推出每小时真实花费，小时结束后 12 分钟定档（实测，此后不再变化）；没能反推的小时，用「当天官方总额 − 已实测合计」按出单占比分摊，因此各小时加起来恒等于当天总额。当天的值会随投放继续更新；跨天后写入本地账本并冻结，此后不再变化（账本保留最近 90 天）。',
       updatedAt: Date.now(),
     };
     adsHourlyCache.key = key; adsHourlyCache.at = Date.now(); adsHourlyCache.data = data;
