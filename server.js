@@ -1256,6 +1256,21 @@ app.get('/api/ml/profit/listings', async (req, res) => {
     const data={ok:true,items:output,total,loaded:items.length,truncated:total>ids.length,updatedAt:Date.now()}; profitCache.set(key,{at:Date.now(),data}); res.json(data);
   } catch(e){sendMlError(res,e);}
 });
+app.put('/api/ml/profit/items', (req,res)=>{
+  const rows=Array.isArray(req.body?.items)?req.body.items:null;
+  if(!rows||rows.length>2000)return res.status(400).json({error:'保存数据格式无效'});
+  const num=(v)=>{if(v===''||v===null||v===undefined)return '';const n=Number(v);return Number.isFinite(n)&&n>=0?n:null;};
+  const all=readProfitCosts();
+  for(const row of rows){
+    const id=String(row?.id||''); if(!/^[A-Za-z0-9_-]{1,40}$/.test(id))return res.status(400).json({error:'发现无效 Listing ID'});
+    const next={costCny:num(row.costCny),freightCny:num(row.freightCny),otherFee:num(row.otherFee)};
+    if(Object.values(next).includes(null))return res.status(400).json({error:'费用必须是大于等于 0 的数字'});
+    all[id]={...(all[id]||{}),...next};
+  }
+  saveProfitCosts(all);
+  const prefix=auth.currentUserId()+'|'; for(const key of profitCache.keys())if(key.startsWith(prefix))profitCache.delete(key);
+  res.json({ok:true,saved:rows.length});
+});
 app.put('/api/ml/profit/items/:id', (req,res)=>{
   const id=String(req.params.id||''); if(!/^[A-Za-z0-9_-]{1,40}$/.test(id))return res.status(400).json({error:'无效 Listing ID'});
   const num=(v)=>{if(v===''||v===null||v===undefined)return '';const n=Number(v);return Number.isFinite(n)&&n>=0?n:null;};
