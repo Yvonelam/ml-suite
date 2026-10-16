@@ -1220,8 +1220,65 @@ const listingsCache = { key: '', at: 0, data: null };
 
 // ---- 产品利润：成本按账户私有保存，始终只读取当前登录卖家的 Listing ----
 const profitCache = new Map();
+const profitOrderCache = new Map();
+const shipmentCostCache = new Map();
 function readProfitCosts() { try { return JSON.parse(fs.readFileSync(privateDataFile('product-profit.json'), 'utf8')) || {}; } catch { return {}; } }
 function saveProfitCosts(data) { fs.writeFileSync(privateDataFile('product-profit.json'), JSON.stringify(data, null, 2), 'utf8'); }
+app.get('/api/ml/profit/orders', async (req,res)=>{
+  const cfg=loadConfig();
+  if(!mlConfigured(cfg))return res.json({ok:false,needConfig:true,message:'尚未配置美客多 API 凭证'});
+  if(!mlAuthorized(cfg))return res.json({ok:false,needAuth:true,message:'请先完成美客多账号授权'});
+  try{
+    const u=await mlUser(),today=tzToday();let from=isDateStr(req.query.from)?String(req.query.from):today,to=isDateStr(req.query.to)?String(req.query.to):today;
+    if(from>to){const t=from;from=to;to=t;}
+    const cacheKey=`${auth.currentUserId()}|${u.id}|${from}|${to}`,cached=profitOrderCache.get(cacheKey);
+    if(!req.query.refresh&&cached&&Date.now()-cached.at<30000)return res.json({...cached.data,cached:true});
+    const qFrom=`${from}T00:00:00.000${SALES_TZ.offset}`,qTo=`${to}T23:59:59.999${SALES_TZ.offset}`,CAP=500,raw=[];let apiTotal=0,offset=0;
+    while(raw.length<CAP){
+      const d=await mlRequest(`/orders/search?seller=${encodeURIComponent(u.id)}&order.date_created.from=${encodeURIComponent(qFrom)}&order.date_created.to=${encodeURIComponent(qTo)}&sort=date_asc&limit=50&offset=${offset}`);
+      const rows=d?.results||[];apiTotal=Number(d?.paging?.total||rows.length);raw.push(...rows);offset+=50;if(!rows.length||offset>=apiTotal)break;
+    }
+    const validOrders=raw.slice(0,CAP).filter(o=>!['cancelled','invalid'].includes(String(o.status||'')));
+    const shipmentIds=[...new Set(validOrders.map(o=>String(o.shipping?.id||'')).filter(Boolean))];
+    async function getShipmentCost(id){
+      const key=`${auth.currentUserId()}|${id}`,hit=shipmentCostCache.get(key);if(hit&&Date.now()-hit.at<3600000)return hit.data;
+      let d=null;
+      try{d=await mlRequest(`/marketplace/shipments/${encodeURIComponent(id)}/costs`,{headers:{'x-format-new':'true'}});}
+      catch{try{d=await mlRequest(`/shipments/${encodeURIComponent(id)}/costs?seller_id=${encodeURIComponent(u.id)}`);}catch{}}
+      let data=null;
+      if(d){const senders=Array.isArray(d.senders)?d.senders:[];const seller=senders.find(x=>String(x.user_id)===String(u.id))||senders[0];const rawCost=seller?.cost??d.shipping_fee;const n=Number(rawCost);if(rawCost!==undefined&&rawCost!==null&&Number.isFinite(n))data={amount:n,currency:d.currency_id||''};}
+      shipmentCostCache.set(key,{at:Date.now(),data});return data;
+    }
+    const shipmentCosts={};
+    for(let i=0;i<shipmentIds.length;i+=6){const part=await Promise.all(shipmentIds.slice(i,i+6).map(async id=>[id,await getShipmentCost(id)]));for(const [id,cost] of part)shipmentCosts[id]=cost;}
+    const costs=readProfitCosts(), currencies=[...new Set(validOrders.flatMap(o=>[o.currency_id,...(o.order_items||[]).map(x=>x.currency_id)].filter(Boolean)))],rates={};
+    for(const currency of currencies){try{const d=await mlRequest(`/currency_conversions/search?from=CNY&to=${encodeURIComponent(currency)}`);rates[currency]=Number(d?.ratio||d?.rate||0);}catch{rates[currency]=0;}}
+    const flattened=[];
+    for(const order of validOrders){
+      const items=order.order_items||[],taxRaw=order.taxes&&typeof order.taxes==='object'?order.taxes.amount:order.taxes,taxAmount=Number(taxRaw),taxKnown=taxRaw!==undefined&&taxRaw!==null&&Number.isFinite(taxAmount),currency=order.currency_id||(items[0]?.currency_id)||'';
+      const revenues=items.map(it=>(Number(it.unit_price)||0)*(Number(it.quantity)||1)),sumRevenue=revenues.reduce((a,b)=>a+b,0),shipmentId=String(order.shipping?.id||'');
+      const shipment=shipmentCosts[shipmentId],shipmentTotal=shipment?Number(shipment.amount):null;
+      const shipmentGroup=shipmentId+'|'+currency;
+      for(let i=0;i<items.length;i++)flattened.push({order,item:items[i],currency,qty:Number(items[i].quantity)||1,revenue:revenues[i],taxShare:taxKnown&&sumRevenue?taxAmount*revenues[i]/sumRevenue:(taxKnown?0:null),shipmentId,shipmentGroup,orderRevenue:sumRevenue,shipmentTotal,shipmentCurrency:shipment?.currency||''});
+    }
+    const shipmentGroupRevenue={};for(const line of flattened)if(line.shipmentId)shipmentGroupRevenue[line.shipmentGroup]=(shipmentGroupRevenue[line.shipmentGroup]||0)+line.revenue;
+    const lines=flattened.map(line=>{
+      const item=line.item,id=String(item.item?.id||''),saved=costs[id],currency=line.currency,fx=Number(rates[currency]||0),saleFeeRaw=item.sale_fee,saleFeeUnit=Number(saleFeeRaw),feeKnown=saleFeeRaw!==undefined&&saleFeeRaw!==null&&Number.isFinite(saleFeeUnit);
+      let shippingShare=null;
+      if(line.shipmentTotal!==null&&line.shipmentCurrency===currency){const groupRevenue=shipmentGroupRevenue[line.shipmentGroup]||0;shippingShare=groupRevenue?line.shipmentTotal*line.revenue/groupRevenue:0;}
+      else if(line.shipmentTotal===0&&line.shipmentCurrency===currency)shippingShare=0;
+      const costReady=saved&&saved.costCny!==''&&saved.costCny!==undefined&&saved.costCny!==null&&saved.freightCny!==''&&saved.freightCny!==undefined&&saved.freightCny!==null;
+      const costLocal=costReady&&fx?(Number(saved.costCny)+Number(saved.freightCny))*fx*line.qty+(Number(saved.otherFee)||0)*line.qty:null;
+      const feeTotal=feeKnown?saleFeeUnit*line.qty:null,allKnown=feeKnown&&shippingShare!==null&&line.taxShare!==null&&costLocal!==null;
+      const profit=allKnown?line.revenue-feeTotal-shippingShare-line.taxShare-costLocal:null;
+      const reasons=[];if(!id)reasons.push('订单缺少 Listing ID');else if(!saved)reasons.push('未保存该商品成本');else if(!costReady)reasons.push('未填写成本/头程');if(!fx)reasons.push('汇率缺失');if(!feeKnown)reasons.push('销售费缺失');if(shippingShare===null)reasons.push('运费缺失');if(line.taxShare===null)reasons.push('订单税额缺失');
+      return {orderId:String(line.order.id||''),date:line.order.date_created||'',status:line.order.status||'',itemId:id,title:item.item?.title||('Listing '+id),qty:line.qty,currency,unitPrice:Number(item.unit_price)||0,revenue:line.revenue,saleFee:feeTotal,shipping:shippingShare,tax:line.taxShare,cost:costLocal,profit,profitCny:profit!==null&&fx?profit/fx:null,margin:profit!==null&&line.revenue?profit/line.revenue*100:null,missing:reasons,fxRate:fx};
+    });
+    const complete=lines.filter(x=>x.profit!==null),totalProfitCny=complete.reduce((s,x)=>s+(x.profitCny||0),0),totalRevenueCny=complete.reduce((s,x)=>s+(x.revenue/(x.fxRate||1)),0);
+    const data={ok:true,range:{from,to},currency:'CNY',truncated:apiTotal>raw.length,apiTotal,orders:lines,totals:{orders:new Set(validOrders.map(o=>String(o.id))).size,lines:lines.length,matched:complete.length,unmatched:lines.length-complete.length,units:complete.reduce((s,x)=>s+x.qty,0),profitCny:Math.round(totalProfitCny*100)/100,margin:totalRevenueCny?Math.round(totalProfitCny/totalRevenueCny*10000)/100:null},updatedAt:Date.now()};
+    profitOrderCache.set(cacheKey,{at:Date.now(),data});res.json(data);
+  }catch(e){sendMlError(res,e);}
+});
 app.get('/api/ml/profit/listings', async (req, res) => {
   const cfg = loadConfig();
   if (!mlConfigured(cfg)) return res.json({ ok:false, needConfig:true, message:'尚未配置美客多 API 凭证' });
@@ -1268,7 +1325,7 @@ app.put('/api/ml/profit/items', (req,res)=>{
     all[id]={...(all[id]||{}),...next};
   }
   saveProfitCosts(all);
-  const prefix=auth.currentUserId()+'|'; for(const key of profitCache.keys())if(key.startsWith(prefix))profitCache.delete(key);
+  const prefix=auth.currentUserId()+'|'; for(const key of profitCache.keys())if(key.startsWith(prefix))profitCache.delete(key);for(const key of profitOrderCache.keys())if(key.startsWith(prefix))profitOrderCache.delete(key);
   res.json({ok:true,saved:rows.length});
 });
 app.put('/api/ml/profit/items/:id', (req,res)=>{
@@ -1277,7 +1334,7 @@ app.put('/api/ml/profit/items/:id', (req,res)=>{
   const next={costCny:num(req.body?.costCny),freightCny:num(req.body?.freightCny),otherFee:num(req.body?.otherFee)};
   if(Object.values(next).includes(null))return res.status(400).json({error:'费用必须是大于等于 0 的数字'});
   const all=readProfitCosts();all[id]=next;saveProfitCosts(all);
-  const prefix=auth.currentUserId()+'|'; for(const key of profitCache.keys())if(key.startsWith(prefix))profitCache.delete(key);
+  const prefix=auth.currentUserId()+'|'; for(const key of profitCache.keys())if(key.startsWith(prefix))profitCache.delete(key);for(const key of profitOrderCache.keys())if(key.startsWith(prefix))profitOrderCache.delete(key);
   res.json({ok:true,cost:next});
 });
 

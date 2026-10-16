@@ -15,7 +15,7 @@ const API_BASE = (location.protocol === 'file:' || location.hostname === '')
   : '';
 
 const ROWS_PER_PAGE = 50;
-const CURRENCY_SYMBOLS = { ARS: '$', BRL: 'R$', MXN: '$' };
+const CURRENCY_SYMBOLS = { ARS: '$', BRL: 'R$', MXN: '$', CNY: '¥' };
 
 /* =========================================================
    1. 开屏 + 路由
@@ -105,7 +105,7 @@ function go(v, push = true) {
   if (v === 'orders') loadOrders();
   if (v === 'questions') loadQuestions();
   if (v === 'claims') loadClaims();
-  if (v === 'profit') loadProfitListings();
+  if (v === 'profit') { loadProfitListings(); loadProfitOrders(); }
   $$('.view').forEach(e => e.classList.toggle('on', e.id === 'v-' + v));
   $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.go === v));
   $('#ct').textContent = TT[v];
@@ -133,8 +133,40 @@ async function loadProfitListings(refresh=false) {
   try { const d=await mlGet('/api/ml/profit/listings'+(refresh?'?refresh=1':''));profitItems=d.items||[];const rates=[...new Set(profitItems.map(x=>x.fxRate).filter(Boolean))];$('#profitFxNote').textContent=rates.length?'成本换算使用美客多 CNY→当地币汇率；各 Listing 汇率可能不同。':'暂未取得美客多人民币汇率，成本暂无法换算。';renderProfitListings(); }
   catch(e){profitItems=[];status.textContent=e.message;$('#profitRows').innerHTML='<tr><td colspan="9" class="empty">'+escHtml(e.message)+'</td></tr>';}
 }
+function setProfitOrderRange(range,run=true){
+  const today=brToday(),from=range==='7'?addDays(today,-6):range==='30'?addDays(today,-29):today;
+  $('#profitOrderFrom').value=from;$('#profitOrderTo').value=today;
+  $('#profitOrderRange')?.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.range===range));
+  if(run&&range!=='custom')loadProfitOrders();
+}
+function renderProfitOrders(data){
+  const rows=$('#profitOrderRows'),summary=$('#profitOrderSummary');if(!rows||!summary)return;
+  const items=data.orders||[],totals=data.totals||{};
+  summary.hidden=false;
+  summary.innerHTML='<div class="profit-order-stat"><small>有效订单</small><b>'+fmt(totals.orders||0)+'</b></div><div class="profit-order-stat"><small>成功计算商品行</small><b>'+fmt(totals.matched||0)+' / '+fmt(totals.lines||0)+'</b></div><div class="profit-order-stat"><small>订单利润合计（人民币）</small><b class="'+(Number(totals.profitCny)<0?'negative':'')+'">'+money(totals.profitCny||0,'CNY')+'</b></div><div class="profit-order-stat"><small>整体利润率</small><b>'+(totals.margin==null?'—':Number(totals.margin).toFixed(2)+'%')+'</b></div>';
+  if(!items.length){rows.innerHTML='<tr><td colspan="8" class="empty">所选日期范围内没有有效订单</td></tr>';return;}
+  rows.innerHTML=items.map(x=>{
+    const date=x.date?new Date(x.date).toLocaleString('zh-CN',{timeZone:'America/Sao_Paulo',hour12:false}):'—',complete=x.profit!==null,miss=(x.missing||[]).join('、');
+    const taxShip=x.tax===null||x.shipping===null?'待核对':money(Number(x.tax||0)+Number(x.shipping||0),x.currency);
+    const cls=complete&&Number(x.profit)<0?'negative':'positive';
+    return '<tr><td>'+escHtml(date)+'<small>订单 '+escHtml(x.orderId)+'</small></td><td><span class="profit-order-title">'+escHtml(x.title)+'</span><small>'+escHtml(x.itemId)+'</small></td><td>'+fmt(x.qty)+'</td><td>'+money(x.revenue,x.currency)+'</td><td>'+(x.saleFee===null?'待核对':money(x.saleFee,x.currency))+'</td><td>'+taxShip+'</td><td>'+(x.cost===null?'待核对':money(x.cost,x.currency))+'</td><td class="'+(complete?cls:'pending')+'">'+(complete?money(x.profit,x.currency):'待核对')+(miss?'<small title="'+escHtml(miss)+'">'+escHtml(miss)+'</small>':'')+'</td></tr>';
+  }).join('');
+}
+async function loadProfitOrders(refresh=false){
+  const status=$('#profitOrderStatus'),from=$('#profitOrderFrom')?.value,to=$('#profitOrderTo')?.value;if(!status||!from||!to)return;
+  if(from>to){status.textContent='开始日期不能晚于结束日期。';return;}
+  status.textContent='正在读取订单并匹配 Listing 成本…';$('#profitOrderApply').disabled=true;
+  try{const d=await mlGet('/api/ml/profit/orders?from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+(refresh?'&refresh=1':''));renderProfitOrders(d);status.textContent='订单范围：'+d.range.from+' 至 '+d.range.to+(d.truncated?' · 订单量超过接口读取上限，汇总可能不完整。':'')+(d.cached?' · 缓存数据':' · 已更新');}
+  catch(e){$('#profitOrderSummary').hidden=true;$('#profitOrderRows').innerHTML='<tr><td colspan="8" class="empty">'+escHtml(e.message)+'</td></tr>';status.textContent='订单读取失败：'+e.message;}
+  finally{$('#profitOrderApply').disabled=false;}
+}
 function bindProfitEvents(){
   $('#profitRefresh')?.addEventListener('click',()=>loadProfitListings(true));$('#profitSearch')?.addEventListener('input',renderProfitListings);
+  setProfitOrderRange('today',false);
+  $('#profitOrderRange')?.addEventListener('click',e=>{const b=e.target.closest('button[data-range]');if(!b)return;if(b.dataset.range==='custom'){ $('#profitOrderRange').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));$('#profitOrderFrom').focus();return;}setProfitOrderRange(b.dataset.range,true);});
+  $('#profitOrderFrom')?.addEventListener('change',()=>$('#profitOrderRange')?.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.range==='custom')));
+  $('#profitOrderTo')?.addEventListener('change',()=>$('#profitOrderRange')?.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.range==='custom')));
+  $('#profitOrderApply')?.addEventListener('click',()=>loadProfitOrders(true));
   $('#profitSave')?.addEventListener('click',async e=>{
     const button=e.currentTarget;if(button.disabled||!profitItems.length)return;
     button.disabled=true;button.textContent='正在保存…';
