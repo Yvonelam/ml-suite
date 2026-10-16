@@ -1032,9 +1032,16 @@ function normalizeClaim(c, reasonMap = {}) {
     buyerId: buyerUser,
     sellerId: sellerUser,
     actions,
-    // 调解阶段美客多不一定会下发 available_actions，但 send-message 通道（发往调解员）始终可用
+    // 美客多下发的「可发送消息」动作 —— 这是能否发消息的权威判据
+    canSendNow: actions.includes('send_message_to_complainant') || actions.includes('send_message_to_mediator'),
+    // 调解阶段美客多不一定下发 available_actions，UI 仍给出回复框（真正能否发送由美客多在提交时判定）
     canReply: isMediation || actions.includes('send_message_to_complainant') || actions.includes('send_message_to_mediator'),
     replyTarget: isMediation ? 'mediator' : 'buyer',
+    // send-message 必填的 receiver_role：优先按美客多下发的动作判定，无动作时按阶段兜底
+    // （claim 阶段 → complainant 买家；dispute/mediations 阶段 → mediator 调解员）
+    replyRole: actions.includes('send_message_to_mediator') ? 'mediator'
+      : actions.includes('send_message_to_complainant') ? 'complainant'
+      : (isMediation ? 'mediator' : 'complainant'),
     canRefund: actions.includes('refund') || actions.includes('allow_partial_refund'),
     canDispute: actions.includes('open_dispute'),
     players,
@@ -1983,7 +1990,11 @@ function demoClaims() {
       amount, currency: 'BRL', quantity: 1, quantityType: 'total',
       buyerId: '3135696179', sellerId: '2079199901', actions,
       canReply: isMediation || actions.includes('send_message_to_complainant'),
+      canSendNow: actions.includes('send_message_to_complainant') || actions.includes('send_message_to_mediator'),
       replyTarget: isMediation ? 'mediator' : 'buyer',
+      replyRole: actions.includes('send_message_to_mediator') ? 'mediator'
+        : actions.includes('send_message_to_complainant') ? 'complainant'
+        : (isMediation ? 'mediator' : 'complainant'),
       canRefund: actions.includes('refund'), canDispute: actions.includes('open_dispute'), players: [],
     };
     const category = classifyClaim(base, t);
@@ -1993,7 +2004,7 @@ function demoClaims() {
       ...base, category, categoryLabel: meta.label, categoryDesc: meta.desc,
       needAction: !!meta.need && !ignored, ignored,
       messageCount: t.total, buyerMessages: t.buyerMessages, mediatorMessages: t.mediatorMessages,
-      lastSender: t.lastSender, awaitingSeller: /complainant|buyer|mediator/i.test(t.lastSender || ''),
+      lastSender: t.lastSender, awaitingSeller: base.canSendNow && /complainant|buyer|mediator/i.test(t.lastSender || ''),
     };
   };
   const items = [
@@ -2109,7 +2120,7 @@ app.get('/api/ml/claims', async (req, res) => {
         needAction: !!meta.need && !ignored,
         ignored,
         messageCount: t.total, buyerMessages: t.buyerMessages, mediatorMessages: t.mediatorMessages,
-        lastSender: t.lastSender, lastReceiver: t.lastReceiver, awaitingSeller: t.awaitingSeller,
+        lastSender: t.lastSender, lastReceiver: t.lastReceiver, awaitingSeller: t.awaitingSeller && nc.canSendNow,
       };
     });
     // 各类计数（基于当前所取全部数据）；已忽略单独计数
@@ -2145,7 +2156,7 @@ app.get('/api/ml/claims/:id', async (req, res) => {
       ok: true, sellerId: String(u.id),
       claim: {
         ...nc, category, categoryLabel: meta.label, categoryDesc: meta.desc,
-        needAction: !!meta.need && !ignored, ignored, awaitingSeller: t.awaitingSeller,
+        needAction: !!meta.need && !ignored, ignored, awaitingSeller: t.awaitingSeller && nc.canSendNow,
       },
       messages: t.messages,
     });
@@ -2163,8 +2174,11 @@ app.post('/api/ml/claims/:id/ignore', async (req, res) => {
   } catch (e) { sendMlError(res, e); }
 });
 
-// 在工具内回复买家 / 平台调解员（POST /post-purchase/v1/claims/{id}/actions/send-message，字段：message）
-// 调解类纠纷：消息发往 mediator（美客多调解员）；普通纠纷：发往买家 complainant
+// 在工具内回复买家 / 平台调解员
+// 端点：POST /post-purchase/v1/claims/{id}/actions/send-message
+// 必填字段：message（正文）+ receiver_role（收件人角色：complainant 买家 / mediator 调解员）
+//   —— 少 receiver_role 美客多会直接报 "param action is null"，因为它无法判断这条消息该走哪个动作
+// 调解类纠纷：receiver_role=mediator（美客多调解员）；普通纠纷：receiver_role=complainant（买家）
 app.post('/api/ml/claims/:id/reply', async (req, res) => {
   try {
     const id = String(req.params.id);
@@ -2184,17 +2198,22 @@ app.post('/api/ml/claims/:id/reply', async (req, res) => {
         hint: '可用动作：' + (c.actions.length ? c.actions.join(' / ') : '无') + '。如果只剩退款或发起调解，需要先在美客多后台处理。',
       });
     }
+    const receiverRole = c.replyRole || (c.isMediation ? 'mediator' : 'complainant');
     const r = await mlRequest(`/post-purchase/v1/claims/${encodeURIComponent(id)}/actions/send-message`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify({ receiver_role: receiverRole, message: text }),
     });
     claimThreadCache.delete(id);           // 让下次读到的线程是最新的
-    console.log(`[售后] 已回复纠纷 #${id}（${c.isMediation ? '调解员' : '买家'}）`);
-    res.json({ ok: true, result: r, target: c.isMediation ? 'mediator' : 'buyer' });
+    console.log(`[售后] 已回复纠纷 #${id}（receiver_role=${receiverRole}）`);
+    res.json({ ok: true, result: r, target: receiverRole });
   } catch (e) {
     const msg = String(e.message || '');
     let hint = '';
-    if (/cant be null|can't be null|message.*null/i.test(msg)) hint = '消息内容为空，美客多拒绝了这次提交。';
+    if (/send message is not allowed|not allowed/i.test(msg)) {
+      hint = '美客多当前不允许在这条纠纷里发消息。常见原因：本轮你已经回复过（比如已提交退款/方案），现在轮到买家或调解员回应，等对方有动作后窗口会自动重新打开；也可能是该纠纷已进入调解、只能通过平台指定通道处理。';
+    }
+    else if (/param action is null/i.test(msg)) hint = '美客多未能识别这条消息的接收方（receiver_role），请把 App 升级到最新版后重试。';
+    else if (/cant be null|can't be null|message.*null/i.test(msg)) hint = '消息内容为空，美客多拒绝了这次提交。';
     else if (/forbidden|403/i.test(msg)) hint = '美客多不允许在当前状态发消息：可能调解环节已结束、需要等待调解员发起新一轮，或订单已取消。';
     else if (/not_found|404/i.test(msg)) hint = '纠纷不存在或已关闭。';
     else if (/mediat|dispute/i.test(msg)) hint = '该纠纷已进入平台调解阶段，只能在调解通道内回复。';

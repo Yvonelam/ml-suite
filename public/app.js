@@ -2403,18 +2403,23 @@ function renderClaimPanel(panel, d, id) {
     : '<button class="btn ghost sm" data-pign="' + escHtml(id) + '">🚫 忽略这条</button>';
   const banner = '<div class="cban ' + catMeta.cls + '"><div class="cban-tx">' + catMeta.ico + ' <b>' + escHtml(catMeta.label) + '</b> · '
     + escHtml(isM ? '这条消息会发给平台调解员' : '这条消息会发给买家')
-    + (c.awaitingSeller ? ' · <span class="cw">对方在等你回复</span>' : '')
+    + (c.awaitingSeller ? ' · <span class="cw">对方在等你回复</span>'
+      : (c.canReply && !c.canSendNow ? ' · <span class="cw">本轮已回复，等对方回应</span>' : ''))
     + (c.ignored ? ' · <b>已忽略</b>' : '') + '</div>' + ignBtn + '</div>';
 
   const toLabel = isM ? '发送给调解员' : '发送给买家';
   const ph = isM
     ? '回复平台调解员（如接受/拒绝方案、给出退款比例）… Ctrl / ⌘ + Enter 发送'
     : '给买家发消息（美客多建议 350 字以内）… Ctrl / ⌘ + Enter 发送';
+  // 美客多本轮没下发可回复动作：给出预警，避免用户输入一大段后被平台拒绝
+  const closedTip = (c.canReply && !c.canSendNow)
+    ? '<div class="note" style="margin:0 0 8px;color:var(--warn)">⚠️ 美客多本轮没有下发可回复动作：你很可能已经回复过，现在球在对方那边。此时发送大概率会被平台拒绝，等买家 / 调解员有新消息后窗口会自动重新打开。</div>'
+    : '';
 
   panel.dataset.confirm = '';
   panel.innerHTML = banner + '<div class="cthread">' + thread + '</div>'
     + (c.canReply
-      ? '<div class="qreply">'
+      ? '<div class="qreply">' + closedTip
       + '<textarea rows="2" maxlength="2000" placeholder="' + ph + '" data-cta="' + escHtml(id) + '"></textarea>'
       + '<div class="qreply-b"><span class="qcount" data-ccnt="' + escHtml(id) + '">0 / 2000</span>'
       + '<button class="btn y" data-csend="' + escHtml(id) + '">' + toLabel + '</button></div>'
