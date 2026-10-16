@@ -233,7 +233,7 @@
 
     <section class="view" id="v-profit">
       <div class="ph2"><h1>产品利润</h1><p>同步当前账户在售 Listing；成本和头程由你按 Listing 人工填写并保存，利润统一折算为人民币。</p></div>
-      <div class="card pad profit-intro"><div><b>利润计算</b><p>保存下方人工填写的 Listing 成本、头程和其他费用；计算会更新当前日期范围的订单利润。</p></div><div class="profit-actions"><button class="btn" id="profitSave" type="button">保存 Listing 成本/运费</button><button class="btn y" id="profitCalculate" type="button">计算利润</button><button class="btn" id="profitRefresh" type="button">刷新商品</button></div></div>
+      <div class="card pad profit-intro"><div><b>利润计算</b><p>成本与头程由你按 Listing 人工填写并保存；尾程运费按 Listing ID 从美客多 API 更新，订单利润使用对应 Shipment 运费。</p></div><div class="profit-actions"><button class="btn" id="profitSave" type="button">保存 Listing 成本/运费</button><button class="btn y" id="profitCalculate" type="button">计算利润</button><button class="btn" id="profitRefresh" type="button">刷新商品/运费</button></div></div>
       <div class="card pad profit-order-card">
         <div class="profit-order-head"><div><h2>按订单计算利润</h2><p>选择下单日期范围；订单金额、费用与利润统一折算成人民币。多商品订单运费和税费按实售价比例分摊。</p></div><div class="profit-order-controls">
           <div class="seg" id="profitOrderRange"><button data-range="today" class="on">当天</button><button data-range="7">近 7 天</button><button data-range="30">近 30 天</button><button data-range="custom">自定义</button></div>
@@ -247,8 +247,8 @@
       <div class="sales-filter profit-toolbar"><input id="profitSearch" class="profit-search" placeholder="搜索商品名称或 Listing ID"><span id="profitFxNote" class="profit-note">成本换算：等待中国银行牌价</span></div>
       <div class="card pad" id="profitStatus">正在加载商品…</div>
       <div class="profit-result" id="profitResult" aria-live="polite" hidden></div>
-      <div class="card pad profit-table-wrap"><table class="profit-table"><thead><tr><th>商品 / Listing</th><th>售价</th><th>平台费</th><th>预计运费</th><th>产品成本 ¥</th><th>头程 ¥</th><th>其他扣款</th><th>单件利润</th><th>利润率</th></tr></thead><tbody id="profitRows"><tr><td colspan="9" class="empty">正在加载…</td></tr></tbody></table></div>
-      <p class="profit-disclaimer">平台费、汇率及运费来自美客多 API 估算；Listing 实际费率、税费和订单结算可能因站点、配送及活动而变化。其他扣款按当地币填写；计算利润时统一折合人民币。</p>
+      <div class="card pad profit-table-wrap"><table class="profit-table"><thead><tr><th>商品 / Listing</th><th>售价</th><th>平台费</th><th>平台尾程运费（API）</th><th>产品成本 ¥</th><th>头程 ¥</th><th>其他扣款</th><th>单件利润</th><th>利润率</th></tr></thead><tbody id="profitRows"><tr><td colspan="9" class="empty">正在加载…</td></tr></tbody></table></div>
+      <p class="profit-disclaimer">平台费和 Listing 当前尾程运费来自美客多 API；点击“刷新商品/运费”更新。订单利润按订单商品 ID 匹配 Shipment 的卖家最终运费，不重复扣 Listing 当前配送费；同一 Shipment 多商品时按实售价比例分摊。最终账单若有补贴或调整，以美客多账单核对。其他扣款按当地币填写，利润统一折合人民币。</p>
     </section>
 
     <!-- 关键词排名 -->

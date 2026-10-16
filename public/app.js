@@ -126,7 +126,7 @@ function renderProfitListings() {
     const missingCost=x.cost?.costCny===''||x.cost?.costCny==null||x.cost?.freightCny===''||x.cost?.freightCny==null;
     return '<tr><td><div class="profit-product">'+(x.thumbnail?'<img src="'+escHtml(x.thumbnail)+'" alt="">':'<span class="profit-thumb">ML</span>')+'<div><a target="_blank" rel="noopener" href="'+escHtml(x.permalink)+'">'+escHtml(x.title)+'</a><small>'+escHtml(x.id)+' · '+escHtml(x.site)+'</small></div></div></td><td>'+profitMoney(x.price,x.currency)+'</td><td>'+profitMoney(x.fee,x.currency)+(x.fee==null?'<small class="profit-sub">费率暂不可用</small>':'')+'</td><td>'+profitMoney(x.shipping,x.currency)+(x.shipping==null?'<small class="profit-sub">暂不可用</small>':'')+'</td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="costCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.costCny??'')+'" placeholder="0.00"></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="freightCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.freightCny??'')+'" placeholder="0.00"></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="otherFee" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.otherFee??'')+'" placeholder="0.00"><small class="profit-sub">'+cur+'</small></td><td class="profit-value '+(profitCny!=null&&profitCny<0?'negative':'')+'">'+(profitCny==null?(x.shipping==null?'等待运费估算':(missingCost?'填写产品成本和头程':'等待中国银行牌价或平台费用')):profitMoney(profitCny,'CNY'))+'</td><td>'+(margin==null?'—':margin.toFixed(1)+'%')+'</td></tr>';
   }).join(''):'<tr><td colspan="9" class="empty">'+(profitItems.length?'没有匹配的商品':'当前账户没有读取到在售 Listing')+'</td></tr>';
-  $('#profitStatus').textContent=profitItems.length?'已加载 '+profitItems.length+' 个在售 Listing。费用会随输入自动保存；也可点击“保存数据”手动确认。':'暂时没有可显示的 Listing。';
+  const shippingCount=profitItems.filter(x=>x.shipping!==null&&x.shipping!==undefined).length;$('#profitStatus').textContent=profitItems.length?'已加载 '+profitItems.length+' 个在售 Listing；平台尾程费用 API 已匹配 '+shippingCount+' 个。人工成本和头程可保存到当前账户。':'暂时没有可显示的 Listing。';
 }
 async function loadProfitListings(refresh=false) {
   const status=$('#profitStatus');if(!status)return;status.textContent='正在同步当前账户的在售 Listing…';
@@ -161,7 +161,7 @@ async function loadProfitOrders(refresh=false){
   finally{$('#profitOrderApply').disabled=false;}
 }
 function bindProfitEvents(){
-  $('#profitRefresh')?.addEventListener('click',()=>loadProfitListings(true));$('#profitSearch')?.addEventListener('input',renderProfitListings);
+  $('#profitRefresh')?.addEventListener('click',async e=>{const b=e.currentTarget;if(b.disabled)return;b.disabled=true;b.textContent='正在刷新…';try{await loadProfitListings(true);}finally{b.disabled=false;b.textContent='刷新商品/运费';}});$('#profitSearch')?.addEventListener('input',renderProfitListings);
   setProfitOrderRange('today',false);
   $('#profitOrderRange')?.addEventListener('click',e=>{const b=e.target.closest('button[data-range]');if(!b)return;if(b.dataset.range==='custom'){ $('#profitOrderRange').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));$('#profitOrderFrom').focus();return;}setProfitOrderRange(b.dataset.range,true);});
   $('#profitOrderFrom')?.addEventListener('change',()=>$('#profitOrderRange')?.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.range==='custom')));
