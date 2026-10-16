@@ -22,6 +22,14 @@ const PORT = process.env.PORT || 3000;
 const CF_BIN = path.join(ROOT, 'tools', 'cloudflared.exe');
 const URL_FILE = path.join(ROOT, '公网地址.txt');
 const TUNNEL_CFG = path.join(ROOT, 'tunnel-config.json');
+
+// 启动器自己有没有控制台？
+//   开机自启走 autostart.vbs（隐藏）+ stdio 重定向到 运行日志.txt → stdout 不是 TTY。
+//   这种「无控制台」模式下，子进程若不带 CREATE_NO_WINDOW，Windows 会**给每个子进程
+//   弹一个新 CMD 窗口**（实测 server.js 与 cloudflared 各弹一个，就是用户看到的两个黑框）。
+//   手动双击 .bat 时父进程本来就有控制台，子进程直接继承即可，不需要这个开关。
+// 所以按 isTTY 判断：两种模式都不会多弹窗口。
+const HIDE_CHILD_WINDOWS = !process.stdout.isTTY;
 // 「停止」标记：stop-public.js 会先写下这个文件再杀进程，
 // 这样启动器就知道是「人为停止」，不会傻乎乎地又自动重启回来。
 const STOP_FLAG = path.join(ROOT, '.stop-flag');
@@ -109,6 +117,7 @@ function startServer() {
     cwd: ROOT,
     env: { ...process.env, PORT },
     stdio: 'inherit',
+    windowsHide: HIDE_CHILD_WINDOWS,   // 无控制台模式下别弹黑框（见顶部说明）
   });
   server.on('error', (e) => console.error('[服务] 启动失败:', e.message));
   server.on('exit', (c) => {
@@ -213,6 +222,7 @@ function startTunnel() {
     console.log('[2/2] 正在连接固定域名隧道 ' + (hostname || '(hostname 未填)') + ' ...\n');
     tunnel = spawn(CF_BIN, ['tunnel', '--no-autoupdate', 'run', '--token', tc.token], {
       cwd: ROOT, env: process.env,
+      windowsHide: HIDE_CHILD_WINDOWS,   // 无控制台模式下别弹黑框（见顶部说明）
     });
 
     // 命名隧道的地址不会打印在日志里，直接按配置宣告
@@ -231,6 +241,7 @@ function startTunnel() {
   console.log('      想要固定地址：双击「配置固定域名.bat」\n');
   tunnel = spawn(CF_BIN, ['tunnel', '--url', 'http://127.0.0.1:' + PORT, '--no-autoupdate'], {
     cwd: ROOT, env: process.env,
+    windowsHide: HIDE_CHILD_WINDOWS,   // 无控制台模式下别弹黑框（见顶部说明）
   });
 
   let announced = false;

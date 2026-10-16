@@ -13,7 +13,8 @@ const PORT = process.env.PORT || 3000;
 
 function run(cmd) {
   try {
-    return execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    // windowsHide：execSync 内部会起一个 cmd.exe；不隐藏的话在某些上下文会闪黑框
+    return execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
   } catch (e) {
     return '';
   }
