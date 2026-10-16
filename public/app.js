@@ -1794,9 +1794,22 @@ function renderAds(d) {
   } else {
     const list = d.daily || [];
     if (!list.length) { body.innerHTML = '<div class="empty">该时间范围内没有广告数据</div>'; afterAdsRender(d); return; }
-    let cumCost = 0, cumAmt = 0;
+    // 「自然单」要拿当天总出单来算，而总出单只有分时接口（/ads/hourly 的 byDay）有 —— 这里按日期补上
+    const ordersByDate = {};
+    ((adsHour.data && adsHour.data.byDay) || []).forEach(b => { ordersByDate[b.date] = Number(b.orders) || 0; });
+    let cumCost = 0, cumAmt = 0, sumAd = 0, sumNat = 0, hasOrderData = false;
     const rows = list.map(r => {
       cumCost += Number(r.cost) || 0; cumAmt += Number(r.totalAmount) || 0;
+      const adU = Number(r.units) || 0;
+      const totO = ordersByDate[r.date];
+      const hasO = (totO !== undefined);
+      if (hasO) hasOrderData = true;
+      const adN = hasO ? Math.min(adU, totO) : adU;
+      const natN = hasO ? Math.max(0, totO - adN) : null;
+      sumAd += adN; if (natN != null) sumNat += natN;
+      const cell = (natN == null)
+        ? '<span style="color:#93c5fd">' + fmt(adN) + '</span> <span style="color:var(--mut)">/ —</span>'
+        : '<span style="color:#93c5fd">' + fmt(adN) + '</span> <span style="color:var(--mut)">/ ' + fmt(natN) + '</span>';
       return '<tr>'
         + '<td class="s-time">' + escHtml(r.date) + '</td>'
         + '<td class="ta-r">' + money0(r.cost) + '</td>'
@@ -1804,15 +1817,17 @@ function renderAds(d) {
         + '<td class="ta-r">' + (r.totalAmount > 0 ? pct(r.acos) : '—') + '</td>'
         + '<td class="ta-r">' + (r.cost > 0 ? ratioStr(r.roas) : '—') + '</td>'
         + '<td class="ta-r">' + fmt(r.clicks) + '</td>'
-        + '<td class="ta-r">' + fmt(r.units) + '</td>'
+        + '<td class="ta-r">' + cell + '</td>'
         + '<td class="ta-r s-cum">' + money0(cumCost) + '</td>'
         + '<td class="ta-r s-cum">' + money0(cumAmt) + '</td>'
         + '</tr>';
     }).join('');
-    const head = '<tr><th>日期（巴西）</th><th class="ta-r">花费</th><th class="ta-r">销售额</th><th class="ta-r">ACOS</th><th class="ta-r">ROAS</th><th class="ta-r">点击</th><th class="ta-r">单量</th><th class="ta-r">累计花费</th><th class="ta-r">累计销售额</th></tr>';
+    const head = '<tr><th>日期（巴西）</th><th class="ta-r">花费</th><th class="ta-r">销售额</th><th class="ta-r">ACOS</th><th class="ta-r">ROAS</th><th class="ta-r">点击</th><th class="ta-r">广告单 / 自然单</th><th class="ta-r">累计花费</th><th class="ta-r">累计销售额</th></tr>';
     const foot = '<tr class="sfoot"><td>合计</td><td class="ta-r">' + money0(t.cost) + '</td><td class="ta-r">' + money0(t.totalAmount)
       + '</td><td class="ta-r">' + (t.totalAmount > 0 ? pct(t.acos) : '—') + '</td><td class="ta-r">' + (t.cost > 0 ? ratioStr(t.roas) : '—')
-      + '</td><td class="ta-r">' + fmt(t.clicks) + '</td><td class="ta-r">' + fmt(t.units)
+      + '</td><td class="ta-r">' + fmt(t.clicks) + '</td><td class="ta-r">' + (hasOrderData
+        ? '<span style="color:#93c5fd">' + fmt(sumAd) + '</span> <span style="color:var(--mut)">/ ' + fmt(sumNat) + '</span>'
+        : fmt(t.units))
       + '</td><td class="ta-r">' + money0(t.cost) + '</td><td class="ta-r">' + money0(t.totalAmount) + '</td></tr>';
     html = '<div class="tw"><table class="otable stable"><thead>' + head + '</thead><tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table></div>';
   }
@@ -1900,6 +1915,8 @@ async function loadAdsHourly(force) {
     const d = await mlGet('/api/ml/ads/hourly' + q);
     adsHour.data = d; adsHour.at = Date.now(); adsHour.key = adsHourRangeKey();
     renderAdsHour();
+    // 总览的「按天趋势」要用这边的「当天出单数」来算自然单 → 到了就顺手重绘一次（只重绘，不再请求）
+    if (adsView.data && adsView.tab === 'day') renderAds(adsView.data);
   } catch (e) {
     const p = e.payload || {};
     if (body) body.innerHTML = '<div class="empty">分时数据加载失败：' + escHtml(p.error || e.message) + '<br><button class="btn" id="hhRetry" style="margin-top:12px">重试</button></div>';
@@ -2008,13 +2025,19 @@ function drawDayChart(d) {
     g += '<text class="htx" x="' + (W - R + 10) + '" y="' + (yy + 3.5).toFixed(1) + '" style="text-anchor:start;fill:#f59e0b">' + Math.round(cmax * j / 4).toLocaleString('en-US') + '</text>';
   }
 
+  // 每天同样拆「广告单（实色）+ 自然单（淡色）」。
+  // 注意：adUnits 是「件数」、orders 是「订单条数」，口径不同不能直接相减，所以钳到不超过当天总单。
+  const adPerDay = days.map(x => Math.min(Number(x.adUnits) || 0, Number(x.orders) || 0));
   let bars = '';
   for (let i = 0; i < n; i++) {
     const v = orders[i];
     if (v <= 0) continue;
-    const bh = Math.max(0, T + ph - yo(v));
-    const x = L + i * bw + bw * 0.19;
-    bars += '<rect class="hb" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yo(v).toFixed(1) + '" width="' + (bw * 0.62).toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="2.5"/>';
+    const x = L + i * bw + bw * 0.19, w = bw * 0.62;
+    const adV = adPerDay[i], natV = Math.max(0, v - adV);
+    const adH = (adV / omax) * ph, natH = (natV / omax) * ph;
+    const yAd = T + ph - adH, yNat = yAd - natH;
+    if (adH > 0.4) bars += '<rect class="hb" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yAd.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + adH.toFixed(1) + '" rx="' + (natH > 0.4 ? 1.5 : 2.5) + '"/>';
+    if (natH > 0.4) bars += '<rect class="hb-nat" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yNat.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + natH.toFixed(1) + '" rx="2.5"/>';
   }
   const pts = costs.map((v, i) => xc(i).toFixed(1) + ',' + yc(v).toFixed(1)).join(' ');
   let dots = '';
@@ -2032,8 +2055,8 @@ function drawDayChart(d) {
     + g + bars + '<polyline class="hline" points="' + pts + '"/>' + dots + xlab
     + '<line class="hgl" id="hhl" x1="0" x2="0" y1="' + T + '" y2="' + (T + ph) + '" style="stroke:#7dd3fc66;stroke-dasharray:3 3;opacity:0"/>'
     + '</svg><div class="htip" id="hhTip"></div></div>'
-    + '<div class="leg-h"><span class="k-ord"><i></i>当天总出单（柱）</span><span class="k-cost"><i></i>当天花费总额（线 · 右轴）</span></div>'
-    + '<div class="leg-note">多天区间只按天汇总：花费为<b>美客多官方按天值</b>，已写入本地账本，历史日期冻结后不再变化。想看每个小时的详细花费，把范围切到<b>单天</b>。</div>';
+    + '<div class="leg-h"><span class="k-ad"><i></i>广告单（柱 · 实色）</span><span class="k-nat"><i></i>自然单（柱 · 淡色）</span><span class="k-cost"><i></i>当天花费总额（线 · 右轴）</span></div>'
+    + '<div class="leg-note">每天的花费为<b>美客多官方按天值</b>，已写入本地账本、冻结后不再变化；<b>自然单 = 当天总出单 − 广告单</b>（广告单量官方只提供按天口径）。想看每个小时的明细，把范围切到<b>单天</b>。</div>';
 
   const svg = body.querySelector('svg'), tipEl = $('#hhTip'), hl = $('#hhl');
   svg.onmousemove = e => {
@@ -2044,8 +2067,10 @@ function drawDayChart(d) {
     hl.setAttribute('x1', xc(i)); hl.setAttribute('x2', xc(i)); hl.style.opacity = 1;
     tipEl.innerHTML = '<b>' + day.date + '</b>'
       + '<span>出单 ' + fmt(day.orders) + ' 单 · 件数 ' + fmt(day.units) + '</span><br>'
+      + '<span style="color:#93c5fd">▪ 广告单 ' + fmt(adPerDay[i]) + ' 单</span>'
+      + '<span>　▪ 自然单 ' + fmt(Math.max(0, (Number(day.orders) || 0) - adPerDay[i])) + ' 单</span><br>'
       + '<span>花费 ' + money(day.adCost, cur) + (day.final ? '（已存账本 · 不再变化）' : '（进行中）') + '</span><br>'
-      + '<span>广告单 ' + fmt(day.adUnits) + ' · 广告销售额 ' + money(day.adAmount, cur) + '</span>';
+      + '<span>广告销售额 ' + money(day.adAmount, cur) + '</span>';
     tipEl.style.left = (xc(i) / W * 100) + '%';
     tipEl.style.top = Math.min(yc(costs[i]), yo(orders[i])) / H * rc.height + 'px';
     tipEl.style.opacity = 1;
@@ -2056,17 +2081,26 @@ function drawDayChart(d) {
 // 美客多广告单只有「按天」口径（units_quantity），而分时是「按小时」。
 // 这里把当天的广告单按该天的出单小时分布分摊到 24 小时（近似），并钳制不超过该小时总单，
 // 保证 Σ(广告单) ≤ Σ(总单) —— 自然单不会出现负数。
+// 单天：把该天的广告单按当天的出单小时分布分摊到 24 小时
+// 钳到「不超过该小时总单」—— adUnits 是件数、orders 是订单条数，口径不同，不钳会出现"自然单为负"
+function adSplitForDay(day) {
+  const out = new Array(24).fill(0);
+  const aq = Number(day && day.adUnits) || 0;
+  if (!aq) return out;
+  const tot = Number(day.orders) || 0;
+  const hrs = (day && day.hours) || [];
+  for (let h = 0; h < 24; h++) {
+    const o = Number(hrs[h]) || 0;
+    out[h] = Math.min(tot > 0 ? aq * (o / tot) : aq / 24, o);
+  }
+  return out;
+}
+// 跨天：把每天的分摊结果按「小时」加起来（供 24 小时汇总图用）
 function adsHourAdSplit(d) {
   const out = new Array(24).fill(0);
   for (const day of (d.byDay || [])) {
-    const aq = Number(day.adUnits) || 0;
-    if (!aq) continue;
-    const tot = Number(day.orders) || 0;
-    const hrs = day.hours || [];
-    for (let h = 0; h < 24; h++) {
-      const o = Number(hrs[h]) || 0;
-      out[h] += Math.min(tot > 0 ? aq * (o / tot) : aq / 24, o);
-    }
+    const s = adSplitForDay(day);
+    for (let h = 0; h < 24; h++) out[h] += s[h];
   }
   return out;
 }
@@ -2174,11 +2208,14 @@ function drawHeat(d) {
   const wd = ['日', '一', '二', '三', '四', '五', '六'];
   let head = '<tr><th class="hrl">日期</th>';
   for (let h = 0; h < 24; h++) head += '<th>' + String(h).padStart(2, '0') + '</th>';
-  head += '<th style="min-width:70px">合计花费</th><th style="min-width:70px">来源</th></tr>';
+  head += '<th style="min-width:104px">广告单 / 自然单</th><th style="min-width:70px">合计花费</th><th style="min-width:70px">来源</th></tr>';
   const rows = days.map(r => {
     const dow = wd[new Date(r.date + 'T12:00:00Z').getUTCDay()];
     const vals = valsOf(r);
     const srcs = r.hoursSrc || [];
+    const adSplit = adSplitForDay(r);
+    const adN = Math.round(adSplit.reduce((s, v) => s + v, 0));
+    const natN = Math.max(0, (Number(r.orders) || 0) - adN);
     let tds = '';
     for (let h = 0; h < 24; h++) {
       const v = vals[h] || 0;
@@ -2186,18 +2223,20 @@ function drawHeat(d) {
       const bg = v > 0 ? (m === 'cost' ? 'rgba(245,158,11,' + (a * 0.82).toFixed(2) + ')' : 'rgba(59,130,246,' + (a * 0.9).toFixed(2) + ')') : 'transparent';
       const txt = v <= 0 ? '' : (m === 'cost' ? Math.round(v) : v);
       const src = srcs[h] || 'est';
-      tds += '<td class="c' + (v > 0 ? '' : ' dim') + (src === 'measured' ? ' ms' : '') + '" style="background:' + bg + '" title="' + r.date + ' ' + String(h).padStart(2, '0') + ':00 · 出单 ' + r.hours[h] + ' · 花费 ' + money(r.hoursCost[h], cur) + '（' + (SRC_CN[src] || '估算') + '）">' + txt + '</td>';
+      const adH = adSplit[h], natH = Math.max(0, (Number(r.hours[h]) || 0) - adH);
+      tds += '<td class="c' + (v > 0 ? '' : ' dim') + (src === 'measured' ? ' ms' : '') + '" style="background:' + bg + '" title="' + r.date + ' ' + String(h).padStart(2, '0') + ':00 · 出单 ' + r.hours[h] + ' 单（广告 ' + r1(adH) + ' / 自然 ' + r1(natH) + '） · 花费 ' + money(r.hoursCost[h], cur) + '（' + (SRC_CN[src] || '估算') + '）">' + txt + '</td>';
     }
     const srcN = srcs.filter(s => s === 'measured').length;
     const srcTxt = srcN >= 24 ? '全实测' : (srcN > 0 ? '实测 ' + srcN + '/24' : '估算');
     const srcCol = srcN >= 24 ? 'var(--ok)' : (srcN > 0 ? 'var(--warn)' : 'var(--mut)');
     return '<tr><td class="hrl">' + r.date.slice(5) + ' 周' + dow + '</td>' + tds
+      + '<td class="hrl" style="min-width:104px;color:var(--ink)"><span style="color:#93c5fd">' + adN + '</span> / <span style="color:var(--mut)">' + natN + '</span></td>'
       + '<td class="hrl" style="min-width:70px;color:var(--ink)">' + (m === 'cost' ? money(r.adCost, cur) : (r.orders + ' 单')) + '</td>'
       + '<td class="hrl" style="min-width:70px;color:' + srcCol + '">' + srcTxt + '</td></tr>';
   }).join('');
   body.innerHTML = '<div class="heat-wrap"><table class="heat"><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div>'
-    + '<div class="heat-note">行＝日期，列＝小时（巴西时间 GMT-3）。格子越深＝该小时' + (m === 'cost' ? '花费' : '出单') + '越高；悬停可看「出单 + 花费 + 来源」。'
-    + '「合计花费」为当天官方值；「来源」＝该日 24 小时中有多少是采样实测（全实测＝每个小时都是真实花费）。</div>';
+    + '<div class="heat-note">行＝日期，列＝小时（巴西时间 GMT-3）。格子越深＝该小时' + (m === 'cost' ? '花费' : '出单') + '越高；悬停可看「出单（广告 / 自然）+ 花费 + 来源」。'
+    + '「广告单 / 自然单」为该日合计（<span style="color:#93c5fd">广告</span> / <span style="color:var(--mut)">自然</span>）；「合计花费」为当天官方值；「来源」＝该日 24 小时中有多少是采样实测。</div>';
 }
 
 function bindAdsHourEvents() {

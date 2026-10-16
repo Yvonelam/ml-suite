@@ -182,11 +182,26 @@ const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = 
     console.log('近7天 图表:', JSON.stringify(c7));
     console.log('近7天 视图按钮:', JSON.stringify(v7));
     if (!c7.hasChart) throw new Error('多天图没渲染出来');
-    if (c7.natBars) throw new Error('多天不该再出现自然单柱（已改为按天汇总）：natBars=' + c7.natBars);
-    if (!c7.adBars) throw new Error('多天按天图没有柱子');
-    if (c7.leg.indexOf('当天总出单') < 0) throw new Error('多天图例没切成按天口径：' + c7.leg);
+    if (!c7.adBars) throw new Error('多天按天图没有广告单柱');
+    if (!c7.natBars) throw new Error('多天按天图没有自然单柱 —— 广告单/自然单应双色堆叠');
+    if (c7.leg.indexOf('广告单') < 0 || c7.leg.indexOf('自然单') < 0) throw new Error('多天图例没显示 广告单/自然单：' + c7.leg);
     if (v7.indexOf('day=show') < 0) throw new Error('多天应显示「按天」按钮：' + JSON.stringify(v7));
     if (v7.indexOf('hour=show') >= 0) throw new Error('多天不该显示「按小时」按钮：' + JSON.stringify(v7));
+
+    // ④ 热力图：应有「广告单 / 自然单」列
+    await evaluate("(function(){var b=[].slice.call(document.querySelectorAll('#adsHourView button')).filter(function(x){return x.dataset.v==='heat'})[0];if(b)b.click();})()");
+    await sleep(1200);
+    const heatHead = await evaluate("(function(){var t=document.querySelector('#adsHourBody table.heat thead');return t?t.textContent.replace(/\\s+/g,' ').trim():'';})()");
+    console.log('热力图表头:', heatHead);
+    if (heatHead.indexOf('广告单') < 0 || heatHead.indexOf('自然单') < 0) throw new Error('热力图缺「广告单 / 自然单」列：' + heatHead);
+    // 切回按天，便于截图
+    await evaluate("(function(){var b=[].slice.call(document.querySelectorAll('#adsHourView button')).filter(function(x){return x.dataset.v==='day'})[0];if(b)b.click();})()");
+    await sleep(1200);
+
+    // ⑤ 总览「按天趋势」表：应有「广告单 / 自然单」列
+    const ovHead = await evaluate("(function(){var t=document.querySelector('#adsBody table thead');return t?t.textContent.replace(/\\s+/g,' ').trim():'';})()");
+    console.log('总览表头:', ovHead);
+    if (ovHead.indexOf('广告单') < 0 || ovHead.indexOf('自然单') < 0) throw new Error('总览按天趋势表缺「广告单 / 自然单」列：' + ovHead);
 
     await shotFull('e2e-ads-biz.png');
     child.kill(); process.exit(0);

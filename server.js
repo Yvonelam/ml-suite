@@ -1791,11 +1791,8 @@ app.get('/api/ml/ads/hourly', async (req, res) => {
     } catch { }
     const adByDate = new Map((((dailyRes && dailyRes.results) || [])).map(adsRow).map(r => [r.date, r]));
 
-    // 2.5) 「现在」按巴西时间算，便于判断某小时是否属于"今天且已过去"（决定 hoursSrc 是 est/progress）
+    // 2.5) 当前时刻（用于判断某小时是否已经开始 / 已经结束）
     const nowTs = Date.now();
-    const nowParts = tzParts(new Date(nowTs).toISOString(), SALES_TZ.tz) || {};
-    const nowAccDate = nowParts.date || tzToday(SALES_TZ.tz, nowTs);
-    const nowAccHour = (typeof nowParts.hour === 'number') ? nowParts.hour : 0;
 
     // 3) 汇总
     //   小时花费口径（本段是关键）：
@@ -1808,6 +1805,8 @@ app.get('/api/ml/ads/hourly', async (req, res) => {
     //   已冻结(level=final)的天：花费/广告销售额/广告单量一律读账本，不再用实时接口重算
     //      → 同一天「今天看到的」与「次日回看的」完全一致。
     const led = loadLedger();
+    // 采样累计曲线：用来「实时反推」还没到定档时间的小时（这一步才是"记录"出来的花费，不是摊出来的）
+    const samples = loadJsonSafe(privateDataFile('ads-cost-samples.json'), {});
     const hourly = Array.from({ length: 24 }, (_, h) => ({ hour: h, orders: 0, amount: 0, cost: 0, measured: 0 }));
     const byDay = [];
     let totOrders = 0, totAmount = 0, totUnits = 0, totCost = 0, totAdUnits = 0, totAdAmount = 0;
@@ -1824,32 +1823,54 @@ app.get('/api/ml/ads/hourly', async (req, res) => {
       const adUnits = isFinal ? book.adUnits : (Number(ad.units) || 0);
       const adAmount = isFinal ? book.adAmount : (Number(ad.totalAmount) || 0);
 
-      const isToday = (date === nowAccDate);
       const frozen = led.days[date] || {};
       const hoursCost = new Array(24).fill(0);
       const hoursSrc = new Array(24).fill('est');
-      const isMeasured = new Array(24).fill(false);
+      const isFixed = new Array(24).fill(false);   // 已定值的小时（不管是定档还是采样反推），一律不再参与分摊
 
-      // ① 已定档的实测小时：直接用，不进分摊
-      let measuredSum = 0;
+      // ① 已定档的实测小时：直接用
+      let fixedSum = 0;
       for (let h = 0; h < 24; h++) {
         const fz = frozen[h];
         if (fz && typeof fz.c === 'number') {
-          hoursCost[h] = num(fz.c); hoursSrc[h] = 'measured'; isMeasured[h] = true; measuredSum += hoursCost[h];
+          hoursCost[h] = num(fz.c); hoursSrc[h] = 'measured'; isFixed[h] = true; fixedSum += hoursCost[h];
         }
       }
-      // ② 剩余金额按出单占比分摊到未实测小时（Σ 守恒）
-      const restAmt = Math.max(0, adCost - measuredSum);
-      const freeSlots = 24 - isMeasured.filter(Boolean).length;
-      if (restAmt > 0 && freeSlots > 0) {
-        let pool = 0;
-        for (let h = 0; h < 24; h++) if (!isMeasured[h]) pool += Number(d.hours[h]) || 0;
+      // ② 还没定档、但有采样曲线覆盖的小时：用相邻采样差值「实时反推」真实花费。
+      //    采样器每 5 分钟记一次「当天累计花费」，所以
+      //        这一小时的花费 = 累计(该小时结束或此刻) − 累计(该小时开始)
+      //    —— 这才是"记录"出来的值。千万别只等定档，否则凌晨刚过的那些小时会全部落进分摊，看着像均摊。
+      const sampArr = (samples[date] || []).slice().sort((a, b) => a.t - b.t);
+      const dayStartTs = acctHourStart(date, 0);
+      if (sampArr.length) {
         for (let h = 0; h < 24; h++) {
-          if (isMeasured[h]) continue;
-          const o = Number(d.hours[h]) || 0;
-          hoursCost[h] = pool > 0 ? restAmt * (o / pool) : restAmt / freeSlots;
-          const he = acctHourStart(date, h) + 3600000;
-          hoursSrc[h] = (!isToday || he <= nowTs) ? 'est' : 'progress';
+          if (isFixed[h]) continue;
+          const hs = acctHourStart(date, h), he = hs + 3600000;
+          if (hs > nowTs) break;                                       // 这一小时还没开始，保持 0
+          const c0 = (hs <= dayStartTs) ? 0                            // 当天 00:00 起算，基线为 0
+            : (hs < sampArr[0].t ? null : cumAt(sampArr, hs));         // 早于首个采样点 → 反推不了
+          const endT = Math.min(nowTs, he);
+          const c1 = (endT >= sampArr[0].t) ? cumAt(sampArr, endT) : null;
+          if (c0 == null || c1 == null) continue;                      // 覆盖不到 → 留给 ③ 兜底
+          hoursCost[h] = Math.max(0, c1 - c0);
+          hoursSrc[h] = (he <= nowTs) ? 'measured' : 'progress';
+          isFixed[h] = true; fixedSum += hoursCost[h];
+        }
+      }
+      // ③ 兜底：采样完全覆盖不到的小时（典型是服务启动前那几个小时），
+      //    用「当天总额 − 已定值合计」按出单占比分摊；**只分给已经开始的小时**，未来的小时保持 0（不然凌晨看就像人均摊）。
+      const restAmt = Math.max(0, adCost - fixedSum);
+      if (restAmt > 0) {
+        const pending = [];
+        for (let h = 0; h < 24; h++) if (!isFixed[h] && acctHourStart(date, h) <= nowTs) pending.push(h);
+        if (pending.length) {
+          let pool = 0;
+          for (const h of pending) pool += Number(d.hours[h]) || 0;
+          for (const h of pending) {
+            hoursCost[h] = pool > 0 ? restAmt * ((Number(d.hours[h]) || 0) / pool) : restAmt / pending.length;
+            const he = acctHourStart(date, h) + 3600000;
+            hoursSrc[h] = (he <= nowTs) ? 'est' : 'progress';
+          }
         }
       }
 
