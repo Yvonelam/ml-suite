@@ -2,8 +2,8 @@
 /**
  * 浏览器实测：10 月全区间
  *   ① 订单数是否正确（平台 779 单 → 应显示实抓全部）
- *   ② 默认币种是否为巴币（R$）、切换人民币后整行是否同步变
- *   ③ 一行里 收入 − 销售费 − 运费 − 成本 是否等于利润（同币种可直接相减）
+ *   ② 列币种搭配：收入/销售费/运费 = 巴币 R$；成本与头程/订单利润/利润合计 = 人民币 ¥
+ *   ③ 每格 title 是否给出另一币种的折算值
  */
 'use strict';
 const { spawn } = require('child_process');
@@ -62,11 +62,9 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     for (let i = 0; i < 40; i++) { const g = await ev("(function(){var s=document.getElementById('splash');if(!s)return true;if(s.classList.contains('leave'))return true;try{s.style.setProperty('display','none','important')}catch(e){}return false})()"); if (g) break; await sleep(250); }
     await sleep(1500);
 
-    // 进入产品利润
     await ev("(function(){var a=document.querySelector('nav a[data-go=\"profit\"]');if(a)a.click();})()");
     await sleep(2000);
 
-    // 设区间 10/01 ~ 10/17 并查询
     await ev(`(function(){
       var f=document.getElementById('profitOrderFrom'),t=document.getElementById('profitOrderTo');
       f.value='2026-10-01'; t.value='2026-10-17';
@@ -83,56 +81,54 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     }
     await sleep(800);
 
-    const read = async () => JSON.parse(await ev(`(function(){
+    const A = JSON.parse(await ev(`(function(){
       var ths=[].map.call(document.querySelectorAll('.profit-order-table thead th'),function(t){return t.textContent.trim()});
       var tr=document.querySelector('#profitOrderRows tr');
-      var tds=tr?[].map.call(tr.querySelectorAll('td'),function(t){return t.textContent.trim()}):[];
+      var tds=tr?[].map.call(tr.querySelectorAll('td'),function(t){return {text:t.textContent.trim(),title:t.getAttribute('title')||''}}):[];
       var st=document.getElementById('profitOrderStatus').textContent;
-      var sum=[].map.call(document.querySelectorAll('#profitOrderSummary .profit-order-stat'),function(d){return d.textContent.trim()});
+      var sum=[].map.call(document.querySelectorAll('#profitOrderSummary .profit-order-stat'),function(d){return {k:d.querySelector('small').textContent.trim(),v:d.querySelector('b').textContent.trim(),title:d.getAttribute('title')||''}});
       var rows=document.querySelectorAll('#profitOrderRows tr').length;
-      var on=document.querySelector('#profitOrderCur button.on');
-      return JSON.stringify({ths:ths,tds:tds,status:st,sum:sum,rows:rows,cur:on?on.dataset.cur:null,curText:on?on.textContent.trim():null});
+      return JSON.stringify({ths:ths,tds:tds,status:st,sum:sum,rows:rows,hasCurSwitch:!!document.getElementById('profitOrderCur')});
     })()`));
 
-    // ---- 巴币模式 ----
-    console.log('\n[1] 默认币种（应为巴币）');
-    const A = await read();
-    console.log('    按钮选中：' + A.curText + '（data-cur=' + A.cur + '）');
-    console.log('    表头：' + A.ths.slice(3).join(' | '));
+    console.log('\n[1] 订单抓取');
     console.log('    状态：' + A.status);
-    console.log('    样例行：' + A.tds.slice(3).join(' | '));
-    ok(A.cur === 'local', '默认选中巴币', A.cur);
-    ok(A.ths.slice(3).every(h => h.includes('巴币')), '表头都是（巴币）', A.ths.slice(3));
-    ok(/R\$/.test(A.tds[3] || ''), '收入显示 R$（巴币符号）', A.tds[3]);
-    ok(/R\$/.test(A.tds[5] || ''), '尾程运费显示 R$', A.tds[5]);
     ok(/平台共 779 单/.test(A.status), '状态行显示平台共 779 单', A.status);
     ok(/全部 779 单/.test(A.status), '状态行显示已全部抓取', A.status);
-    ok(A.rows >= 700, '表格渲染行数 >= 700（约 730 有效单）', A.rows);
+    ok(/有效订单 730 单/.test(A.status), '有效订单 730 单（剔除 49 单取消）', A.status);
+    ok(A.rows >= 700, '表格渲染行数 >= 700', A.rows);
 
-    // 同币种可相减校验
-    const num = s => Number(String(s).replace(/[^\d.-]/g, '')) || 0;
-    const rev = num(A.tds[3]), fee = num(A.tds[4]), ship = num(A.tds[5]), cost = num(A.tds[6]), profit = num(A.tds[7]);
-    const calc = rev - fee - ship - cost;
-    console.log('    对账：' + rev + ' − ' + fee + ' − ' + ship + ' − ' + cost + ' = ' + calc.toFixed(2) + '  页面利润 ' + profit);
-    ok(Math.abs(calc - profit) < 0.05, '同一币种下各项相减等于利润', { calc, profit });
+    console.log('\n[2] 列币种搭配');
+    console.log('    表头：' + A.ths.slice(3).join(' | '));
+    console.log('    样例行：' + A.tds.slice(3).map(c => c.text).join(' | '));
+    ok(A.ths[3].includes('巴币'), '订单收入 = 巴币', A.ths[3]);
+    ok(A.ths[4].includes('巴币'), '销售费 = 巴币', A.ths[4]);
+    ok(A.ths[5].includes('巴币'), '尾程运费 = 巴币', A.ths[5]);
+    ok(A.ths[6].includes('人民币'), '成本与头程 = 人民币', A.ths[6]);
+    ok(A.ths[7].includes('人民币'), '订单利润 = 人民币', A.ths[7]);
+    ok(!A.hasCurSwitch, '币种切换按钮已移除（改为固定搭配）');
 
-    // ---- 人民币模式 ----
-    console.log('\n[2] 切到人民币');
-    await ev("(function(){var b=document.querySelector('#profitOrderCur button[data-cur=\"cny\"]');b.click();})()");
-    await sleep(600);
-    const B = await read();
-    console.log('    表头：' + B.ths.slice(3).join(' | '));
-    console.log('    样例行：' + B.tds.slice(3).join(' | '));
-    ok(B.cur === 'cny', '切到人民币生效', B.cur);
-    ok(B.ths.slice(3).every(h => h.includes('人民币')), '表头都变成（人民币）', B.ths.slice(3));
-    ok(/¥/.test(B.tds[3] || ''), '收入显示 ¥', B.tds[3]);
-    ok(num(B.tds[3]) !== rev, '金额确实换成人民币（与巴币不同）', { brl: rev, cny: num(B.tds[3]) });
-    const rev2 = num(B.tds[3]), fee2 = num(B.tds[4]), ship2 = num(B.tds[5]), cost2 = num(B.tds[6]), profit2 = num(B.tds[7]);
-    ok(Math.abs((rev2 - fee2 - ship2 - cost2) - profit2) < 0.06, '人民币模式下相减也等于利润', { calc: rev2 - fee2 - ship2 - cost2, profit2 });
+    ok(/R\$/.test(A.tds[3].text), '收入显示 R$', A.tds[3].text);
+    ok(/R\$/.test(A.tds[4].text), '销售费显示 R$', A.tds[4].text);
+    ok(/R\$/.test(A.tds[5].text), '尾程运费显示 R$', A.tds[5].text);
+    ok(/¥/.test(A.tds[6].text), '成本与头程显示 ¥', A.tds[6].text);
+    ok(/¥/.test(A.tds[7].text), '订单利润显示 ¥', A.tds[7].text);
 
-    // ---- 切回巴币并截图 ----
-    await ev("(function(){var b=document.querySelector('#profitOrderCur button[data-cur=\"local\"]');b.click();})()");
-    await sleep(500);
+    console.log('\n[3] 汇总');
+    for (const s of A.sum) console.log('    ' + s.k + ' = ' + s.v + (s.title ? '   [' + s.title + ']' : ''));
+    const profitCard = A.sum.find(s => /利润合计/.test(s.k));
+    ok(!!profitCard && /人民币/.test(profitCard.k), '合计标题是「订单利润合计（人民币）」', profitCard && profitCard.k);
+    ok(!!profitCard && /¥/.test(profitCard.v), '合计数值用 ¥', profitCard && profitCard.v);
+    ok(!!profitCard && /R\$/.test(profitCard.title || ''), '合计的悬停提示给出巴币折算值', profitCard && profitCard.title);
+
+    console.log('\n[4] 每格悬停提示（另一币种）');
+    console.log('    收入 title：' + A.tds[3].title);
+    console.log('    成本 title：' + A.tds[6].title);
+    console.log('    利润 title：' + A.tds[7].title);
+    ok(/¥/.test(A.tds[3].title), '收入格提示人民币折算值', A.tds[3].title);
+    ok(/R\$/.test(A.tds[6].title), '成本格提示巴币折算值', A.tds[6].title);
+    ok(/R\$/.test(A.tds[7].title), '利润格提示巴币折算值', A.tds[7].title);
+
     const shot = await send('Page.captureScreenshot', { format: 'png' });
     const out = path.join(__dirname, 'shots', 'profit-brl.png');
     fs.mkdirSync(path.dirname(out), { recursive: true });
