@@ -241,8 +241,9 @@
         </div></div>
         <div class="profit-order-status" id="profitOrderStatus" aria-live="polite">选择日期范围后查询订单。</div>
         <div class="profit-order-summary" id="profitOrderSummary" hidden></div>
+        <div class="profit-products" id="profitProducts" hidden></div>
         <div class="profit-order-table-wrap"><table class="profit-order-table"><thead><tr><th>日期 / 订单</th><th>商品 / Listing ID</th><th>数量</th><th id="poThRev">订单收入（巴币）</th><th id="poThFee">销售费（巴币）</th><th id="poThShip">尾程运费（巴币）</th><th id="poThCost">成本与头程（人民币）</th><th id="poThProfit">订单利润（人民币）</th></tr></thead><tbody id="profitOrderRows"><tr><td colspan="8" class="empty">选择日期后查询订单</td></tr></tbody></table></div>
-        <p class="profit-disclaimer">取消订单不计入（状态为 cancelled / invalid 的单会被剔除，数量见状态行）。订单按平台 <code>paging.total</code> <b>全量抓取</b>，不再有 500 条上限；单量过大时自动按天切片，避开接口 offset 上限。尾程运费取该笔发货中<b>卖家实付的运费成本</b>，同一发货含多件商品时按实售价比例分摊（摊完加总恒等于整单运费）；运费或销售费缺失时该行标记为待核对，不会按 0 计入利润。平台代扣税若存在，会在运费列下方以「含税」额外标出并计入利润；巴西站目前平台不代扣税（<code>order.taxes</code> 为空），按 0 计。收入与费用的巴币值来自平台原始数据，成本与利润用中国银行最新牌价折成人民币（成本项则把填写的人民币成本按牌价折成巴币再参与计算），因此同一行里<b>不能直接相减</b>。退货退款、广告和仓储等后续账单调整不在此订单口径内，最终以美客多结算账单核对。</p>
+        <p class="profit-disclaimer"><b>取消 / 退款单照样列出来</b>（行首带「已取消」徽章、整行置灰），只是不计入利润合计 —— 后台看到的售出件数就是<b>含取消单</b>的口径。订单按平台 <code>paging.total</code> <b>全量抓取</b>，不再有 500 条上限；单量过大时自动按天切片，避开接口 offset 上限。一笔订单买多件（同一 Listing 数量 &gt; 1）按件数计；一笔订单买多个不同商品时，该单会被拆成多行，<b>运费按实售价比例分摊，摊完加总恒等于整单运费，不会重复扣</b>。运费或销售费缺失时该行标记为待核对，不会按 0 计入利润。平台代扣税若存在，会在运费列下方以「含税」额外标出并计入利润；巴西站目前平台不代扣税（<code>order.taxes</code> 为空），按 0 计。收入与费用的巴币值来自平台原始数据，成本与利润用中国银行最新牌价折成人民币，因此同一行里<b>不能直接相减</b>。退货退款、广告和仓储等后续账单调整不在此订单口径内，最终以美客多结算账单核对。</p>
       </div>
       <div class="sales-filter profit-toolbar"><input id="profitSearch" class="profit-search" placeholder="搜索商品名称或 Listing ID"><span id="profitFxNote" class="profit-note">成本换算：等待中国银行牌价</span></div>
       <div class="card pad" id="profitStatus">正在加载商品…</div>

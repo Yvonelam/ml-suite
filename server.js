@@ -1404,7 +1404,7 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     // 剔掉就对不上账了。这里保留全量并打标记，只有利润合计排除它们。
     const isDeadOrder=(o)=>{
       const s=String(o.status||'').toLowerCase(),d=String(o.status_detail||'').toLowerCase();
-      return s==='cancelled'||s==='invalid'||/cancel/.test(d);
+      return s==='cancelled'||s==='invalid'||/cancel|refund/.test(d);
     };
     const validOrders=rawOrders.filter(o=>!isDeadOrder(o));
     const cancelledOrders=rawOrders.filter(isDeadOrder);
@@ -1505,9 +1505,9 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     for(const x of lines){
       const key=x.itemId||'__no_id__';
       let p=byItem.get(key);
-      if(!p){p={itemId:x.itemId||'',title:x.title||'',units:0,cancelledUnits:0,orders:new Set(),cancelledOrders:new Set(),revenue:0,saleFee:0,shipping:0,tax:0,cost:0,profit:0,profitCny:0,revenueCny:0,computed:0,lines:0,lastDate:''};byItem.set(key,p);}
+      if(!p){p={itemId:x.itemId||'',title:x.title||'',units:0,cancelledUnits:0,cancelledLines:0,orders:new Set(),cancelledOrders:new Set(),revenue:0,saleFee:0,shipping:0,tax:0,cost:0,profit:0,profitCny:0,revenueCny:0,computed:0,lines:0,lastDate:''};byItem.set(key,p);}
       p.lines++;
-      if(x.cancelled){p.cancelledUnits+=Number(x.qty)||0;p.cancelledOrders.add(x.orderId);}
+      if(x.cancelled){p.cancelledUnits+=Number(x.qty)||0;p.cancelledLines++;p.cancelledOrders.add(x.orderId);}
       else{
         p.units+=Number(x.qty)||0;p.orders.add(x.orderId);
         p.revenue+=x.revenue||0;p.saleFee+=x.saleFee||0;p.shipping+=x.shipping||0;p.tax+=x.tax||0;p.cost+=x.cost||0;p.revenueCny+=x.revenueCny||0;
@@ -1520,7 +1520,7 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     const products=[...byItem.values()].map(p=>{
       const inf=itemInfo[p.itemId]||{};
       return {itemId:p.itemId,title:inf.title||p.title,thumbnail:inf.thumbnail||'',permalink:inf.permalink||'',
-        units:p.units,orders:p.orders.size,cancelledUnits:p.cancelledUnits,cancelledOrders:p.cancelledOrders.size,
+        units:p.units,orders:p.orders.size,cancelledUnits:p.cancelledUnits,cancelledOrders:p.cancelledOrders.size,cancelledLines:p.cancelledLines,
         revenue:r2(p.revenue),saleFee:r2(p.saleFee),shipping:r2(p.shipping),tax:r2(p.tax),cost:r2(p.cost),
         profit:r2(p.profit),profitCny:r2(p.profitCny),revenueCny:r2(p.revenueCny),
         margin:p.revenueCny?r2(p.profitCny/p.revenueCny*100):null,

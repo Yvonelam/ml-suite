@@ -168,22 +168,27 @@ function renderProfitOrders(data){
   lastProfitOrderData=data;
   const items=data.orders||[],totals=data.totals||{},lcur=profitLocalCode();
   applyProfitHeaders();
-  // 利润合计固定按人民币（成本和利润列都是人民币口径）
+  // 利润合计固定按人民币（成本和利润列都是人民币口径），且**只含有效单**
   const profitSum = Number(totals.profitCny || 0);
-  const profitSumLocal = items.filter(x=>x.profit!==null).reduce((s,x)=>s+(Number(x.profit)||0),0);
+  const profitSumLocal = items.filter(x=>!x.cancelled&&x.profit!==null).reduce((s,x)=>s+(Number(x.profit)||0),0);
+  const deadOrders=Number(totals.cancelledOrders||0),deadUnits=Number(totals.cancelledUnits||0);
   summary.hidden=false;
-  summary.innerHTML='<div class="profit-order-stat"><small>有效订单</small><b>'+fmt(totals.orders||0)+'</b></div>'
-    +'<div class="profit-order-stat"><small>成功计算商品行</small><b>'+fmt(totals.matched||0)+' / '+fmt(totals.lines||0)+'</b></div>'
-    +'<div class="profit-order-stat" title="折合 '+money(profitSumLocal,lcur)+'"><small>订单利润合计（人民币）</small><b class="'+(profitSum<0?'negative':'')+'">'+money(profitSum,'CNY')+'</b></div>'
-    +'<div class="profit-order-stat"><small>整体利润率</small><b>'+(totals.margin==null?'—':Number(totals.margin).toFixed(2)+'%')+'</b></div>';
-  if(!items.length){rows.innerHTML='<tr><td colspan="8" class="empty">所选日期范围内没有有效订单</td></tr>';return;}
+  // 「单数 / 件数」必须跟美客多后台对得上 —— 后台用的是**含取消单**口径，
+  // 所以这里主数字给全量，副标题拆出有效 / 取消，不再只报「有效订单」让你没法核对。
+  summary.innerHTML=
+     '<div class="profit-order-stat"><small>全部订单</small><b>'+fmt(totals.allOrders||0)+'</b><small class="sub">'+(deadOrders?('取消 / 退款 '+fmt(deadOrders)+' 单'):'无取消单')+'</small></div>'
+    +'<div class="profit-order-stat"><small>售出件数</small><b>'+fmt(totals.units||0)+'</b><small class="sub">有效 '+fmt(totals.validUnits||0)+' 件'+(deadUnits?(' · 取消 '+fmt(deadUnits)+' 件'):'')+'</small></div>'
+    +'<div class="profit-order-stat"><small>可算商品行</small><b>'+fmt(totals.matched||0)+' / '+fmt(totals.validLines||0)+'</b><small class="sub">'+((totals.unmatched||0)?('待核对 '+fmt(totals.unmatched)+' 行'):'全部核算完成')+'</small></div>'
+    +'<div class="profit-order-stat" title="折合 '+money(profitSumLocal,lcur)+'"><small>订单利润合计（人民币）</small><b class="'+(profitSum<0?'negative':'')+'">'+money(profitSum,'CNY')+'</b><small class="sub">有效 '+fmt(totals.profitUnits||0)+' 件计入</small></div>'
+    +'<div class="profit-order-stat"><small>整体利润率</small><b>'+(totals.margin==null?'—':Number(totals.margin).toFixed(2)+'%')+'</b><small class="sub">利润 ÷ 收入</small></div>';
+  renderProfitProducts(data);
+  if(!items.length){rows.innerHTML='<tr><td colspan="8" class="empty">所选日期范围内没有订单</td></tr>';return;}
   rows.innerHTML=items.map(x=>{
-    const date=x.date?new Date(x.date).toLocaleString('zh-CN',{timeZone:'America/Sao_Paulo',hour12:false}):'—',complete=x.profit!==null,miss=(x.missing||[]).join('、');
+    const date=x.date?new Date(x.date).toLocaleString('zh-CN',{timeZone:'America/Sao_Paulo',hour12:false}):'—',
+          complete=x.profit!==null,miss=(x.missing||[]).join('、'),dead=!!x.cancelled;
     // 前三列：平台原币（巴币）；成本与利润：人民币
     const rev=x.revenue,fee=x.saleFee,ship=x.shipping,tax=x.tax,
           cost=x.costCny,profit=x.profitCny;
-    // 「尾程运费」列：只显示运费本身。平台代扣税若真有值（巴西站 order.taxes 恒为空 → 按 0 计），
-    // 在小字里标出来 —— 税仍然计入利润，只是不再和运费挤在同一列，免得列名说了「税费」其实是 0。
     const hasTax=tax!==null&&tax!==undefined&&Number(tax)!==0;
     const shipCell=ship===null?'待核对':money(ship,lcur)+(hasTax?'<small title="平台代扣税，已计入利润">含税 '+money(tax,lcur)+'</small>':'');
     const cls=complete&&Number(profit)<0?'negative':'positive';
@@ -193,13 +198,56 @@ function renderProfitOrders(data){
     const shipT=x.shippingCny===null?'':'折合 '+money(x.shippingCny,'CNY');
     const costT=x.cost===null?'':'折合 '+money(x.cost,lcur);
     const profitT=x.profit===null?'':'折合 '+money(x.profit,lcur);
-    return '<tr><td>'+escHtml(date)+'<small>订单 '+escHtml(x.orderId)+'</small></td><td><span class="profit-order-title">'+escHtml(x.title)+'</span><small>'+escHtml(x.itemId)+'</small></td><td>'+fmt(x.qty)+'</td>'
+    // 取消 / 退款单：列出收入与销售费（让你看清这单丢了多少钱），运费/成本/利润一律不给假数
+    const badge=dead?'<span class="po-badge off">已取消</span>':'';
+    const detail=!dead&&x.statusDetail&&/cancel|refund/i.test(x.statusDetail)?'<span class="po-badge off">'+escHtml(x.statusDetail)+'</span>':'';
+    return '<tr'+(dead?' class="dead"':'')+'><td>'+escHtml(date)+badge+detail+'<small>订单 '+escHtml(x.orderId)+'</small></td>'
+      +'<td><span class="profit-order-title" title="'+escHtml(x.title)+'">'+escHtml(x.title)+'</span><small>'+escHtml(x.itemId)+'</small></td>'
+      +'<td>'+fmt(x.qty)+(Number(x.qty)>1?'<small>单笔多件</small>':'')+'</td>'
       +'<td title="'+escHtml(revT)+'">'+money(rev,lcur)+'</td>'
-      +'<td'+(feeT?' title="'+escHtml(feeT)+'"':'')+'>'+(fee===null?'待核对':money(fee,lcur))+'</td>'
-      +'<td'+(shipT?' title="'+escHtml(shipT)+'"':'')+'>'+shipCell+'</td>'
-      +'<td'+(costT?' title="'+escHtml(costT)+'"':'')+'>'+(cost===null?'待核对':money(cost,'CNY'))+'</td>'
-      +'<td class="'+(complete?cls:'pending')+'"'+(profitT?' title="'+escHtml(profitT)+'"':'')+'>'+(complete?money(profit,'CNY'):'待核对')+(miss?'<small title="'+escHtml(miss)+'">'+escHtml(miss)+'</small>':'')+'</td></tr>';
+      +'<td'+(feeT?' title="'+escHtml(feeT)+'"':'')+'>'+(fee===null?'—':money(fee,lcur))+'</td>'
+      +'<td'+(shipT?' title="'+escHtml(shipT)+'"':'')+'>'+(dead?'—':shipCell)+'</td>'
+      +'<td'+(costT?' title="'+escHtml(costT)+'"':'')+'>'+(dead?'—':(cost===null?'待核对':money(cost,'CNY')))+'</td>'
+      +'<td class="'+(dead?'pending':(complete?cls:'pending'))+'"'+(profitT?' title="'+escHtml(profitT)+'"':'')+'>'
+        +(dead?'<span class="po-badge off">已取消</span>':(complete?money(profit,'CNY'):'待核对'))
+        +((!dead&&miss)?'<small title="'+escHtml(miss)+'">'+escHtml(miss)+'</small>':'')+'</td></tr>';
   }).join('');
+}
+
+// 产品出单统计：按 Listing 聚合，带主图。件数口径跟上面汇总一致（有效件数 / 取消件数分开）。
+function renderProfitProducts(data){
+  const box=$('#profitProducts');if(!box)return;
+  const list=(data.products||[]).slice();
+  if(!list.length){box.hidden=true;box.innerHTML='';return;}
+  const lcur=profitLocalCode();
+  const validUnits=list.reduce((s,p)=>s+(Number(p.units)||0),0);
+  const deadUnits=list.reduce((s,p)=>s+(Number(p.cancelledUnits)||0),0);
+  const cards=list.map(p=>{
+    const thumb=String(p.thumbnail||'').replace(/^http:\/\//i,'https://');
+    const profit=Number(p.profitCny)||0,cls=profit<0?'negative':'';
+    const img=thumb
+      ?'<img class="pp-img" src="'+escHtml(thumb)+'" alt="" loading="lazy" referrerpolicy="no-referrer">'
+      :'<span class="pp-img pp-img-ph">'+escHtml(String(p.title||p.itemId||'?').slice(0,1).toUpperCase())+'</span>';
+    const pending=(Number(p.lines)||0)-(Number(p.computed)||0)-(Number(p.cancelledLines)||0);
+    const body='<div class="pp-body">'
+      +'<div class="pp-title" title="'+escHtml(p.title)+'">'+escHtml(p.title||p.itemId||'（未知商品）')+'</div>'
+      +'<div class="pp-id">'+escHtml(p.itemId||'—')+'</div>'
+      +'<div class="pp-metrics"><span class="pp-units"><b>'+fmt(p.units||0)+'</b> 件</span><span class="pp-orders">'+fmt(p.orders||0)+' 单</span>'
+        +((Number(p.cancelledUnits)||0)?'<span class="pp-dead" title="该 Listing 在所选区间有取消 / 退款件数，不计入利润">取消 '+fmt(p.cancelledUnits)+' 件</span>':'')+'</div>'
+      +'<div class="pp-money"><span title="折合 '+money(p.revenueCny,'CNY')+'">收入 '+money(p.revenue,lcur)+'</span>'
+        +'<span class="pp-profit '+cls+'">利润 '+money(profit,'CNY')+'</span></div>'
+      +'<div class="pp-metrics"><span class="pp-margin">利润率 '+(p.margin==null?'—':Number(p.margin).toFixed(2)+'%')+'</span>'
+        +(pending>0?'<span class="pp-warn">'+fmt(pending)+' 行待核对</span>':'')+'</div>'
+      +'</div>';
+    return p.permalink
+      ?'<a class="pp-card" href="'+escHtml(p.permalink)+'" target="_blank" rel="noreferrer">'+img+body+'</a>'
+      :'<div class="pp-card">'+img+body+'</div>';
+  }).join('');
+  box.hidden=false;
+  box.innerHTML='<div class="pp-head"><h3>产品出单统计<span class="pp-count">'+fmt(list.length)+' 个产品</span></h3>'
+    +'<p>按 Listing 汇总所选区间：有效 <b>'+fmt(validUnits)+'</b> 件'+(deadUnits?(' · 取消 / 退款 <b>'+fmt(deadUnits)+'</b> 件'):'')
+    +' · 按件数从多到少排 · 点卡片可打开该 Listing</p></div>'
+    +'<div class="pp-grid">'+cards+'</div>';
 }
 async function loadProfitOrders(refresh=false){
   const status=$('#profitOrderStatus'),from=$('#profitOrderFrom')?.value,to=$('#profitOrderTo')?.value;if(!status||!from||!to)return;
@@ -207,12 +255,14 @@ async function loadProfitOrders(refresh=false){
   status.textContent='正在读取订单并匹配 Listing 成本…';$('#profitOrderApply').disabled=true;
   try{const d=await mlGet('/api/ml/profit/orders?from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+(refresh?'&refresh=1':''));renderProfitOrders(d);
     // 状态行必须把「平台共多少单 / 实际抓到多少单」摆出来，否则少抓了也看不出来（原来 779 单只显示 465 单就是这个坑）
+    const T=d.totals||{};
     status.textContent='订单范围：'+d.range.from+' 至 '+d.range.to
       +' · 平台共 '+fmt(d.apiTotal||0)+' 单，实抓 '+(d.pulled===d.apiTotal?'全部 '+fmt(d.pulled||0)+' 单 ✓':fmt(d.pulled||0)+' 单（差 '+fmt((d.apiTotal||0)-(d.pulled||0))+' 单）')
-      +((d.cancelled)?' · 已取消/无效 '+fmt(d.cancelled)+' 单不计入':'')
-      +' · 有效订单 '+fmt(d.totals?.orders||0)+' 单'
-      +' · 已计算 '+(d.totals?.matched||0)+' / '+(d.totals?.lines||0)+' 行'
-      +((d.totals?.unmatched||0)?' · '+d.totals.unmatched+' 行待核对，请查看各行原因':'')
+      +' · 有效 '+fmt(T.orders||0)+' 单 / '+fmt(T.validUnits||0)+' 件'
+      +((T.cancelledOrders)?' · 取消/退款 '+fmt(T.cancelledOrders)+' 单（'+fmt(T.cancelledUnits||0)+' 件，已列在表里并置灰，不计利润）':'')
+      +' · 共售出 '+fmt(T.units||0)+' 件'
+      +' · 已计算 '+fmt(T.matched||0)+' / '+fmt(T.validLines||0)+' 行'
+      +((T.unmatched||0)?' · '+fmt(T.unmatched)+' 行待核对，请查看各行原因':'')
       +(d.cached?' · 缓存数据':' · 已更新');}
   catch(e){$('#profitOrderSummary').hidden=true;$('#profitOrderRows').innerHTML='<tr><td colspan="8" class="empty">'+escHtml(e.message)+'</td></tr>';status.textContent='订单读取失败：'+e.message;}
   finally{$('#profitOrderApply').disabled=false;}

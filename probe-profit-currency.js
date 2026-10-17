@@ -96,13 +96,14 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     // 单量每天都在长，不写死数字：只校验「平台总数 = 实抓数」和「有效单 = 总数 − 取消数」
     const mTotal = A.status.match(/平台共 ([\d,]+) 单/);
     const mPulled = A.status.match(/实抓 (?:全部 )?([\d,]+) 单( ✓)?/);
-    const mCancel = A.status.match(/已取消\/无效 ([\d,]+) 单/);
-    const mValid = A.status.match(/有效订单 ([\d,]+) 单/);
+    const mCancel = A.status.match(/取消\/退款 ([\d,]+) 单/);
+    const mValid = A.status.match(/有效 ([\d,]+) 单/);
     const num = (s) => Number(String(s || '0').replace(/,/g, ''));
     ok(!!mTotal, '状态行给出平台总单数', A.status);
     ok(!!mPulled && num(mPulled[1]) === num(mTotal && mTotal[1]), '状态行显示已全部抓取（实抓 = 平台总数）', A.status);
     ok(!/差 \d/.test(A.status), '状态行没有「差 N 单」的缺单提示', A.status);
-    ok(!!mValid && !!mCancel && num(mValid[1]) === num(mTotal && mTotal[1]) - num(mCancel[1]), '有效订单 = 平台总数 − 取消数', A.status);
+    ok(!!mValid && num(mValid[1]) === num(mTotal && mTotal[1]) - num(mCancel && mCancel[1]), '有效单 = 平台总数 − 取消单', A.status);
+    ok(/共售出 [\d,]+ 件/.test(A.status), '状态行给出共售出件数（含取消）', A.status);
     ok(A.rows >= 700, '表格渲染行数 >= 700', A.rows);
 
     console.log('\n[2] 列币种搭配');
