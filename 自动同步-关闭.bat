@@ -9,6 +9,11 @@ echo   ML Suite - 关闭自动同步
 echo ============================================================
 echo.
 
+rem 写下「主动关闭」标记：启动器和开机自启看到它就不会再把自动同步拉起来。
+rem 想恢复：双击「自动同步-开启.bat」。
+> ".sync-off" echo off
+echo   [标记] 已写入 .sync-off（启动器/开机自启不会再自动拉起）
+
 if not exist ".autosync.pid" (
   echo   [提示] 没有找到 .autosync.pid，自动同步可能本来就没在跑。
   echo.

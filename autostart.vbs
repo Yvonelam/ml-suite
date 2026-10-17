@@ -53,8 +53,9 @@ sh.Run """" & nodeExe & """ """ & root & "\autostart-watchdog.js""", 0, False
 ' Also keep the GitHub auto-sync running: the remote AI can only read GitHub,
 ' so local commits must be pushed without anyone remembering to do it.
 ' It exits immediately on its own if an instance is already running.
+' .sync-off is written by the "disable auto-sync" bat; respect it and stay off.
 If fso.FileExists(root & "\git-autosync.js") Then
-  If Not fso.FileExists(root & ".sync-pause") Then
+  If Not fso.FileExists(root & ".sync-off") Then
     sh.Run """" & nodeExe & """ """ & root & "\git-autosync.js""", 0, False
   End If
 End If

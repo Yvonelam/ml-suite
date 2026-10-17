@@ -467,6 +467,41 @@ function scanQuic(text) {
   }
 }
 
+// ---- 自动同步到 GitHub ----
+// 远端那个不在本机运行的 AI 只能读 GitHub，本地不推它就永远在旧代码上改。
+// 这里顺手把它拉起来：启动器本身有看门狗 + 开机自启护着，等于自动同步也一起被守护，
+// 不用再单独记着去双击某个 bat。
+// 用户主动「自动同步-关闭.bat」后会在目录里留下 .sync-off，这里就尊重它不再启动。
+const AUTOSYNC_PID = path.join(ROOT, '.autosync.pid');
+const SYNC_OFF = path.join(ROOT, '.sync-off');
+function startAutosync() {
+  if (fs.existsSync(SYNC_OFF)) {
+    console.log('  [自动同步] 已被关闭（存在 .sync-off），本次不启动。想恢复双击「自动同步-开启.bat」。');
+    return;
+  }
+  const script = path.join(ROOT, 'git-autosync.js');
+  if (!fs.existsSync(script)) return;
+  try {
+    const pid = parseInt(fs.readFileSync(AUTOSYNC_PID, 'utf8'), 10);
+    if (pid && pid !== process.pid && pidAlive(pid)) {
+      console.log('  [自动同步] 已在运行（PID ' + pid + '）。');
+      return;
+    }
+  } catch (e) { }
+  try {
+    const child = spawn(process.execPath, [script], {
+      cwd: ROOT, env: process.env,
+      detached: true,        // 独立于启动器存活
+      windowsHide: HIDE_CHILD_WINDOWS,
+      stdio: 'ignore',       // 它自己会写 同步日志.txt
+    });
+    child.unref();
+    console.log('  [自动同步] 已启动（PID ' + child.pid + '）：本地改动会自动提交并推送到 GitHub。');
+  } catch (e) {
+    console.error('[自动同步] 启动失败:', e.message);
+  }
+}
+
 (async () => {
   // 先抢单实例锁：开机自启 + 手动双击撞车时，后来者直接退出
   const otherPid = acquireLock();
@@ -486,6 +521,7 @@ function scanQuic(text) {
   startTunnel();
   startWatcher();
   startTunnelHealthWatch();
+  startAutosync();
 
   console.log('\n  [守护] 已启用四层自动恢复：服务崩溃重拉 · 隧道断线重连（指数退避，永不放弃）· 每分钟健康探测 · QUIC 失败自动降级 http2。');
   console.log('  [守护] 停止请用「停止公网服务.bat」，或按 Ctrl+C。\n');

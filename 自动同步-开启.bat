@@ -27,6 +27,12 @@ if exist ".sync-pause" (
   echo   [提示] 已清除 .sync-pause 暂停标记。
 )
 
+rem 清掉「主动关闭」标记，否则启动器以后不会再自动拉起它
+if exist ".sync-off" (
+  del /q ".sync-off"
+  echo   [提示] 已清除 .sync-off 关闭标记。
+)
+
 echo   正在启动（最小化窗口，需要一直开着）...
 start "ML-Suite 自动同步" /min node "%~dp0git-autosync.js"
 
