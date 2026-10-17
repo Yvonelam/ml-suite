@@ -179,6 +179,12 @@ function commitAndPush(files) {
   tryPush();
 }
 
+// -c core.quotepath=false：不加的话中文文件名会被转义成 "\350\207\252..." 八进制，
+// 远端 AI 看提交信息根本不知道改了哪个文件。
+function gitStatusPorcelain() {
+  return git(['-c', 'core.quotepath=false', 'status', '--porcelain']);
+}
+
 function tick() {
   if (fs.existsSync(PAUSE_FLAG)) {
     dirtySince = 0;
@@ -188,7 +194,7 @@ function tick() {
   const busy = gitBusy();
   if (busy) { log('git 正忙（' + busy + '），本轮跳过。'); return; }
 
-  const st = git(['status', '--porcelain']);
+  const st = gitStatusPorcelain();
   if (!st.ok) { log('git status 执行失败：' + st.err.slice(0, 200)); return; }
 
   const files = st.out ? st.out.split('\n').map((s) => s.trim()).filter(Boolean) : [];

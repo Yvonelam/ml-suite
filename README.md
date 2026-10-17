@@ -324,20 +324,28 @@ M public/index.html
 **护栏（这几条是重点）**：
 
 - 严格遵守 `.gitignore` —— `auth-data/`、`daily-search-config.json`、`tunnel-config.json`、`运行日志.txt`、`shots/` 全部被排除，**不会被推上去**
-- `.sync-pause` 存在时完全不动手（想临时停就建这个文件）
+- `.sync-pause` 存在时暂停提交（进程还在，但不动手）
+- `.sync-off` 存在时连启动器都不会把它拉起来 —— 这是「我真的不需要了」的标记
 - `.git/index.lock` 存在，或处于 merge / rebase / cherry-pick 中途 → 本轮跳过，绝不抢 git 的活
 - 单实例锁 `.autosync.pid`，不会跑出两个
 - `GIT_TERMINAL_PROMPT=0`：凭据失效时立刻报错，而不是弹窗把后台进程卡死
+- 已设 `core.quotepath=false`，提交信息里的中文文件名不会变成 `"\350\207\252..."` 八进制转义
 - `同步日志.txt` 本身在 `.gitignore` 里 —— 否则它写一行日志就产生一次改动，**无限自激提交**
+
+**它跟着谁活**：`start-public.js` 启动时会顺手把 `git-autosync.js` 拉起来（若它没在跑）。启动器本身有看门狗 + 开机自启护着，等于自动同步也一起被守护，**不用单独记着去双击 bat**。
 
 **开始 / 停止**：
 
-- 双击 **`自动同步-开启.bat`**（最小化窗口，需要一直开着）
-- 双击 **`自动同步-关闭.bat`**
-- 开机自启时 `autostart.vbs` 会顺带把它拉起来（有 `.sync-pause` 则跳过）
-- 日志：**`同步日志.txt`**
+| 操作 | 方式 | 效果 |
+|---|---|---|
+| 开始 | 双击 **`自动同步-开启.bat`** | 清掉 `.sync-off` 并立即启动（最小化窗口） |
+| 停止 | 双击 **`自动同步-关闭.bat`** | 写 `.sync-off` + 结束进程，之后启动器/开机自启都不会再拉起 |
+| 临时暂停 | 建一个 `.sync-pause` 空文件 | 进程还在，但不提交不推送 |
+| 看日志 | **`同步日志.txt`** | 每次检测/提交/推送/重试都有一行 |
 
 **和 `version.js` 的关系**：`version.js save` 是「人工里程碑 + 打标签」，autosync 是「不间断兜底」。两者不冲突 —— autosync 只看工作区脏不脏，`version.js` 提交完工作区干净，它就不动。
+
+**一个必须知道的副作用**：autosync 会把**未完成的半成品**也推上去。远端 AI 可能读到一份写到一半的代码。所以要么用 `.sync-pause` 暂停，要么让它推 —— 反正有 `version.js rollback` 和 git 历史兜底。
 
 ---
 
