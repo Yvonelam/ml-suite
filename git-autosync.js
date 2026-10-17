@@ -41,8 +41,12 @@ const PAUSE_FLAG = path.join(ROOT, '.sync-pause');
 const PID_FILE = path.join(ROOT, '.autosync.pid');
 const BRANCH = process.env.SYNC_BRANCH || 'main';
 
-const POLL_MS = Number(process.env.SYNC_POLL_MS) || 30 * 1000;      // 轮询间隔
-const DEBOUNCE_MS = Number(process.env.SYNC_DEBOUNCE_MS) || 15 * 1000; // 检测到改动后再等多久
+const POLL_MS = Number(process.env.SYNC_POLL_MS) || 20 * 1000;        // 轮询间隔
+// 提交时机用「静默」而不是「固定等待」：编辑一停手 25 秒就提交。
+// 原来是「第一次看到改动就等 15 秒」，连续改 10 分钟会产出十几个碎提交；
+// 现在改成等「文件不再被改动」，配合 MAX_WAIT 兜底，长时间连改也最多 5 分钟推一次。
+const QUIET_MS = Number(process.env.SYNC_QUIET_MS) || 25 * 1000;
+const MAX_WAIT_MS = Number(process.env.SYNC_MAX_WAIT_MS) || 5 * 60 * 1000;
 const PUSH_BACKOFF_MAX = 5 * 60 * 1000;
 const LOG_MAX_BYTES = 1024 * 1024;   // 同步日志超过 1MB 自动截断，别无限长
 
@@ -97,8 +101,23 @@ process.on('exit', () => {
 
 // ---- 状态 ----
 let dirtySince = 0;          // 第一次看到「有改动」的时间
+let lastChangeAt = 0;        // 最近一次「文件真的又被改了」的时间
+let lastSig = '';            // 改动文件 + mtime 的指纹，用来判断是不是还在写
 let pushBackoff = 5000;      // 当前推送退避间隔
 let lastPushFailAt = 0;      // 上次推送失败时间
+
+// 把「哪些文件脏了 + 各自 mtime」做成指纹。指纹变了说明还在编辑，
+// 静默计时就得重来 —— 这样连续改一个文件不会每 20 秒切一刀。
+function dirtySignature(files) {
+  let sig = '';
+  for (const line of files) {
+    const p = line.slice(3).trim().replace(/^"|"$/g, '').replace(/\\"/g, '"');
+    let mt = '?';
+    try { mt = String(fs.statSync(path.join(ROOT, p)).mtimeMs); } catch (e) { }
+    sig += p + ':' + mt + ';';
+  }
+  return sig;
+}
 
 // git 正在做别的事（合并 / rebase / 加锁）时，绝对不要插手
 function gitBusy() {
@@ -201,25 +220,35 @@ function tick() {
 
   // 工作区干净 → 如果还有没推上去的提交，补推
   if (!files.length) {
-    dirtySince = 0;
+    dirtySince = 0; lastSig = ''; lastChangeAt = 0;
     if (aheadCount() > 0) tryPush();
     return;
   }
 
-  // 第一次看到改动：先记时间，给 15 秒缓冲把连续编辑合并成一个提交
-  if (!dirtySince) {
-    dirtySince = Date.now();
-    log('检测到 ' + files.length + ' 个文件有改动，' + Math.round(DEBOUNCE_MS / 1000) + ' 秒后自动提交推送。');
+  // 判断「还在写」还是「已经停手」
+  const sig = dirtySignature(files);
+  if (sig !== lastSig) {
+    if (!dirtySince) {
+      dirtySince = Date.now();
+      log('检测到 ' + files.length + ' 个文件有改动，停手 ' + Math.round(QUIET_MS / 1000) + ' 秒后自动提交推送。');
+    }
+    lastSig = sig;
+    lastChangeAt = Date.now();
     return;
   }
-  if (Date.now() - dirtySince < DEBOUNCE_MS) return;
+
+  const quiet = Date.now() - lastChangeAt;
+  const waited = Date.now() - dirtySince;
+  // 停手够久就提交；一直连着改则最多等 MAX_WAIT 强制推一次，避免长时间不落袋
+  if (quiet < QUIET_MS && waited < MAX_WAIT_MS) return;
 
   commitAndPush(files);
+  lastSig = ''; lastChangeAt = 0;
 }
 
 // ---- 启动 ----
 log('自动同步已启动（PID ' + process.pid + '）：每 ' + Math.round(POLL_MS / 1000) + ' 秒检查一次，'
-  + '改动后 ' + Math.round(DEBOUNCE_MS / 1000) + ' 秒自动提交并推送到 origin/' + BRANCH + '。');
+  + '停手 ' + Math.round(QUIET_MS / 1000) + ' 秒即自动提交并推送到 origin/' + BRANCH + '（连改时最多 ' + Math.round(MAX_WAIT_MS / 60000) + ' 分钟兜底一次）。');
 if (fs.existsSync(PAUSE_FLAG)) log('注意：.sync-pause 存在，当前处于暂停状态。');
 
 const head = git(['rev-parse', '--short', 'HEAD']);
