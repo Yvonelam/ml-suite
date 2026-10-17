@@ -32,6 +32,8 @@ ml-suite/
 ├── stop-public.js            # 停止器：写 .stop-flag 并结束进程
 ├── autostart-watchdog.js     # 看门狗：每分钟查「启动器进程 + 端口」，掉了自动拉起（开机自启用）
 ├── autostart.vbs             # 开机自启入口（纯 ASCII，放启动文件夹；由「开机自启-开启.bat」安装）
+├── git-autosync.js           # 自动同步：本地一有改动就自动提交并推送到 GitHub（给远端 AI 用）
+├── version.js                # 版本管理：save 打快照标签 / rollback 回滚
 ├── setup-tunnel.js           # 首次下载/配置 cloudflared 快速隧道
 ├── setup-named-tunnel.js     # 配置固定域名（命名隧道）
 ├── check-domain.js           # 检查域名/隧道状态
@@ -289,6 +291,53 @@ node handoff.js shots    # 只截图（也可 node shots.js hub ads 只截指定
 - 强杀 `cloudflared` → 3 秒后重连，12 秒内公网恢复 200
 - 强杀 `server.js` → 3 秒后重起，隧道全程在线，公网不中断
 - 杀启动器 → 看门狗 60 秒内拉起，服务与隧道一并恢复
+
+---
+
+## 自动同步到 GitHub（给「不在本机运行的 AI」用）
+
+远端那个 AI 只能读 GitHub。本地改完不推，它就永远在旧代码上改，越拖越落后。所以有了 `git-autosync.js`：
+
+**本地一有改动，40 秒左右自动出现在 GitHub 的 `main` 上**，不需要人记得点「推送代码」。
+
+它是怎么判断的（轮询，不用文件监听）：
+
+| 时机 | 动作 |
+|---|---|
+| 每 30 秒 | 跑一次 `git status --porcelain` |
+| 第一次发现改动 | 记时间，再等 **15 秒**（合并连续编辑，避免每存一次盘就一个 commit） |
+| 改动持续超过 15 秒 | `git add -A` → commit → push |
+| 工作区干净但有未推送提交 | 补推（上次失败积压的） |
+
+**推送失败绝不丢东西**：提交留在本地，指数退避 5s→10s→…→5 分钟封顶、永不放弃。远端有新提交（`non-fast-forward`）会自动 `pull --rebase --autostash` 再推一次；真冲突则 `rebase --abort` 回到干净状态并告警，绝不把仓库卡在 rebase 中途。
+
+**提交信息长这样**，远端 AI 一眼看出改了什么：
+
+```
+[auto] 2026-10-18 01:52:10 · 3 个文件
+
+M public/app.js
+M public/index.html
+?? probe-new.js
+```
+
+**护栏（这几条是重点）**：
+
+- 严格遵守 `.gitignore` —— `auth-data/`、`daily-search-config.json`、`tunnel-config.json`、`运行日志.txt`、`shots/` 全部被排除，**不会被推上去**
+- `.sync-pause` 存在时完全不动手（想临时停就建这个文件）
+- `.git/index.lock` 存在，或处于 merge / rebase / cherry-pick 中途 → 本轮跳过，绝不抢 git 的活
+- 单实例锁 `.autosync.pid`，不会跑出两个
+- `GIT_TERMINAL_PROMPT=0`：凭据失效时立刻报错，而不是弹窗把后台进程卡死
+- `同步日志.txt` 本身在 `.gitignore` 里 —— 否则它写一行日志就产生一次改动，**无限自激提交**
+
+**开始 / 停止**：
+
+- 双击 **`自动同步-开启.bat`**（最小化窗口，需要一直开着）
+- 双击 **`自动同步-关闭.bat`**
+- 开机自启时 `autostart.vbs` 会顺带把它拉起来（有 `.sync-pause` 则跳过）
+- 日志：**`同步日志.txt`**
+
+**和 `version.js` 的关系**：`version.js save` 是「人工里程碑 + 打标签」，autosync 是「不间断兜底」。两者不冲突 —— autosync 只看工作区脏不脏，`version.js` 提交完工作区干净，它就不动。
 
 ---
 
