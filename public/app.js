@@ -139,37 +139,100 @@ function setProfitOrderRange(range,run=true){
   $('#profitOrderRange')?.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.range===range));
   if(run&&range!=='custom')loadProfitOrders();
 }
+// 订单利润表的币种：默认按平台显示的当地币（巴西站 = 巴币 R$），可切人民币。
+// 为什么整表一起切、而不是只让收入/销售费/运费用巴币：这三列换币种、成本和利润还留人民币的话，
+// 一行里的数字就没法相减了，对账时反而更难用。整行同币种才加得起来。
+let profitOrderCur = (localStorage.getItem('profitOrderCur') === 'cny') ? 'cny' : 'local';
+let lastProfitOrderData = null;
+
+function profitCurCode() {
+  if (profitOrderCur === 'cny') return 'CNY';
+  return (lastProfitOrderData && lastProfitOrderData.orders && lastProfitOrderData.orders[0] && lastProfitOrderData.orders[0].currency) || 'BRL';
+}
+function profitCurLabel() {
+  const c = profitCurCode();
+  return c === 'CNY' ? '人民币' : (c === 'BRL' ? '巴币' : c);
+}
+// 取一行里某个字段在当前币种下的值
+function profitPick(x, localKey, cnyKey) {
+  return profitOrderCur === 'cny' ? x[cnyKey] : x[localKey];
+}
+function applyProfitCurHeaders() {
+  const c = profitCurLabel();
+  const set = (id, text) => { const el = $('#' + id); if (el) el.textContent = text; };
+  set('poThRev', '订单收入（' + c + '）');
+  set('poThFee', '销售费（' + c + '）');
+  set('poThShip', '尾程运费（' + c + '）');
+  set('poThCost', '成本与头程（' + c + '）');
+  set('poThProfit', '订单利润（' + c + '）');
+  document.querySelectorAll('#profitOrderCur button').forEach(b => b.classList.toggle('on', b.dataset.cur === profitOrderCur));
+}
+
 function renderProfitOrders(data){
   const rows=$('#profitOrderRows'),summary=$('#profitOrderSummary');if(!rows||!summary)return;
-  const items=data.orders||[],totals=data.totals||{};
+  lastProfitOrderData=data;
+  const items=data.orders||[],totals=data.totals||{},cur=profitCurCode();
+  const isCny=profitOrderCur==='cny';
+  applyProfitCurHeaders();
+  // 汇总里的利润合计跟着币种走；本币模式没有现成字段，就按已计算行累加
+  const profitSum = isCny
+    ? Number(totals.profitCny || 0)
+    : items.filter(x=>x.profit!==null).reduce((s,x)=>s+(Number(x.profit)||0),0);
   summary.hidden=false;
-  summary.innerHTML='<div class="profit-order-stat"><small>有效订单</small><b>'+fmt(totals.orders||0)+'</b></div><div class="profit-order-stat"><small>成功计算商品行</small><b>'+fmt(totals.matched||0)+' / '+fmt(totals.lines||0)+'</b></div><div class="profit-order-stat"><small>订单利润合计（人民币）</small><b class="'+(Number(totals.profitCny)<0?'negative':'')+'">'+money(totals.profitCny||0,'CNY')+'</b></div><div class="profit-order-stat"><small>整体利润率</small><b>'+(totals.margin==null?'—':Number(totals.margin).toFixed(2)+'%')+'</b></div>';
+  summary.innerHTML='<div class="profit-order-stat"><small>有效订单</small><b>'+fmt(totals.orders||0)+'</b></div>'
+    +'<div class="profit-order-stat"><small>成功计算商品行</small><b>'+fmt(totals.matched||0)+' / '+fmt(totals.lines||0)+'</b></div>'
+    +'<div class="profit-order-stat"><small>订单利润合计（'+profitCurLabel()+'）</small><b class="'+(profitSum<0?'negative':'')+'">'+money(profitSum,cur)+'</b></div>'
+    +'<div class="profit-order-stat"><small>整体利润率</small><b>'+(totals.margin==null?'—':Number(totals.margin).toFixed(2)+'%')+'</b></div>';
   if(!items.length){rows.innerHTML='<tr><td colspan="8" class="empty">所选日期范围内没有有效订单</td></tr>';return;}
   rows.innerHTML=items.map(x=>{
     const date=x.date?new Date(x.date).toLocaleString('zh-CN',{timeZone:'America/Sao_Paulo',hour12:false}):'—',complete=x.profit!==null,miss=(x.missing||[]).join('、');
+    const rev=profitPick(x,'revenue','revenueCny'),fee=profitPick(x,'saleFee','saleFeeCny'),
+          ship=profitPick(x,'shipping','shippingCny'),tax=profitPick(x,'tax','taxCny'),
+          cost=profitPick(x,'cost','costCny'),profit=profitPick(x,'profit','profitCny');
     // 「尾程运费」列：只显示运费本身。平台代扣税若真有值（巴西站 order.taxes 恒为空 → 按 0 计），
     // 在小字里标出来 —— 税仍然计入利润，只是不再和运费挤在同一列，免得列名说了「税费」其实是 0。
-    const hasTax=x.tax!==null&&x.tax!==undefined&&Number(x.tax)!==0&&x.taxCny!==null;
-    const shipCell=x.shippingCny===null?'待核对':money(x.shippingCny,'CNY')+(hasTax?'<small title="平台代扣税，已计入利润">含税 '+money(x.taxCny,'CNY')+'</small>':'');
-    const cls=complete&&Number(x.profit)<0?'negative':'positive';
-    return '<tr><td>'+escHtml(date)+'<small>订单 '+escHtml(x.orderId)+'</small></td><td><span class="profit-order-title">'+escHtml(x.title)+'</span><small>'+escHtml(x.itemId)+'</small></td><td>'+fmt(x.qty)+'</td><td>'+money(x.revenueCny,'CNY')+'</td><td>'+(x.saleFee===null?'待核对':money(x.saleFeeCny,'CNY'))+'</td><td>'+shipCell+'</td><td>'+(x.cost===null?'待核对':money(x.costCny,'CNY'))+'</td><td class="'+(complete?cls:'pending')+'">'+(complete?money(x.profitCny,'CNY'):'待核对')+(miss?'<small title="'+escHtml(miss)+'">'+escHtml(miss)+'</small>':'')+'</td></tr>';
+    const hasTax=tax!==null&&tax!==undefined&&Number(tax)!==0;
+    const shipCell=ship===null?'待核对':money(ship,cur)+(hasTax?'<small title="平台代扣税，已计入利润">含税 '+money(tax,cur)+'</small>':'');
+    const cls=complete&&Number(profit)<0?'negative':'positive';
+    return '<tr><td>'+escHtml(date)+'<small>订单 '+escHtml(x.orderId)+'</small></td><td><span class="profit-order-title">'+escHtml(x.title)+'</span><small>'+escHtml(x.itemId)+'</small></td><td>'+fmt(x.qty)+'</td>'
+      +'<td>'+money(rev,cur)+'</td>'
+      +'<td>'+(fee===null?'待核对':money(fee,cur))+'</td>'
+      +'<td>'+shipCell+'</td>'
+      +'<td>'+(cost===null?'待核对':money(cost,cur))+'</td>'
+      +'<td class="'+(complete?cls:'pending')+'">'+(complete?money(profit,cur):'待核对')+(miss?'<small title="'+escHtml(miss)+'">'+escHtml(miss)+'</small>':'')+'</td></tr>';
   }).join('');
 }
 async function loadProfitOrders(refresh=false){
   const status=$('#profitOrderStatus'),from=$('#profitOrderFrom')?.value,to=$('#profitOrderTo')?.value;if(!status||!from||!to)return;
   if(from>to){status.textContent='开始日期不能晚于结束日期。';return;}
   status.textContent='正在读取订单并匹配 Listing 成本…';$('#profitOrderApply').disabled=true;
-  try{const d=await mlGet('/api/ml/profit/orders?from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+(refresh?'&refresh=1':''));renderProfitOrders(d);status.textContent='订单范围：'+d.range.from+' 至 '+d.range.to+' · 已计算 '+(d.totals?.matched||0)+' / '+(d.totals?.lines||0)+' 行'+((d.totals?.unmatched||0)?' · '+d.totals.unmatched+' 行待核对，请查看各行原因':'')+(d.truncated?' · 订单量超过接口读取上限，汇总可能不完整。':'')+(d.cached?' · 缓存数据':' · 已更新');}
+  try{const d=await mlGet('/api/ml/profit/orders?from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+(refresh?'&refresh=1':''));renderProfitOrders(d);
+    // 状态行必须把「平台共多少单 / 实际抓到多少单」摆出来，否则少抓了也看不出来（原来 779 单只显示 465 单就是这个坑）
+    status.textContent='订单范围：'+d.range.from+' 至 '+d.range.to
+      +' · 平台共 '+fmt(d.apiTotal||0)+' 单，实抓 '+(d.pulled===d.apiTotal?'全部 '+fmt(d.pulled||0)+' 单 ✓':fmt(d.pulled||0)+' 单（差 '+fmt((d.apiTotal||0)-(d.pulled||0))+' 单）')
+      +((d.cancelled)?' · 已取消/无效 '+fmt(d.cancelled)+' 单不计入':'')
+      +' · 有效订单 '+fmt(d.totals?.orders||0)+' 单'
+      +' · 已计算 '+(d.totals?.matched||0)+' / '+(d.totals?.lines||0)+' 行'
+      +((d.totals?.unmatched||0)?' · '+d.totals.unmatched+' 行待核对，请查看各行原因':'')
+      +(d.cached?' · 缓存数据':' · 已更新');}
   catch(e){$('#profitOrderSummary').hidden=true;$('#profitOrderRows').innerHTML='<tr><td colspan="8" class="empty">'+escHtml(e.message)+'</td></tr>';status.textContent='订单读取失败：'+e.message;}
   finally{$('#profitOrderApply').disabled=false;}
 }
 function bindProfitEvents(){
   $('#profitRefresh')?.addEventListener('click',async e=>{const b=e.currentTarget;if(b.disabled)return;b.disabled=true;b.textContent='正在刷新…';try{await loadProfitListings(true);}finally{b.disabled=false;b.textContent='刷新商品/运费';}});$('#profitSearch')?.addEventListener('input',renderProfitListings);
+  applyProfitCurHeaders();   // 让币种按钮和表头先跟上次选择对齐，再加载数据
   setProfitOrderRange('today',false);
   $('#profitOrderRange')?.addEventListener('click',e=>{const b=e.target.closest('button[data-range]');if(!b)return;if(b.dataset.range==='custom'){ $('#profitOrderRange').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));$('#profitOrderFrom').focus();return;}setProfitOrderRange(b.dataset.range,true);});
   $('#profitOrderFrom')?.addEventListener('change',()=>$('#profitOrderRange')?.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.range==='custom')));
   $('#profitOrderTo')?.addEventListener('change',()=>$('#profitOrderRange')?.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.range==='custom')));
   $('#profitOrderApply')?.addEventListener('click',()=>loadProfitOrders(true));
+  // 币种切换：只重渲染，不再请求接口（同一份数据里本币和人民币字段都有）
+  $('#profitOrderCur')?.addEventListener('click',e=>{
+    const b=e.target.closest('button[data-cur]');if(!b)return;
+    profitOrderCur=b.dataset.cur==='cny'?'cny':'local';
+    try{localStorage.setItem('profitOrderCur',profitOrderCur);}catch(err){}
+    if(lastProfitOrderData)renderProfitOrders(lastProfitOrderData);else applyProfitCurHeaders();
+  });
   $('#profitSave')?.addEventListener('click',async e=>{
     const button=e.currentTarget;if(button.disabled||!profitItems.length)return;
     button.disabled=true;button.textContent='正在保存…';
