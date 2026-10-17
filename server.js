@@ -1309,6 +1309,86 @@ async function getBocFxRates(currencies) {
 }
 function readProfitCosts() { try { return JSON.parse(fs.readFileSync(privateDataFile('product-profit.json'), 'utf8')) || {}; } catch { return {}; } }
 function saveProfitCosts(data) { fs.writeFileSync(privateDataFile('product-profit.json'), JSON.stringify(data, null, 2), 'utf8'); }
+// ---- 订单全量抓取 ----
+// 踩过的坑：原来写死 CAP=500，10 月有 779 单时只拉了 500 条（过滤取消后剩 465），
+// 于是「利润只核算了 400 多单」。现在：
+//   ① 不再设条数上限，改成「按 paging.total 拉满」
+//   ② 单量不大（≤900）就在区间内并发翻页；单量大则按天切片 —— 避开 orders/search
+//      的 offset 上限（约 1000，超了会被拒或返回空，表现为静默丢单）
+//   ③ 全程按 order.id 去重 —— 实测逐天 paging.total 相加比全区间多出 11 单，
+//      是跨日边界重复，不去重反而会越算越多
+const ORDER_PAGE_LIMIT = 50;
+const ORDER_PAGE_CONCURRENCY = 5;
+const ORDER_OFFSET_SAFE = 900;      // offset 安全上限，留 100 条余量
+
+function orderDayList(from, to) {
+  const out = [];
+  let t = Date.parse(from + 'T12:00:00Z');
+  const end = Date.parse(to + 'T12:00:00Z');
+  if (!Number.isFinite(t) || !Number.isFinite(end) || end < t) return [from];
+  for (let i = 0; t <= end && i < 400; i++, t += 86400000) out.push(new Date(t).toISOString().slice(0, 10));
+  return out;
+}
+
+function fetchOrdersPage(sellerId, from, to, offset) {
+  const qs = new URLSearchParams({
+    seller: String(sellerId),
+    'order.date_created.from': from + 'T00:00:00.000' + SALES_TZ.offset,
+    'order.date_created.to': to + 'T23:59:59.999' + SALES_TZ.offset,
+    sort: 'date_asc',
+    limit: String(ORDER_PAGE_LIMIT),
+    offset: String(offset),
+  });
+  return mlRequest('/orders/search?' + qs.toString()).then((d) => ({
+    rows: (d && d.results) || [],
+    total: Number((d && d.paging && d.paging.total) || 0),
+  }));
+}
+
+// 单天拉全（单天单量远小于 offset 上限，最多几页）
+async function fetchOrdersOneDay(sellerId, day) {
+  const out = [];
+  let offset = 0;
+  for (;;) {
+    const r = await fetchOrdersPage(sellerId, day, day, offset);
+    out.push(...r.rows);
+    offset += ORDER_PAGE_LIMIT;
+    if (r.rows.length < ORDER_PAGE_LIMIT || offset >= r.total || offset >= ORDER_OFFSET_SAFE) break;
+  }
+  return out;
+}
+
+async function fetchAllOrders(sellerId, from, to) {
+  const map = new Map();
+  const first = await fetchOrdersPage(sellerId, from, to, 0);
+  for (const o of first.rows) map.set(String(o.id), o);
+  const apiTotal = first.total || first.rows.length;
+  if (first.rows.length < ORDER_PAGE_LIMIT) return { orders: [...map.values()], apiTotal, strategy: '单页' };
+
+  if (apiTotal <= ORDER_OFFSET_SAFE) {
+    // 区间内并发翻页（offset 全在安全范围内）
+    const lastPage = Math.ceil(Math.min(apiTotal, ORDER_OFFSET_SAFE) / ORDER_PAGE_LIMIT);
+    for (let p = 1; p < lastPage; p += ORDER_PAGE_CONCURRENCY) {
+      const batch = [];
+      for (let k = p; k < Math.min(p + ORDER_PAGE_CONCURRENCY, lastPage); k++) {
+        batch.push(fetchOrdersPage(sellerId, from, to, k * ORDER_PAGE_LIMIT));
+      }
+      for (const r of await Promise.all(batch)) for (const o of r.rows) map.set(String(o.id), o);
+    }
+    return { orders: [...map.values()], apiTotal, strategy: '区间并发翻页' };
+  }
+
+  // 单量超过 offset 安全线：按天切片，天与天之间并发
+  const days = orderDayList(from, to);
+  const dayConc = 4;
+  for (let i = 0; i < days.length; i += dayConc) {
+    const chunk = days.slice(i, i + dayConc);
+    const results = await Promise.all(chunk.map((d) => fetchOrdersOneDay(sellerId, d)));
+    for (const rows of results) for (const o of rows) map.set(String(o.id), o);
+  }
+  return { orders: [...map.values()], apiTotal, strategy: '按天切片 ' + days.length + ' 天' };
+}
+
 app.get('/api/ml/profit/orders', async (req,res)=>{
   const cfg=loadConfig();
   if(!mlConfigured(cfg))return res.json({ok:false,needConfig:true,message:'尚未配置美客多 API 凭证'});
@@ -1318,12 +1398,9 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     if(from>to){const t=from;from=to;to=t;}
     const cacheKey=`${auth.currentUserId()}|${u.id}|${from}|${to}`,cached=profitOrderCache.get(cacheKey);
     if(!req.query.refresh&&cached&&Date.now()-cached.at<30000)return res.json({...cached.data,cached:true});
-    const qFrom=`${from}T00:00:00.000${SALES_TZ.offset}`,qTo=`${to}T23:59:59.999${SALES_TZ.offset}`,CAP=500,raw=[];let apiTotal=0,offset=0;
-    while(raw.length<CAP){
-      const d=await mlRequest(`/orders/search?seller=${encodeURIComponent(u.id)}&order.date_created.from=${encodeURIComponent(qFrom)}&order.date_created.to=${encodeURIComponent(qTo)}&sort=date_asc&limit=50&offset=${offset}`);
-      const rows=d?.results||[];apiTotal=Number(d?.paging?.total||rows.length);raw.push(...rows);offset+=50;if(!rows.length||offset>=apiTotal)break;
-    }
-    const validOrders=raw.slice(0,CAP).filter(o=>!['cancelled','invalid'].includes(String(o.status||'')));
+    const pulled=await fetchAllOrders(u.id,from,to);
+    const rawOrders=pulled.orders,apiTotal=pulled.apiTotal;
+    const validOrders=rawOrders.filter(o=>!['cancelled','invalid'].includes(String(o.status||'')));
     const shipmentIds=[...new Set(validOrders.map(o=>String(o.shipping?.id||'')).filter(Boolean))];
     // 订单币种按 shipment 建索引：运费接口的退化版不返回币种，用它兜底
     const shipCurrencyOf={};
@@ -1364,9 +1441,10 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
       shipmentCostCache.set(key,{at:Date.now(),data});return data;
     }
     const shipmentCosts={};
-    // 并发从 6 提到 12：单次 ~870ms × 408 个，并发 6 要 59 秒、并发 12 约 30 秒；
-    // 再加持久缓存，同一段时间第二次打开基本是秒开。
-    const SHIP_CONCURRENCY=12;
+    // 并发从 6 提到 16：单次 ~750ms，改成全量抓取后 10 月有 730 个 shipment，
+    // 并发 6 要 90 秒、并发 16 约 35 秒；再叠加 30 天持久缓存，同一区间第二次基本秒开。
+    // 遇到 429 会在 getShipmentCost 里退避重试，不会把订单直接记成「运费缺失」。
+    const SHIP_CONCURRENCY=16;
     for(let i=0;i<shipmentIds.length;i+=SHIP_CONCURRENCY){
       const part=await Promise.all(shipmentIds.slice(i,i+SHIP_CONCURRENCY).map(async id=>[id,await getShipmentCost(id,shipCurrencyOf[id])]));
       for(const [id,cost] of part)shipmentCosts[id]=cost;
@@ -1400,7 +1478,10 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
       return {orderId:String(line.order.id||''),date:line.order.date_created||'',status:line.order.status||'',itemId:id,title:item.item?.title||('Listing '+id),qty:line.qty,currency,unitPrice:Number(item.unit_price)||0,revenue:line.revenue,saleFee:feeTotal,shipping:shippingShare,tax:line.taxShare,taxAssumed:!!line.taxAssumed,cost:costLocal,profit,profitCny:profit!==null&&fx?profit/fx:null,revenueCny:fx?line.revenue/fx:null,saleFeeCny:feeTotal!==null&&fx?feeTotal/fx:null,shippingCny:shippingShare!==null&&fx?shippingShare/fx:null,taxCny:line.taxShare!==null&&fx?line.taxShare/fx:null,costCny:costLocal!==null&&fx?costLocal/fx:null,fxCnyPer100,fxPublishedAt:rates[currency]?.publishedAt||'',margin:profit!==null&&line.revenue?profit/line.revenue*100:null,missing:reasons,fxRate:fx};
     });
     const complete=lines.filter(x=>x.profit!==null),totalProfitCny=complete.reduce((s,x)=>s+(x.profitCny||0),0),totalRevenueCny=complete.reduce((s,x)=>s+(x.revenueCny||0),0);
-    const data={ok:true,range:{from,to},currency:'CNY',truncated:apiTotal>raw.length,apiTotal,orders:lines,totals:{orders:new Set(validOrders.map(o=>String(o.id))).size,lines:lines.length,matched:complete.length,unmatched:lines.length-complete.length,units:complete.reduce((s,x)=>s+x.qty,0),profitCny:Math.round(totalProfitCny*100)/100,margin:totalRevenueCny?Math.round(totalProfitCny/totalRevenueCny*10000)/100:null},updatedAt:Date.now()};
+    const data={ok:true,range:{from,to},currency:'CNY',
+      truncated:rawOrders.length<apiTotal,
+      apiTotal,pulled:rawOrders.length,cancelled:rawOrders.length-validOrders.length,strategy:pulled.strategy,
+      orders:lines,totals:{orders:validOrders.length,lines:lines.length,matched:complete.length,unmatched:lines.length-complete.length,units:complete.reduce((s,x)=>s+x.qty,0),profitCny:Math.round(totalProfitCny*100)/100,margin:totalRevenueCny?Math.round(totalProfitCny/totalRevenueCny*10000)/100:null},updatedAt:Date.now()};
     profitOrderCache.set(cacheKey,{at:Date.now(),data});res.json(data);
   }catch(e){sendMlError(res,e);}
 });
