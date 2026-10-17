@@ -352,6 +352,32 @@ M public/index.html
 
 ---
 
+## 订单利润的口径（数字对不上时先看这里）
+
+**一行的利润 = 订单收入 − 销售费 − 尾程运费 − 税费 − 成本与头程**，全部按巴币算，再按中国银行牌价折人民币。
+
+| 项 | 数据来源 | 口径说明 |
+|---|---|---|
+| 订单收入 | `order_items[].unit_price × quantity` | 商品实售价，不含运费 |
+| 销售费 | `order_items[].sale_fee × quantity` | 平台佣金（含 Mercado Envios 补贴前的销售费） |
+| 尾程运费 | `/shipments/{id}/costs` 的 `senders[].cost` | **按实售价比例分摊到同一 shipment 的每个商品行**；结果落 `ship_cost` 表缓存 30 天 |
+| 税费 | `order.taxes.amount` | 巴西站实测**恒为 null**（平台不代扣），按 **0** 计并打 `taxAssumed` 标记 —— 不要当成「数据缺失」把整行利润废掉 |
+| 成本与头程 | `product-profit.json` 里手工填的 `costCny + freightCny` | 单位成本 × 件数，另加 `otherFee × 件数` |
+
+**列币种是固定搭配，不做切换**：收入 / 销售费 / 尾程运费跟着平台原币走（巴西站 = 巴币 R$，跟后台一一对得上）；
+成本与头程 / 订单利润固定人民币（成本本来就是按人民币采购价填的）。两栏币种不同不能直接相减，所以每格都挂了 `title`，鼠标一停就能看到另一币种的折算值。
+
+**数字突然变了怎么查**（2026-10-18 踩过一次，记录在此免得再查一遍）：
+合计从 ¥72,983.31 掉到 ¥61,958.31，差额 ¥11,025.00 —— 恰好 = 315 件 × ¥35，
+对应 `MLB4463974607`（215 件）+ `MLB4463974609`（100 件）两个 Listing 的单价成本被从 ¥35 改成 ¥70。
+**不是计算错误，是成本表 `product-profit.json` 被改了。** 判断顺序：
+
+1. `node probe-profit-audit.js <from> <to>` —— 若「收入−销售费−运费−税费−成本」与「利润」和「合计」三者分毫不差，说明算法没坏，往上找数据。
+2. `ls -l auth-data/data/admin/product-profit.json` —— 看 mtime 是否落在两次观测之间。
+3. 只有运费会变外部数据：查 `ship_cost` 表有没有 `amount=0` 或空币种的脏缓存。
+
+---
+
 ## 主要 API 一览
 
 | 方法 | 路径 | 说明 |
@@ -403,6 +429,10 @@ node dm-mcp.js call search_product_snapshots '{"market_code":"MLB","keyword":"he
 | `probe-resilience.js` | **连接韧性单测**：指数退避序列（3s→300s 封顶、500 次不放弃）、`probeUrl` 对 200/403/530/超时/连不上的判定。函数是从 `start-public.js` 里抠真身，不复制代码 |
 | `probe-profit.js` | **利润接口诊断**：真实打美客多 API，量运费接口延迟、看返回结构（当初就是它查出 `/shipments/{id}/costs` 不返回币种） |
 | `probe-profit-api.js` | **利润接口端到端**：登录 → 打接口 → 校验「运费缺失」是否为 0、利润是否算得出来、持久缓存是否落库 |
+| `probe-profit-audit.js` | **利润逐行对账**：把 728 行明细自己加一遍，验证「收入−销售费−运费−税费−成本 = 利润 = 合计」分毫不差，并打印亏损行/运费为 0 行/未算出行、利润 TOP5 与 BOTTOM5。**怀疑数字不对时先跑它** |
+| `probe-profit-range.js` | **任意区间抓取完整性**：`node probe-profit-range.js 2026-10-01 2026-10-17`，对比平台 `paging.total` 与实抓数，顺带报冷/热耗时 |
+| `probe-profit-formula.js` | **单行算式验算**：打印某一行收入/销售费/运费/税额/成本/利润与汇率换算过程 |
+| `probe-profit-currency.js` | **币种展示（真浏览器）**：断言三列巴币 + 两列人民币、合计人民币、每格悬停给出另一币种折算、无 console 报错 |
 | `probe-smoke.js` | 逐视图冒烟：点遍 8 个视图，抓 console 报错 / 失败请求 / 空白页，并截 `shots/smoke-profit.png` |
 | `probe-adsplit.js` | 广告单拆分的整数分配（15 项 + 1000 组随机压力） |
 | `probe-ledger.js` | 广告账本冻结语义（跨天 final 永不再改 + 小时分摊守恒） |
