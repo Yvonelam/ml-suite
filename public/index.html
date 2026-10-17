@@ -235,14 +235,14 @@
       <div class="ph2"><h1>产品利润</h1><p>同步当前账户在售 Listing；成本和头程由你按 Listing 人工填写并保存，利润统一折算为人民币。</p></div>
       <div class="card pad profit-intro"><div><b>利润计算</b><p>成本与头程由你按 Listing 人工填写并保存；尾程运费按 Listing ID 从美客多 API 更新，订单利润使用对应 Shipment 运费。</p></div><div class="profit-actions"><button class="btn" id="profitSave" type="button">保存 Listing 成本/运费</button><button class="btn y" id="profitCalculate" type="button">计算利润</button><button class="btn" id="profitRefresh" type="button">刷新商品/运费</button></div></div>
       <div class="card pad profit-order-card">
-        <div class="profit-order-head"><div><h2>按订单计算利润</h2><p>选择下单日期范围；订单金额、费用与利润统一折算成人民币。多商品订单运费和税费按实售价比例分摊。</p></div><div class="profit-order-controls">
+        <div class="profit-order-head"><div><h2>按订单计算利润</h2><p>选择下单日期范围；订单金额、费用与利润统一折算成人民币。多商品订单的运费按实售价比例分摊。</p></div><div class="profit-order-controls">
           <div class="seg" id="profitOrderRange"><button data-range="today" class="on">当天</button><button data-range="7">近 7 天</button><button data-range="30">近 30 天</button><button data-range="custom">自定义</button></div>
           <div class="profit-order-dates"><input type="date" id="profitOrderFrom"><span>至</span><input type="date" id="profitOrderTo"><button class="btn y" id="profitOrderApply" type="button">查询并计算</button></div>
         </div></div>
         <div class="profit-order-status" id="profitOrderStatus" aria-live="polite">选择日期范围后查询订单。</div>
         <div class="profit-order-summary" id="profitOrderSummary" hidden></div>
-        <div class="profit-order-table-wrap"><table class="profit-order-table"><thead><tr><th>日期 / 订单</th><th>商品 / Listing ID</th><th>数量</th><th>订单收入（人民币）</th><th>销售费（人民币）</th><th>分摊税费与运费（人民币）</th><th>成本与头程（人民币）</th><th>订单利润（人民币）</th></tr></thead><tbody id="profitOrderRows"><tr><td colspan="8" class="empty">选择日期后查询订单</td></tr></tbody></table></div>
-        <p class="profit-disclaimer">取消订单不计入。运费、销售费或税额数据缺失时，该商品行会标记为待核对，不会按 0 计入利润；同一订单的税额与运费按实售价比例分摊，总利润按中国银行最新中行折算价折合人民币。中行未提供该币种牌价的订单会标记待核对。退货退款、广告和仓储等后续账单调整不在此订单口径内，最终以美客多结算账单核对。</p>
+        <div class="profit-order-table-wrap"><table class="profit-order-table"><thead><tr><th>日期 / 订单</th><th>商品 / Listing ID</th><th>数量</th><th>订单收入（人民币）</th><th>销售费（人民币）</th><th>尾程运费（人民币）</th><th>成本与头程（人民币）</th><th>订单利润（人民币）</th></tr></thead><tbody id="profitOrderRows"><tr><td colspan="8" class="empty">选择日期后查询订单</td></tr></tbody></table></div>
+        <p class="profit-disclaimer">取消订单不计入。尾程运费取该笔发货中<b>卖家实付的运费成本</b>，同一发货含多件商品时按实售价比例分摊（摊完加总恒等于整单运费）；运费或销售费缺失时该行标记为待核对，不会按 0 计入利润。平台代扣税若存在，会在运费列下方以「含税 ¥x」额外标出并计入利润；巴西站目前平台不代扣税（<code>order.taxes</code> 为空），按 0 计。总利润按中国银行最新折算价折合人民币，中行未提供该币种牌价的订单同样标记待核对。退货退款、广告和仓储等后续账单调整不在此订单口径内，最终以美客多结算账单核对。</p>
       </div>
       <div class="sales-filter profit-toolbar"><input id="profitSearch" class="profit-search" placeholder="搜索商品名称或 Listing ID"><span id="profitFxNote" class="profit-note">成本换算：等待中国银行牌价</span></div>
       <div class="card pad" id="profitStatus">正在加载商品…</div>

@@ -147,9 +147,12 @@ function renderProfitOrders(data){
   if(!items.length){rows.innerHTML='<tr><td colspan="8" class="empty">所选日期范围内没有有效订单</td></tr>';return;}
   rows.innerHTML=items.map(x=>{
     const date=x.date?new Date(x.date).toLocaleString('zh-CN',{timeZone:'America/Sao_Paulo',hour12:false}):'—',complete=x.profit!==null,miss=(x.missing||[]).join('、');
-    const taxShip=x.taxCny===null||x.shippingCny===null?'待核对':money(Number(x.taxCny||0)+Number(x.shippingCny||0),'CNY');
+    // 「尾程运费」列：只显示运费本身。平台代扣税若真有值（巴西站 order.taxes 恒为空 → 按 0 计），
+    // 在小字里标出来 —— 税仍然计入利润，只是不再和运费挤在同一列，免得列名说了「税费」其实是 0。
+    const hasTax=x.tax!==null&&x.tax!==undefined&&Number(x.tax)!==0&&x.taxCny!==null;
+    const shipCell=x.shippingCny===null?'待核对':money(x.shippingCny,'CNY')+(hasTax?'<small title="平台代扣税，已计入利润">含税 '+money(x.taxCny,'CNY')+'</small>':'');
     const cls=complete&&Number(x.profit)<0?'negative':'positive';
-    return '<tr><td>'+escHtml(date)+'<small>订单 '+escHtml(x.orderId)+'</small></td><td><span class="profit-order-title">'+escHtml(x.title)+'</span><small>'+escHtml(x.itemId)+'</small></td><td>'+fmt(x.qty)+'</td><td>'+money(x.revenueCny,'CNY')+'</td><td>'+(x.saleFee===null?'待核对':money(x.saleFeeCny,'CNY'))+'</td><td>'+taxShip+'</td><td>'+(x.cost===null?'待核对':money(x.costCny,'CNY'))+'</td><td class="'+(complete?cls:'pending')+'">'+(complete?money(x.profitCny,'CNY'):'待核对')+(miss?'<small title="'+escHtml(miss)+'">'+escHtml(miss)+'</small>':'')+'</td></tr>';
+    return '<tr><td>'+escHtml(date)+'<small>订单 '+escHtml(x.orderId)+'</small></td><td><span class="profit-order-title">'+escHtml(x.title)+'</span><small>'+escHtml(x.itemId)+'</small></td><td>'+fmt(x.qty)+'</td><td>'+money(x.revenueCny,'CNY')+'</td><td>'+(x.saleFee===null?'待核对':money(x.saleFeeCny,'CNY'))+'</td><td>'+shipCell+'</td><td>'+(x.cost===null?'待核对':money(x.costCny,'CNY'))+'</td><td class="'+(complete?cls:'pending')+'">'+(complete?money(x.profitCny,'CNY'):'待核对')+(miss?'<small title="'+escHtml(miss)+'">'+escHtml(miss)+'</small>':'')+'</td></tr>';
   }).join('');
 }
 async function loadProfitOrders(refresh=false){
