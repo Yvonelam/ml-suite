@@ -49,3 +49,12 @@ End If
 sh.CurrentDirectory = root
 ' 0 = hidden window, False = do not wait
 sh.Run """" & nodeExe & """ """ & root & "\autostart-watchdog.js""", 0, False
+
+' Also keep the GitHub auto-sync running: the remote AI can only read GitHub,
+' so local commits must be pushed without anyone remembering to do it.
+' It exits immediately on its own if an instance is already running.
+If fso.FileExists(root & "\git-autosync.js") Then
+  If Not fso.FileExists(root & ".sync-pause") Then
+    sh.Run """" & nodeExe & """ """ & root & "\git-autosync.js""", 0, False
+  End If
+End If

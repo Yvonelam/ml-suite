@@ -9,6 +9,10 @@ shots/
 *.log
 运行日志.txt
 public-run.log
+# 自动同步自己的日志 —— 必须忽略，否则它写一行日志就产生一次改动，无限自激提交
+同步日志.txt
+.sync-pause
+.autosync.pid
 # 由「交接给AI.bat」和 handoff.js 每次重新生成，含当前基座/源码，属临时产物
 交接给AI.txt
 给AI的源码.txt
