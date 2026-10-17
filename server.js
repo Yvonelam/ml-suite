@@ -1400,7 +1400,15 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     if(!req.query.refresh&&cached&&Date.now()-cached.at<30000)return res.json({...cached.data,cached:true});
     const pulled=await fetchAllOrders(u.id,from,to);
     const rawOrders=pulled.orders,apiTotal=pulled.apiTotal;
-    const validOrders=rawOrders.filter(o=>!['cancelled','invalid'].includes(String(o.status||'')));
+    // 取消 / 退款单**不再从列表里剔除** —— 后台看到的「已卖出 841 件」是含取消单的口径，
+    // 剔掉就对不上账了。这里保留全量并打标记，只有利润合计排除它们。
+    const isDeadOrder=(o)=>{
+      const s=String(o.status||'').toLowerCase(),d=String(o.status_detail||'').toLowerCase();
+      return s==='cancelled'||s==='invalid'||/cancel/.test(d);
+    };
+    const validOrders=rawOrders.filter(o=>!isDeadOrder(o));
+    const cancelledOrders=rawOrders.filter(isDeadOrder);
+    // 运费只为有效单去拉：取消单不产生卖家运费，白拉 49 次没意义
     const shipmentIds=[...new Set(validOrders.map(o=>String(o.shipping?.id||'')).filter(Boolean))];
     // 订单币种按 shipment 建索引：运费接口的退化版不返回币种，用它兜底
     const shipCurrencyOf={};
@@ -1449,9 +1457,10 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
       const part=await Promise.all(shipmentIds.slice(i,i+SHIP_CONCURRENCY).map(async id=>[id,await getShipmentCost(id,shipCurrencyOf[id])]));
       for(const [id,cost] of part)shipmentCosts[id]=cost;
     }
-    const costs=readProfitCosts(), currencies=[...new Set(validOrders.flatMap(o=>[o.currency_id,...(o.order_items||[]).map(x=>x.currency_id)].filter(Boolean)))],rates=await getBocFxRates(currencies);
+    const costs=readProfitCosts(), currencies=[...new Set(rawOrders.flatMap(o=>[o.currency_id,...(o.order_items||[]).map(x=>x.currency_id)].filter(Boolean)))],rates=await getBocFxRates(currencies);
     const flattened=[];
-    for(const order of validOrders){
+    for(const order of rawOrders){
+      const dead=isDeadOrder(order);
       const items=order.order_items||[];
       // 税额语义修正：美客多的 order.taxes 字段**一直存在**，但平台不代扣税时 amount 是 null
       // （实测巴西站 410/410 全是 null）。老代码把 null 当「未知」→ 每一行利润都算不出来，
@@ -1462,7 +1471,7 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
       const revenues=items.map(it=>(Number(it.unit_price)||0)*(Number(it.quantity)||1)),sumRevenue=revenues.reduce((a,b)=>a+b,0),shipmentId=String(order.shipping?.id||'');
       const shipment=shipmentCosts[shipmentId],shipmentTotal=shipment?Number(shipment.amount):null;
       const shipmentGroup=shipmentId+'|'+currency;
-      for(let i=0;i<items.length;i++)flattened.push({order,item:items[i],currency,qty:Number(items[i].quantity)||1,revenue:revenues[i],taxShare:sumRevenue?taxAmount*revenues[i]/sumRevenue:0,taxAssumed,shipmentId,shipmentGroup,orderRevenue:sumRevenue,shipmentTotal,shipmentCurrency:shipment?.currency||''});
+      for(let i=0;i<items.length;i++)flattened.push({order,item:items[i],currency,cancelled:dead,qty:Number(items[i].quantity)||1,revenue:revenues[i],taxShare:sumRevenue?taxAmount*revenues[i]/sumRevenue:0,taxAssumed,shipmentId,shipmentGroup,orderRevenue:sumRevenue,shipmentTotal,shipmentCurrency:shipment?.currency||''});
     }
     const shipmentGroupRevenue={};for(const line of flattened)if(line.shipmentId)shipmentGroupRevenue[line.shipmentGroup]=(shipmentGroupRevenue[line.shipmentGroup]||0)+line.revenue;
     const lines=flattened.map(line=>{
@@ -1473,15 +1482,62 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
       const costReady=saved&&saved.costCny!==''&&saved.costCny!==undefined&&saved.costCny!==null&&saved.freightCny!==''&&saved.freightCny!==undefined&&saved.freightCny!==null;
       const costLocal=costReady&&fx?(Number(saved.costCny)+Number(saved.freightCny))*fx*line.qty+(Number(saved.otherFee)||0)*line.qty:null;
       const feeTotal=feeKnown?saleFeeUnit*line.qty:null,allKnown=feeKnown&&shippingShare!==null&&line.taxShare!==null&&costLocal!==null;
-      const profit=allKnown?line.revenue-feeTotal-shippingShare-line.taxShare-costLocal:null;
-      const reasons=[];if(!id)reasons.push('订单缺少 Listing ID');else if(!saved)reasons.push('未保存该商品成本');else if(!costReady)reasons.push('未填写成本/头程');if(!fx)reasons.push('中国银行暂无该币种牌价');if(!feeKnown)reasons.push('销售费缺失');if(shippingShare===null)reasons.push('运费缺失');if(line.taxShare===null)reasons.push('订单税额缺失');
-      return {orderId:String(line.order.id||''),date:line.order.date_created||'',status:line.order.status||'',itemId:id,title:item.item?.title||('Listing '+id),qty:line.qty,currency,unitPrice:Number(item.unit_price)||0,revenue:line.revenue,saleFee:feeTotal,shipping:shippingShare,tax:line.taxShare,taxAssumed:!!line.taxAssumed,cost:costLocal,profit,profitCny:profit!==null&&fx?profit/fx:null,revenueCny:fx?line.revenue/fx:null,saleFeeCny:feeTotal!==null&&fx?feeTotal/fx:null,shippingCny:shippingShare!==null&&fx?shippingShare/fx:null,taxCny:line.taxShare!==null&&fx?line.taxShare/fx:null,costCny:costLocal!==null&&fx?costLocal/fx:null,fxCnyPer100,fxPublishedAt:rates[currency]?.publishedAt||'',margin:profit!==null&&line.revenue?profit/line.revenue*100:null,missing:reasons,fxRate:fx};
+      // 取消 / 退款单照常算收入与费用（好让你看清「丢了多少钱」），但利润恒为 null，
+      // 绝不进合计 —— 退款后平台会把佣金退回，硬算出来的「利润」是假数。
+      const profit=(allKnown&&!line.cancelled)?line.revenue-feeTotal-shippingShare-line.taxShare-costLocal:null;
+      const reasons=[];
+      if(line.cancelled)reasons.push('订单已取消 / 退款，不计入利润');
+      else{
+        if(!id)reasons.push('订单缺少 Listing ID');else if(!saved)reasons.push('未保存该商品成本');else if(!costReady)reasons.push('未填写成本/头程');if(!fx)reasons.push('中国银行暂无该币种牌价');if(!feeKnown)reasons.push('销售费缺失');if(shippingShare===null)reasons.push('运费缺失');if(line.taxShare===null)reasons.push('订单税额缺失');
+      }
+      return {orderId:String(line.order.id||''),cancelled:!!line.cancelled,statusDetail:String(line.order.status_detail||''),date:line.order.date_created||'',status:line.order.status||'',itemId:id,title:item.item?.title||('Listing '+id),qty:line.qty,currency,unitPrice:Number(item.unit_price)||0,revenue:line.revenue,saleFee:feeTotal,shipping:shippingShare,tax:line.taxShare,taxAssumed:!!line.taxAssumed,cost:costLocal,profit,profitCny:profit!==null&&fx?profit/fx:null,revenueCny:fx?line.revenue/fx:null,saleFeeCny:feeTotal!==null&&fx?feeTotal/fx:null,shippingCny:shippingShare!==null&&fx?shippingShare/fx:null,taxCny:line.taxShare!==null&&fx?line.taxShare/fx:null,costCny:costLocal!==null&&fx?costLocal/fx:null,fxCnyPer100,fxPublishedAt:rates[currency]?.publishedAt||'',margin:profit!==null&&line.revenue?profit/line.revenue*100:null,missing:reasons,fxRate:fx};
     });
-    const complete=lines.filter(x=>x.profit!==null),totalProfitCny=complete.reduce((s,x)=>s+(x.profitCny||0),0),totalRevenueCny=complete.reduce((s,x)=>s+(x.revenueCny||0),0);
+    const complete=lines.filter(x=>!x.cancelled&&x.profit!==null),active=lines.filter(x=>!x.cancelled);
+    const totalProfitCny=complete.reduce((s,x)=>s+(x.profitCny||0),0),totalRevenueCny=complete.reduce((s,x)=>s+(x.revenueCny||0),0);
+    const qtyOf=(arr)=>arr.reduce((s,x)=>s+(Number(x.qty)||0),0);
+    const deadLines=lines.filter(x=>x.cancelled);
+    const r2=(v)=>Math.round((Number(v)||0)*100)/100;
+
+    // ---- 产品维度汇总：按 Listing 聚，带主图 ----
+    // 件数口径要跟后台对得上：取消单的件数**单独统计但照样展示**（units 含取消，validUnits 不含），
+    // 否则「后台 841 件 / 这里 793 件」永远解释不清。
+    const byItem=new Map();
+    for(const x of lines){
+      const key=x.itemId||'__no_id__';
+      let p=byItem.get(key);
+      if(!p){p={itemId:x.itemId||'',title:x.title||'',units:0,cancelledUnits:0,orders:new Set(),cancelledOrders:new Set(),revenue:0,saleFee:0,shipping:0,tax:0,cost:0,profit:0,profitCny:0,revenueCny:0,computed:0,lines:0,lastDate:''};byItem.set(key,p);}
+      p.lines++;
+      if(x.cancelled){p.cancelledUnits+=Number(x.qty)||0;p.cancelledOrders.add(x.orderId);}
+      else{
+        p.units+=Number(x.qty)||0;p.orders.add(x.orderId);
+        p.revenue+=x.revenue||0;p.saleFee+=x.saleFee||0;p.shipping+=x.shipping||0;p.tax+=x.tax||0;p.cost+=x.cost||0;p.revenueCny+=x.revenueCny||0;
+        if(x.profit!==null){p.profit+=x.profit;p.profitCny+=x.profitCny||0;p.computed++;}
+      }
+      if(String(x.date)>p.lastDate)p.lastDate=String(x.date);
+    }
+    let itemInfo={};
+    try{itemInfo=await mlItemInfo([...byItem.values()].map(p=>p.itemId).filter(Boolean));}catch{/* 图取不到不影响数字 */}
+    const products=[...byItem.values()].map(p=>{
+      const inf=itemInfo[p.itemId]||{};
+      return {itemId:p.itemId,title:inf.title||p.title,thumbnail:inf.thumbnail||'',permalink:inf.permalink||'',
+        units:p.units,orders:p.orders.size,cancelledUnits:p.cancelledUnits,cancelledOrders:p.cancelledOrders.size,
+        revenue:r2(p.revenue),saleFee:r2(p.saleFee),shipping:r2(p.shipping),tax:r2(p.tax),cost:r2(p.cost),
+        profit:r2(p.profit),profitCny:r2(p.profitCny),revenueCny:r2(p.revenueCny),
+        margin:p.revenueCny?r2(p.profitCny/p.revenueCny*100):null,
+        computed:p.computed,lines:p.lines,lastDate:p.lastDate};
+    }).sort((a,b)=>b.units-a.units||b.profitCny-a.profitCny);
+
     const data={ok:true,range:{from,to},currency:'CNY',
       truncated:rawOrders.length<apiTotal,
-      apiTotal,pulled:rawOrders.length,cancelled:rawOrders.length-validOrders.length,strategy:pulled.strategy,
-      orders:lines,totals:{orders:validOrders.length,lines:lines.length,matched:complete.length,unmatched:lines.length-complete.length,units:complete.reduce((s,x)=>s+x.qty,0),profitCny:Math.round(totalProfitCny*100)/100,margin:totalRevenueCny?Math.round(totalProfitCny/totalRevenueCny*10000)/100:null},updatedAt:Date.now()};
+      apiTotal,pulled:rawOrders.length,cancelled:cancelledOrders.length,strategy:pulled.strategy,
+      orders:lines,products,
+      totals:{allOrders:rawOrders.length,orders:validOrders.length,cancelledOrders:cancelledOrders.length,
+        ordersWithMultiItem:rawOrders.filter(o=>(o.order_items||[]).length>1).length,
+        lines:lines.length,validLines:active.length,matched:complete.length,unmatched:active.length-complete.length,
+        units:qtyOf(lines),validUnits:qtyOf(active),cancelledUnits:qtyOf(deadLines),profitUnits:qtyOf(complete),
+        cancelledRevenueCny:r2(deadLines.reduce((s,x)=>s+(x.revenueCny||0),0)),
+        profitCny:r2(totalProfitCny),margin:totalRevenueCny?Math.round(totalProfitCny/totalRevenueCny*10000)/100:null},
+      updatedAt:Date.now()};
     profitOrderCache.set(cacheKey,{at:Date.now(),data});res.json(data);
   }catch(e){sendMlError(res,e);}
 });
