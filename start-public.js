@@ -15,6 +15,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
+const http = require('http');
 const { createWatcher } = require('./hot-reload');
 
 const ROOT = __dirname;
@@ -103,6 +104,7 @@ function shutdown() {
   console.log('\n正在停止服务...');
   shuttingDown = true;
   try { if (watcher) watcher.stop(); } catch (e) { }
+  try { if (tunnelHealthTimer) clearInterval(tunnelHealthTimer); } catch (e) { }
   try { if (tunnel) tunnel.kill(); } catch (e) { }
   try { if (server) server.kill(); } catch (e) { }
   releaseLock();
@@ -202,8 +204,7 @@ function onTunnelExit(c) {
   setTimeout(startTunnel, 3000);
 }
 
-function announce(url, modeLabel) {
-  try { fs.writeFileSync(URL_FILE, url + '\n', 'utf8'); } catch (e) { }
+function announce(url, modeLabel) {  try { fs.writeFileSync(URL_FILE, url + '\n', 'utf8'); } catch (e) { }
   banner('公网地址已就绪 · ' + modeLabel);
   console.log('  ' + url);
   console.log('\n  已保存到: 公网地址.txt');
@@ -212,7 +213,45 @@ function announce(url, modeLabel) {
   banner('');
 }
 
+// ---- 隧道健康看门狗 ----
+// 痛点：cloudflared 进程**还活着**、但一条连接都建不起来时，启动器原来那条「进程退出才重启」
+// 完全管不到它 —— 结果就是公网一直 530、进程安安静静跑了十几个小时没人发现（这次就踩到了）。
+// 办法：读 cloudflared 自带的 metrics 端点 /ready（至少有一条健康连接才返回 200），
+// 连续 N 分钟不健康就杀掉进程，交给 onTunnelExit 的自动重启去重新握手。
+const CF_METRICS_PORT = process.env.CF_METRICS_PORT || 20241;
+const CF_METRICS = 'http://127.0.0.1:' + CF_METRICS_PORT;
+const TUNNEL_UNHEALTHY_LIMIT = 5;   // 每分钟探一次，连续 5 次不健康 ≈ 5 分钟
+let tunnelBadChecks = 0;
+let tunnelHealthTimer = null;
+
+function tunnelReady() {
+  return new Promise((resolve) => {
+    const req = http.get(CF_METRICS + '/ready', { timeout: 4000 }, (res) => {
+      res.resume();
+      resolve(res.statusCode === 200);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { try { req.destroy(); } catch (e) { } resolve(false); });
+  });
+}
+
+function startTunnelHealthWatch() {
+  if (tunnelHealthTimer) return;
+  tunnelHealthTimer = setInterval(async () => {
+    if (shuttingDown || !tunnel) return;
+    if (await tunnelReady()) { tunnelBadChecks = 0; return; }
+    tunnelBadChecks += 1;
+    console.warn('[隧道] 健康检查未通过 ' + tunnelBadChecks + '/' + TUNNEL_UNHEALTHY_LIMIT + '（/ready 非 200）');
+    if (tunnelBadChecks >= TUNNEL_UNHEALTHY_LIMIT) {
+      tunnelBadChecks = 0;
+      console.warn('[隧道] 连续 ' + TUNNEL_UNHEALTHY_LIMIT + ' 分钟连不上，强制重启隧道进程…');
+      try { tunnel.kill(); } catch (e) { }
+    }
+  }, 60 * 1000);
+}
+
 function startTunnel() {
+  tunnelBadChecks = 0;   // 每次重开隧道都重新计数，别带着上次的失败数直接判死
   const tc = loadTunnelCfg();
   const named = String(tc.mode || '').toLowerCase() === 'named' && tc.token;
   const hostname = String(tc.hostname || '').replace(/^https?:\/\//, '').replace(/\/+$/, '');
@@ -220,7 +259,9 @@ function startTunnel() {
   if (named) {
     // ---- 命名隧道：地址永久固定 ----
     console.log('[2/2] 正在连接固定域名隧道 ' + (hostname || '(hostname 未填)') + ' ...\n');
-    tunnel = spawn(CF_BIN, ['tunnel', '--no-autoupdate', 'run', '--token', tc.token], {
+    // 注意：--metrics 是 `tunnel` 子命令的 flag，必须放在 `run` **前面**；
+    // 放到 run 后面 cloudflared 会直接打印 usage 然后退出（踩过）。
+    tunnel = spawn(CF_BIN, ['tunnel', '--no-autoupdate', '--metrics', '127.0.0.1:' + CF_METRICS_PORT, 'run', '--token', tc.token], {
       cwd: ROOT, env: process.env,
       windowsHide: HIDE_CHILD_WINDOWS,   // 无控制台模式下别弹黑框（见顶部说明）
     });
@@ -239,7 +280,7 @@ function startTunnel() {
   // ---- 快速隧道：地址随机 ----
   console.log('[2/2] 正在建立 Cloudflare 临时隧道（地址每次重启都会变）...');
   console.log('      想要固定地址：双击「配置固定域名.bat」\n');
-  tunnel = spawn(CF_BIN, ['tunnel', '--url', 'http://127.0.0.1:' + PORT, '--no-autoupdate'], {
+  tunnel = spawn(CF_BIN, ['tunnel', '--no-autoupdate', '--metrics', '127.0.0.1:' + CF_METRICS_PORT, '--url', 'http://127.0.0.1:' + PORT], {
     cwd: ROOT, env: process.env,
     windowsHide: HIDE_CHILD_WINDOWS,   // 无控制台模式下别弹黑框（见顶部说明）
   });
@@ -275,6 +316,7 @@ function startTunnel() {
 
   startTunnel();
   startWatcher();
+  startTunnelHealthWatch();
 
   console.log('\n  [守护] 已启用自动重启：服务或隧道意外退出会自动拉起（1 分钟最多 10 次）。');
   console.log('  [守护] 停止请用「停止公网服务.bat」，或按 Ctrl+C。\n');
