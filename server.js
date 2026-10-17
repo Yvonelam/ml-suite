@@ -686,7 +686,20 @@ async function mlToken() {
 async function mlRequest(pathname, options = {}, retry = true) {
   const token = await mlToken();
   const headers = { Accept: 'application/json', ...(options.headers || {}), Authorization: `Bearer ${token}` };
-  const r = await fetch(ML_API_BASE + pathname, { ...options, headers });
+  // 硬超时：美客多接口偶尔会「连接建上了但一直不返回」，没有超时的话整条请求链会永远等下去，
+  // 前端表现就是一直转圈 —— 比报错难查得多。超时按 504 抛出，上层照常降级。
+  const ML_TIMEOUT_MS = Number(process.env.ML_TIMEOUT_MS) || 30000;
+  const signal = options.signal || AbortSignal.timeout(ML_TIMEOUT_MS);
+  let r;
+  try {
+    r = await fetch(ML_API_BASE + pathname, { ...options, headers, signal });
+  } catch (e) {
+    if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      const err = new Error('美客多接口超时（' + Math.round(ML_TIMEOUT_MS / 1000) + ' 秒无响应）：' + String(pathname).split('?')[0]);
+      err.status = 504; throw err;
+    }
+    throw e;
+  }
   const text = await r.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
@@ -1222,6 +1235,49 @@ const listingsCache = { key: '', at: 0, data: null };
 const profitCache = new Map();
 const profitOrderCache = new Map();
 const shipmentCostCache = new Map();
+
+// ---- 运费成本持久缓存 ----
+// 一单的运费在发货之后就不再变了，但原来只放在内存 Map（1 小时 TTL）：
+// 服务重启、或者换一个日期范围，就得把几百个 shipment 重新拉一遍 —— 实测 408 个要 59 秒。
+// 现在落进 SQLite，30 天内直接命中；再打开同一段时间几乎是瞬时的。
+const SHIP_COST_KEEP_DAYS = 30;
+let _shipCostReady = false;
+function shipCostDb() {
+  const db = adsDb();
+  if (!db) return null;
+  if (!_shipCostReady) {
+    try {
+      db.exec(`CREATE TABLE IF NOT EXISTS ship_cost (
+        shipment_id TEXT PRIMARY KEY,
+        amount      REAL,
+        currency    TEXT,
+        at          INTEGER
+      )`);
+      _shipCostReady = true;
+    } catch (e) { return null; }
+  }
+  return db;
+}
+function shipCostGet(id) {
+  const db = shipCostDb(); if (!db) return null;
+  try {
+    const row = db.prepare('SELECT amount, currency, at FROM ship_cost WHERE shipment_id = ?').get(String(id));
+    if (!row) return null;
+    if (Date.now() - Number(row.at || 0) > SHIP_COST_KEEP_DAYS * 86400000) return null;
+    return { amount: Number(row.amount) || 0, currency: String(row.currency || '') };
+  } catch (e) { return null; }
+}
+function shipCostSet(id, data) {
+  const db = shipCostDb(); if (!db) return;
+  try {
+    db.prepare('INSERT OR REPLACE INTO ship_cost (shipment_id, amount, currency, at) VALUES (?,?,?,?)')
+      .run(String(id), Number(data.amount) || 0, String(data.currency || ''), Date.now());
+  } catch (e) { }
+}
+// /marketplace/shipments/{id}/costs 这个新接口对部分卖家直接 403；记下时间，
+// 一小时内不再白试，每个 shipment 省掉一次往返（几百个就是几百次）。
+let _mpCostsDeadAt = 0;
+
 // 中行网页牌价单位为每 100 单位外币对应人民币；订单与 Listing 共用公开汇率缓存。
 const bocFxCache = { at: 0, rates: {} };
 const BOC_CURRENCY_NAMES = { BRL:'巴西雷亚尔', MXN:'墨西哥比索', ARS:'阿根廷比索', CLP:'智利比索', COP:'哥伦比亚比索', USD:'美元' };
@@ -1269,25 +1325,66 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     }
     const validOrders=raw.slice(0,CAP).filter(o=>!['cancelled','invalid'].includes(String(o.status||'')));
     const shipmentIds=[...new Set(validOrders.map(o=>String(o.shipping?.id||'')).filter(Boolean))];
-    async function getShipmentCost(id){
-      const key=`${auth.currentUserId()}|${id}`,hit=shipmentCostCache.get(key);if(hit&&Date.now()-hit.at<3600000)return hit.data;
+    // 订单币种按 shipment 建索引：运费接口的退化版不返回币种，用它兜底
+    const shipCurrencyOf={};
+    for(const o of validOrders){const sid=String(o.shipping?.id||'');if(sid&&!shipCurrencyOf[sid])shipCurrencyOf[sid]=o.currency_id||(o.order_items?.[0]?.currency_id)||'';}
+    async function getShipmentCost(id,fallbackCurrency){
+      const key=String(id);
+      const mem=shipmentCostCache.get(key);if(mem&&Date.now()-mem.at<3600000)return mem.data;
+      const disk=shipCostGet(key);if(disk){shipmentCostCache.set(key,{at:Date.now(),data:disk});return disk;}
       let d=null;
-      try{d=await mlRequest(`/marketplace/shipments/${encodeURIComponent(id)}/costs`,{headers:{'x-format-new':'true'}});}
-      catch{try{d=await mlRequest(`/shipments/${encodeURIComponent(id)}/costs?seller_id=${encodeURIComponent(u.id)}`);}catch{}}
+      // 新接口：一小时内已知 403/404 的话直接跳过，别每个 shipment 都白试一次
+      if(Date.now()-_mpCostsDeadAt>3600000){
+        try{d=await mlRequest(`/marketplace/shipments/${encodeURIComponent(key)}/costs`,{headers:{'x-format-new':'true'}});}
+        catch(e){if(e.status===403||e.status===404)_mpCostsDeadAt=Date.now();}
+      }
+      if(!d){
+        for(let attempt=0;attempt<2&&!d;attempt++){
+          try{d=await mlRequest(`/shipments/${encodeURIComponent(key)}/costs?seller_id=${encodeURIComponent(u.id)}`);}
+          catch(e){
+            // 被限流就等一下再来一次，别把这一单直接记成「运费缺失」
+            if(e.status===429){await new Promise(r=>setTimeout(r,600*(attempt+1)));continue;}
+            break;
+          }
+        }
+      }
       let data=null;
-      if(d){const senders=Array.isArray(d.senders)?d.senders:[];const seller=senders.find(x=>String(x.user_id)===String(u.id))||senders[0];const rawCost=seller?.cost??d.shipping_fee;const n=Number(rawCost);if(rawCost!==undefined&&rawCost!==null&&Number.isFinite(n))data={amount:n,currency:d.currency_id||''};}
+      if(d){
+        const senders=Array.isArray(d.senders)?d.senders:[];const seller=senders.find(x=>String(x.user_id)===String(u.id))||senders[0];
+        const rawCost=seller?.cost??d.shipping_fee;const n=Number(rawCost);
+        if(rawCost!==undefined&&rawCost!==null&&Number.isFinite(n)){
+          // 关键修复：退化的 /shipments/{id}/costs 响应**不带 currency_id**（实测 24/24 全缺）。
+          // 老代码把它记成空串，而下面的分摊判定要求「运费币种 === 订单币种」→ 永远不相等 →
+          // 利润表每一行都报「运费缺失」。运费一定以站点本币计价，缺省时用该订单的币种。
+          const cur=String(d.currency_id||seller?.currency_id||d.currency?.id||fallbackCurrency||'');
+          data={amount:n,currency:cur};
+        }
+      }
+      if(data)shipCostSet(key,data);
       shipmentCostCache.set(key,{at:Date.now(),data});return data;
     }
     const shipmentCosts={};
-    for(let i=0;i<shipmentIds.length;i+=6){const part=await Promise.all(shipmentIds.slice(i,i+6).map(async id=>[id,await getShipmentCost(id)]));for(const [id,cost] of part)shipmentCosts[id]=cost;}
+    // 并发从 6 提到 12：单次 ~870ms × 408 个，并发 6 要 59 秒、并发 12 约 30 秒；
+    // 再加持久缓存，同一段时间第二次打开基本是秒开。
+    const SHIP_CONCURRENCY=12;
+    for(let i=0;i<shipmentIds.length;i+=SHIP_CONCURRENCY){
+      const part=await Promise.all(shipmentIds.slice(i,i+SHIP_CONCURRENCY).map(async id=>[id,await getShipmentCost(id,shipCurrencyOf[id])]));
+      for(const [id,cost] of part)shipmentCosts[id]=cost;
+    }
     const costs=readProfitCosts(), currencies=[...new Set(validOrders.flatMap(o=>[o.currency_id,...(o.order_items||[]).map(x=>x.currency_id)].filter(Boolean)))],rates=await getBocFxRates(currencies);
     const flattened=[];
     for(const order of validOrders){
-      const items=order.order_items||[],taxRaw=order.taxes&&typeof order.taxes==='object'?order.taxes.amount:order.taxes,taxAmount=Number(taxRaw),taxKnown=taxRaw!==undefined&&taxRaw!==null&&Number.isFinite(taxAmount),currency=order.currency_id||(items[0]?.currency_id)||'';
+      const items=order.order_items||[];
+      // 税额语义修正：美客多的 order.taxes 字段**一直存在**，但平台不代扣税时 amount 是 null
+      // （实测巴西站 410/410 全是 null）。老代码把 null 当「未知」→ 每一行利润都算不出来，
+      // 整个利润页等于废掉。正确语义：null / 缺失 = 平台没代扣，按 0 计；拿到数字才用它。
+      const taxRaw=order.taxes&&typeof order.taxes==='object'?order.taxes.amount:order.taxes;
+      const taxNum=Number(taxRaw),taxKnown=true,taxAssumed=taxRaw===undefined||taxRaw===null||!Number.isFinite(taxNum);
+      const taxAmount=taxAssumed?0:taxNum,currency=order.currency_id||(items[0]?.currency_id)||'';
       const revenues=items.map(it=>(Number(it.unit_price)||0)*(Number(it.quantity)||1)),sumRevenue=revenues.reduce((a,b)=>a+b,0),shipmentId=String(order.shipping?.id||'');
       const shipment=shipmentCosts[shipmentId],shipmentTotal=shipment?Number(shipment.amount):null;
       const shipmentGroup=shipmentId+'|'+currency;
-      for(let i=0;i<items.length;i++)flattened.push({order,item:items[i],currency,qty:Number(items[i].quantity)||1,revenue:revenues[i],taxShare:taxKnown&&sumRevenue?taxAmount*revenues[i]/sumRevenue:(taxKnown?0:null),shipmentId,shipmentGroup,orderRevenue:sumRevenue,shipmentTotal,shipmentCurrency:shipment?.currency||''});
+      for(let i=0;i<items.length;i++)flattened.push({order,item:items[i],currency,qty:Number(items[i].quantity)||1,revenue:revenues[i],taxShare:sumRevenue?taxAmount*revenues[i]/sumRevenue:0,taxAssumed,shipmentId,shipmentGroup,orderRevenue:sumRevenue,shipmentTotal,shipmentCurrency:shipment?.currency||''});
     }
     const shipmentGroupRevenue={};for(const line of flattened)if(line.shipmentId)shipmentGroupRevenue[line.shipmentGroup]=(shipmentGroupRevenue[line.shipmentGroup]||0)+line.revenue;
     const lines=flattened.map(line=>{
@@ -1300,7 +1397,7 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
       const feeTotal=feeKnown?saleFeeUnit*line.qty:null,allKnown=feeKnown&&shippingShare!==null&&line.taxShare!==null&&costLocal!==null;
       const profit=allKnown?line.revenue-feeTotal-shippingShare-line.taxShare-costLocal:null;
       const reasons=[];if(!id)reasons.push('订单缺少 Listing ID');else if(!saved)reasons.push('未保存该商品成本');else if(!costReady)reasons.push('未填写成本/头程');if(!fx)reasons.push('中国银行暂无该币种牌价');if(!feeKnown)reasons.push('销售费缺失');if(shippingShare===null)reasons.push('运费缺失');if(line.taxShare===null)reasons.push('订单税额缺失');
-      return {orderId:String(line.order.id||''),date:line.order.date_created||'',status:line.order.status||'',itemId:id,title:item.item?.title||('Listing '+id),qty:line.qty,currency,unitPrice:Number(item.unit_price)||0,revenue:line.revenue,saleFee:feeTotal,shipping:shippingShare,tax:line.taxShare,cost:costLocal,profit,profitCny:profit!==null&&fx?profit/fx:null,revenueCny:fx?line.revenue/fx:null,saleFeeCny:feeTotal!==null&&fx?feeTotal/fx:null,shippingCny:shippingShare!==null&&fx?shippingShare/fx:null,taxCny:line.taxShare!==null&&fx?line.taxShare/fx:null,costCny:costLocal!==null&&fx?costLocal/fx:null,fxCnyPer100,fxPublishedAt:rates[currency]?.publishedAt||'',margin:profit!==null&&line.revenue?profit/line.revenue*100:null,missing:reasons,fxRate:fx};
+      return {orderId:String(line.order.id||''),date:line.order.date_created||'',status:line.order.status||'',itemId:id,title:item.item?.title||('Listing '+id),qty:line.qty,currency,unitPrice:Number(item.unit_price)||0,revenue:line.revenue,saleFee:feeTotal,shipping:shippingShare,tax:line.taxShare,taxAssumed:!!line.taxAssumed,cost:costLocal,profit,profitCny:profit!==null&&fx?profit/fx:null,revenueCny:fx?line.revenue/fx:null,saleFeeCny:feeTotal!==null&&fx?feeTotal/fx:null,shippingCny:shippingShare!==null&&fx?shippingShare/fx:null,taxCny:line.taxShare!==null&&fx?line.taxShare/fx:null,costCny:costLocal!==null&&fx?costLocal/fx:null,fxCnyPer100,fxPublishedAt:rates[currency]?.publishedAt||'',margin:profit!==null&&line.revenue?profit/line.revenue*100:null,missing:reasons,fxRate:fx};
     });
     const complete=lines.filter(x=>x.profit!==null),totalProfitCny=complete.reduce((s,x)=>s+(x.profitCny||0),0),totalRevenueCny=complete.reduce((s,x)=>s+(x.revenueCny||0),0);
     const data={ok:true,range:{from,to},currency:'CNY',truncated:apiTotal>raw.length,apiTotal,orders:lines,totals:{orders:new Set(validOrders.map(o=>String(o.id))).size,lines:lines.length,matched:complete.length,unmatched:lines.length-complete.length,units:complete.reduce((s,x)=>s+x.qty,0),profitCny:Math.round(totalProfitCny*100)/100,margin:totalRevenueCny?Math.round(totalProfitCny/totalRevenueCny*10000)/100:null},updatedAt:Date.now()};

@@ -97,8 +97,47 @@ let shuttingDown = false;
 let deliberateRestart = false;  // true = 因代码热重载而主动杀掉服务（走快速重启，不计崩溃限流）
 let restarting = false;         // true = 正在重启过程中（此时不重复排队重启）
 let watcher = null;
-let svcRestarts = [];   // 本地服务自动重启时间戳（用于限流）
-let tunRestarts = [];   // 隧道自动重连时间戳（用于限流）
+
+// ---- 重启退避（指数退避 · 永不放弃）----
+// 老逻辑是「1 分钟内重启超过 10 次就 return / process.exit」——网络抖动一分钟、
+// 或者 Cloudflare 侧故障久一点，服务就**永久下线**，非得人工重新运行脚本。
+// 这和「以后不再出现连接问题」正好相反。现在改成：
+//   3s → 6s → 12s → 24s → 48s → 96s → 192s → 300s → 300s → …
+// 只要某次起来后稳定存活满 60 秒，计数立刻归零，下次抖动又从 3 秒开始。
+// 好处：偶发抖动秒级恢复；长期故障自动慢慢重试（不刷屏、不烧 CPU），而且**不会放弃**。
+const BACKOFF_BASE_MS = 3000;
+const BACKOFF_MAX_MS = 5 * 60 * 1000;   // 5 分钟封顶
+const STABLE_RESET_MS = 60 * 1000;      // 稳定跑满 60 秒 → 退避归零
+
+function makeBackoff(label) {
+  let tries = 0;
+  let stableTimer = null;
+  return {
+    // 进程起来后调用：稳定存活 60 秒就把退避清零
+    markStarted() {
+      if (stableTimer) clearTimeout(stableTimer);
+      stableTimer = setTimeout(() => {
+        if (tries > 0) console.log('[' + label + '] 已稳定运行 ' + (STABLE_RESET_MS / 1000) + ' 秒，重启退避计数归零。');
+        tries = 0;
+      }, STABLE_RESET_MS);
+      if (stableTimer.unref) stableTimer.unref();
+    },
+    markDead() {
+      if (stableTimer) { clearTimeout(stableTimer); stableTimer = null; }
+    },
+    // 取下一次重试延迟（毫秒），并把计数 +1
+    nextDelay() {
+      const ms = Math.min(BACKOFF_BASE_MS * Math.pow(2, tries), BACKOFF_MAX_MS);
+      tries += 1;
+      return ms;
+    },
+    reset() { tries = 0; this.markDead(); },
+    get tries() { return tries; },
+  };
+}
+
+const svcBackoff = makeBackoff('服务');
+const tunBackoff = makeBackoff('隧道');
 
 function shutdown() {
   console.log('\n正在停止服务...');
@@ -122,27 +161,21 @@ function startServer() {
     windowsHide: HIDE_CHILD_WINDOWS,   // 无控制台模式下别弹黑框（见顶部说明）
   });
   server.on('error', (e) => console.error('[服务] 启动失败:', e.message));
+  svcBackoff.markStarted();   // 起来后盯 60 秒：稳定就清零退避
   server.on('exit', (c) => {
     if (shuttingDown) return;
+    svcBackoff.markDead();
     if (deliberateRestart) {
-      // 热重载导致的重启：不计入崩溃限流，等端口释放后立刻拉起
+      // 热重载导致的重启：不计入退避，等端口释放后立刻拉起
       deliberateRestart = false;
       console.log('[热重载] 服务已停止，正在重新拉起…');
       restartAfterReload();
       return;
     }
     if (stopRequested()) { console.log('[服务] 收到停止指令，不再自动重启。'); return; }
-    // 限流：1 分钟内最多重启 10 次，超过就停下等人工介入，避免疯狂重启刷屏
-    const now = Date.now();
-    svcRestarts = svcRestarts.filter((t) => now - t < 60000);
-    svcRestarts.push(now);
-    if (svcRestarts.length > 10) {
-      console.error('[服务] 1 分钟内已重启 ' + svcRestarts.length + ' 次，已暂停自动重启。请查看上方报错后重新运行启动脚本。');
-      try { if (tunnel) tunnel.kill(); } catch (e) { }
-      process.exit(1);
-    }
-    console.warn('[服务] 已退出，代码 ' + c + '。3 秒后自动重启（隧道保持在线）…');
-    setTimeout(startServer, 3000);
+    const delay = svcBackoff.nextDelay();
+    console.warn('[服务] 已退出，代码 ' + c + '。' + Math.round(delay / 1000) + ' 秒后第 ' + svcBackoff.tries + ' 次自动重启（隧道保持在线，不会放弃）…');
+    setTimeout(startServer, delay);
   });
 }
 
@@ -189,22 +222,30 @@ function startWatcher() {
   console.log('  [热重载] 已开启：改动后端 .js 会自动重启服务；前端改完刷新浏览器即生效。');
 }
 
-// 隧道退出后自动重连（限流防止疯狂重连）
+// 隧道退出后自动重连（指数退避 · 永不放弃）
 function onTunnelExit(c) {
   if (shuttingDown) return;
+  tunBackoff.markDead();
+  tunnel = null;
   if (stopRequested()) { console.log('[隧道] 收到停止指令，不再自动重连。'); return; }
-  const now = Date.now();
-  tunRestarts = tunRestarts.filter((t) => now - t < 60000);
-  tunRestarts.push(now);
-  if (tunRestarts.length > 10) {
-    console.error('[隧道] 1 分钟内已重连 ' + tunRestarts.length + ' 次，已暂停自动重连。请检查网络 / Token 后重新运行启动脚本。');
-    return;
-  }
-  console.warn('[隧道] 已退出，代码 ' + c + '。3 秒后自动重连…');
-  setTimeout(startTunnel, 3000);
+  const delay = tunBackoff.nextDelay();
+  console.warn('[隧道] 已退出，代码 ' + c + '。' + Math.round(delay / 1000) + ' 秒后第 ' + tunBackoff.tries + ' 次自动重连（永不放弃）…');
+  setTimeout(startTunnel, delay);
 }
 
-function announce(url, modeLabel) {  try { fs.writeFileSync(URL_FILE, url + '\n', 'utf8'); } catch (e) { }
+// 每次杀掉隧道统一走这里：置空引用，避免看门狗重复 kill 同一个尸体
+function killTunnel(reason) {
+  const t = tunnel;
+  tunnel = null;
+  console.warn('[隧道] 强制重启：' + reason);
+  try { if (t) t.kill(); } catch (e) { }
+  // 万一进程卡死不响应 kill（Windows 上少见但存在），兜底 8 秒后自己排一次重连
+  setTimeout(() => { if (!shuttingDown && !tunnel && !stopRequested()) startTunnel(); }, 8000).unref();
+}
+
+function announce(url, modeLabel) {
+  publicUrl = url;   // 给端到端健康探测用
+  try { fs.writeFileSync(URL_FILE, url + '\n', 'utf8'); } catch (e) { }
   banner('公网地址已就绪 · ' + modeLabel);
   console.log('  ' + url);
   console.log('\n  已保存到: 公网地址.txt');
@@ -213,55 +254,172 @@ function announce(url, modeLabel) {  try { fs.writeFileSync(URL_FILE, url + '\n'
   banner('');
 }
 
-// ---- 隧道健康看门狗 ----
-// 痛点：cloudflared 进程**还活着**、但一条连接都建不起来时，启动器原来那条「进程退出才重启」
-// 完全管不到它 —— 结果就是公网一直 530、进程安安静静跑了十几个小时没人发现（这次就踩到了）。
-// 办法：读 cloudflared 自带的 metrics 端点 /ready（至少有一条健康连接才返回 200），
-// 连续 N 分钟不健康就杀掉进程，交给 onTunnelExit 的自动重启去重新握手。
+// ---- 隧道健康看门狗（三层探测）----
+// 痛点：cloudflared 进程**还活着**、但到 Cloudflare 边缘的连接已经死了（半开连接）时，
+// 原来那条「进程退出才重启」完全管不到 —— 公网一直 530，进程却安静地跑了十几个小时。
+// 更坑的是：cloudflared 自带的 /ready 在这种半开状态下**仍然返回 200**（这次就踩到了），
+// 所以只看 /ready 不够。改成三条腿一起判断：
+//   ① /ready    —— 隧道有没有握上健康连接
+//   ② /metrics  —— cloudflared_tunnel_ha_connections 实际活动连接数
+//   ③ 公网端到端 —— 真去 GET https://<你的域名>/ ，这个骗不了人
+// 任一信号连续不健康到阈值 → killTunnel()，交给退避重连重新握手。
 const CF_METRICS_PORT = process.env.CF_METRICS_PORT || 20241;
 const CF_METRICS = 'http://127.0.0.1:' + CF_METRICS_PORT;
-const TUNNEL_UNHEALTHY_LIMIT = 5;   // 每分钟探一次，连续 5 次不健康 ≈ 5 分钟
+const READY_BAD_LIMIT = 5;   // 每分钟探一次，连续 5 分钟 /ready 不健康
+const E2E_BAD_LIMIT = 3;     // 连续 3 分钟公网打不通
 let tunnelBadChecks = 0;
+let e2eBadChecks = 0;
+let tunnelHealthBaseline = false;
 let tunnelHealthTimer = null;
+let publicUrl = '';          // 由 announce() 写入，端到端探测用
+let tunnelProtocol = 'quic'; // 连续失败后自动降级 http2（UDP 容易被代理/防火墙掐）
+let quicFailures = 0;
+let tunnelSpawnAt = 0;
 
-function tunnelReady() {
+// 极简 HTTP(S) GET：只关心「通不通 / 状态码」，不读 body
+function probeUrl(url, timeoutMs) {
   return new Promise((resolve) => {
-    const req = http.get(CF_METRICS + '/ready', { timeout: 4000 }, (res) => {
-      res.resume();
-      resolve(res.statusCode === 200);
-    });
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => { try { req.destroy(); } catch (e) { } resolve(false); });
+    let done = false;
+    const finish = (ok, status) => { if (!done) { done = true; resolve({ ok, status }); } };
+    let req;
+    try {
+      const mod = url.startsWith('https:') ? require('https') : http;
+      req = mod.get(url, { timeout: timeoutMs }, (res) => {
+        res.resume();
+        res.on('end', () => finish(true, res.statusCode));
+        res.on('error', () => finish(true, res.statusCode));
+      });
+    } catch (e) { return finish(false, 0); }
+    req.on('error', () => finish(false, 0));
+    req.on('timeout', () => { try { req.destroy(); } catch (e) { } finish(false, 0); });
   });
+}
+
+async function tunnelReady() {
+  const r = await probeUrl(CF_METRICS + '/ready', 4000);
+  return r.status === 200;
+}
+
+// 公网端到端：直连 + 代理 双路探测。
+// 只测直连会有假阳性 —— 本机直连 Cloudflare 偶尔被干扰/污染，隧道其实好好的，
+// 却被判成「半开连接」反复重启。所以直连不通再用 Clash 代理试一次（和浏览器同一条路），
+// 两边都不通才认定隧道真的挂了。
+async function probePublicEndToEnd(url, timeoutMs) {
+  const direct = await probeUrl(url, timeoutMs);
+  if (direct.ok && (direct.status || 0) < 500) return { ok: true, status: direct.status, via: '直连' };
+  let viaProxy = { ok: false, status: 0 };
+  try {
+    const { ProxyAgent } = require('undici');
+    const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || 'http://127.0.0.1:7897';
+    const agent = new ProxyAgent(proxy);
+    try {
+      const r = await fetch(url, { dispatcher: agent, signal: AbortSignal.timeout(timeoutMs), redirect: 'manual' });
+      try { await r.arrayBuffer(); } catch (e) { }
+      viaProxy = { ok: true, status: r.status };
+    } finally { try { await agent.close(); } catch (e) { } }
+  } catch (e) { }
+  if (viaProxy.ok && (viaProxy.status || 0) < 500) return { ok: true, status: viaProxy.status, via: '代理' };
+  return { ok: false, status: direct.status || viaProxy.status || 0, via: '直连+代理都失败' };
+}
+
+// 读 cloudflared 的活动连接数；读不到返回 null（不参与判断）
+function tunnelHaConnections() {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    const req = http.get(CF_METRICS + '/metrics', { timeout: 4000 }, (res) => {
+      let buf = '';
+      res.setEncoding('utf8');
+      res.on('data', (d) => { if (buf.length < 200000) buf += d; });
+      res.on('end', () => {
+        const m = buf.match(/^cloudflared_tunnel_ha_connections\s+([\d.]+)/m);
+        finish(m ? Number(m[1]) : null);
+      });
+      res.on('error', () => finish(null));
+    });
+    req.on('error', () => finish(null));
+    req.on('timeout', () => { try { req.destroy(); } catch (e) { } finish(null); });
+  });
+}
+
+async function healthTick() {
+    if (shuttingDown || !tunnel) return;
+
+    const readyOk = await tunnelReady();
+    const ha = await tunnelHaConnections();
+    // 端到端：只有本地服务本身活着，才把「公网不通」算到隧道头上
+    let e2eOk = true, e2eStatus = 0, e2eVia = '';
+    if (publicUrl && await isPortBusy(PORT)) {
+      const r = await probePublicEndToEnd(publicUrl, 8000);
+      e2eStatus = r.status || 0;
+      e2eVia = r.via || '';
+      // 5xx / 超时 / 连不上 = 隧道有问题；2xx~4xx 都算通（4xx 可能是访问口令拦截）
+      e2eOk = r.ok;
+    }
+
+    if (readyOk && (ha === null || ha > 0) && e2eOk) {
+      if (!tunnelHealthBaseline) {
+        tunnelHealthBaseline = true;
+        console.log('[隧道] 健康探测已接管 ✓ /ready=OK · 活动连接=' + (ha === null ? '?' : ha)
+          + ' · 公网=' + (e2eVia ? e2eVia + '可达' : '未配置域名，已跳过') + '（之后每分钟复查）');
+      } else if (tunnelBadChecks || e2eBadChecks) {
+        console.log('[隧道] 健康检查恢复正常（连接数 ' + (ha === null ? '?' : ha) + '）。');
+      }
+      tunnelBadChecks = 0; e2eBadChecks = 0;
+      return;
+    }
+
+    if (!readyOk) tunnelBadChecks += 1;
+    if (!e2eOk) e2eBadChecks += 1;
+    console.warn('[隧道] 健康异常 · /ready=' + (readyOk ? 'OK' : '失败')
+      + ' · 活动连接=' + (ha === null ? '未知' : ha)
+      + ' · 公网=' + (e2eOk ? '通' : ('失败' + (e2eStatus ? '(' + e2eStatus + ')' : '') + (e2eVia ? ' [' + e2eVia + ']' : '')))
+      + ' · 未通过 ' + tunnelBadChecks + '/' + READY_BAD_LIMIT + ' · 公网失败 ' + e2eBadChecks + '/' + E2E_BAD_LIMIT);
+
+    // QUIC 被掐 → 降级 TCP(http2)：UDP 走的 QUIC 在部分网络/代理下会被静默丢包
+    if (tunnelProtocol === 'quic' && quicFailures >= 5) {
+      tunnelProtocol = 'http2';
+      quicFailures = 0;
+      tunnelBadChecks = 0; e2eBadChecks = 0;
+      console.warn('[隧道] QUIC 连续失败 ' + 5 + ' 次，自动降级为 http2（TCP）协议重连…');
+      killTunnel('QUIC 不可用，降级 http2');
+      return;
+    }
+
+    if (e2eBadChecks >= E2E_BAD_LIMIT || tunnelBadChecks >= READY_BAD_LIMIT) {
+      const why = e2eBadChecks >= E2E_BAD_LIMIT
+        ? '公网连续 ' + E2E_BAD_LIMIT + ' 分钟不可达（半开连接）'
+        : '/ready 连续 ' + READY_BAD_LIMIT + ' 分钟不健康';
+      tunnelBadChecks = 0; e2eBadChecks = 0;
+      killTunnel(why);
+    }
 }
 
 function startTunnelHealthWatch() {
   if (tunnelHealthTimer) return;
-  tunnelHealthTimer = setInterval(async () => {
-    if (shuttingDown || !tunnel) return;
-    if (await tunnelReady()) { tunnelBadChecks = 0; return; }
-    tunnelBadChecks += 1;
-    console.warn('[隧道] 健康检查未通过 ' + tunnelBadChecks + '/' + TUNNEL_UNHEALTHY_LIMIT + '（/ready 非 200）');
-    if (tunnelBadChecks >= TUNNEL_UNHEALTHY_LIMIT) {
-      tunnelBadChecks = 0;
-      console.warn('[隧道] 连续 ' + TUNNEL_UNHEALTHY_LIMIT + ' 分钟连不上，强制重启隧道进程…');
-      try { tunnel.kill(); } catch (e) { }
-    }
-  }, 60 * 1000);
+  tunnelHealthTimer = setInterval(healthTick, 60 * 1000);
+  if (tunnelHealthTimer.unref) tunnelHealthTimer.unref();
+  // 启动 20 秒后先跑一次，让日志里立刻能看到「三条信号」的基线，不用干等一分钟
+  const first = setTimeout(healthTick, 20000);
+  if (first.unref) first.unref();
 }
 
 function startTunnel() {
   tunnelBadChecks = 0;   // 每次重开隧道都重新计数，别带着上次的失败数直接判死
+  e2eBadChecks = 0;
+  tunnelSpawnAt = Date.now();
   const tc = loadTunnelCfg();
   const named = String(tc.mode || '').toLowerCase() === 'named' && tc.token;
   const hostname = String(tc.hostname || '').replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  // --protocol：为支持 http2 降级，只有确实是 http2 时才传；quic 是默认值不必显式写
+  const protoArgs = tunnelProtocol === 'http2' ? ['--protocol', 'http2'] : [];
 
   if (named) {
     // ---- 命名隧道：地址永久固定 ----
-    console.log('[2/2] 正在连接固定域名隧道 ' + (hostname || '(hostname 未填)') + ' ...\n');
-    // 注意：--metrics 是 `tunnel` 子命令的 flag，必须放在 `run` **前面**；
+    console.log('[2/2] 正在连接固定域名隧道 ' + (hostname || '(hostname 未填)') + ' · 协议 ' + tunnelProtocol + ' ...\n');
+    // 注意：--metrics / --protocol 是 `tunnel` 子命令的 flag，必须放在 `run` **前面**；
     // 放到 run 后面 cloudflared 会直接打印 usage 然后退出（踩过）。
-    tunnel = spawn(CF_BIN, ['tunnel', '--no-autoupdate', '--metrics', '127.0.0.1:' + CF_METRICS_PORT, 'run', '--token', tc.token], {
+    tunnel = spawn(CF_BIN, ['tunnel', '--no-autoupdate', '--metrics', '127.0.0.1:' + CF_METRICS_PORT, ...protoArgs, 'run', '--token', tc.token], {
       cwd: ROOT, env: process.env,
       windowsHide: HIDE_CHILD_WINDOWS,   // 无控制台模式下别弹黑框（见顶部说明）
     });
@@ -271,16 +429,17 @@ function startTunnel() {
     else console.log('  [提示] tunnel-config.json 里没有填 hostname，请自行到 Cloudflare 后台查看访问地址。\n');
 
     tunnel.stdout.on('data', (d) => process.stdout.write(d.toString()));
-    tunnel.stderr.on('data', (d) => process.stderr.write(d.toString()));
+    tunnel.stderr.on('data', (d) => { const s = d.toString(); process.stderr.write(s); scanQuic(s); });
     tunnel.on('error', (e) => console.error('[隧道] 启动失败:', e.message));
     tunnel.on('exit', (c) => onTunnelExit(c));
+    tunBackoff.markStarted();
     return;
   }
 
   // ---- 快速隧道：地址随机 ----
-  console.log('[2/2] 正在建立 Cloudflare 临时隧道（地址每次重启都会变）...');
+  console.log('[2/2] 正在建立 Cloudflare 临时隧道（地址每次重启都会变）· 协议 ' + tunnelProtocol);
   console.log('      想要固定地址：双击「配置固定域名.bat」\n');
-  tunnel = spawn(CF_BIN, ['tunnel', '--no-autoupdate', '--metrics', '127.0.0.1:' + CF_METRICS_PORT, '--url', 'http://127.0.0.1:' + PORT], {
+  tunnel = spawn(CF_BIN, ['tunnel', '--no-autoupdate', '--metrics', '127.0.0.1:' + CF_METRICS_PORT, ...protoArgs, '--url', 'http://127.0.0.1:' + PORT], {
     cwd: ROOT, env: process.env,
     windowsHide: HIDE_CHILD_WINDOWS,   // 无控制台模式下别弹黑框（见顶部说明）
   });
@@ -292,10 +451,20 @@ function startTunnel() {
     if (m) { announced = true; announce(m[0], '临时地址'); }
   }
 
-  tunnel.stdout.on('data', (d) => { const s = d.toString(); process.stdout.write(s); scan(s); });
-  tunnel.stderr.on('data', (d) => { const s = d.toString(); process.stderr.write(s); scan(s); });
+  tunnel.stdout.on('data', (d) => { const s = d.toString(); process.stdout.write(s); scan(s); scanQuic(s); });
+  tunnel.stderr.on('data', (d) => { const s = d.toString(); process.stderr.write(s); scan(s); scanQuic(s); });
   tunnel.on('error', (e) => console.error('[隧道] 启动失败:', e.message));
   tunnel.on('exit', (c) => onTunnelExit(c));
+  tunBackoff.markStarted();
+}
+
+// 从 cloudflared 输出里识别 QUIC 抖动，攒够次数就降级 TCP
+function scanQuic(text) {
+  if (tunnelProtocol !== 'quic') return;
+  if (/failed to dial to edge with quic|no recent network activity|failed to dial edge.*quic/i.test(text)) {
+    quicFailures += 1;
+    if (quicFailures === 1) console.warn('[隧道] 检测到 QUIC 握手失败，开始计数（累计 5 次自动降级 http2）。');
+  }
 }
 
 (async () => {
@@ -318,7 +487,7 @@ function startTunnel() {
   startWatcher();
   startTunnelHealthWatch();
 
-  console.log('\n  [守护] 已启用自动重启：服务或隧道意外退出会自动拉起（1 分钟最多 10 次）。');
+  console.log('\n  [守护] 已启用四层自动恢复：服务崩溃重拉 · 隧道断线重连（指数退避，永不放弃）· 每分钟健康探测 · QUIC 失败自动降级 http2。');
   console.log('  [守护] 停止请用「停止公网服务.bat」，或按 Ctrl+C。\n');
 
   // 轮询「停止标记」：stop-public.js 写入后 3 秒内本启动器优雅退出
