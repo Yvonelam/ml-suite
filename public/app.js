@@ -102,7 +102,7 @@ let warehouseLoading = false;
 
 function go(v, push = true) {
   currentView = v;
-  if (v === 'hub') setTimeout(() => { drawChart(); loadOrderSummary(); loadSales(); loadListings(); }, 60);
+  if (v === 'hub') setTimeout(() => { drawChart(); loadOrderSummary(); loadSales(); loadListings(); loadAds(); }, 60);
   if (v === 'ads') { loadAds(); loadAdsHourly(); }
   if (v === 'orders') loadOrders();
   if (v === 'questions') loadQuestions();
@@ -1611,8 +1611,10 @@ function applySummary(d) {
     : '自发货/打面单才提醒';
   const u = $('#mlUpdated');
   if (u) u.textContent = '更新于 ' + timeStr(d.updatedAt) + ' · ' + (d.site || '') + ' · ' + (d.day || '');
+  const hq = $('#hubQuestionCount'); if (hq) hq.textContent = fmt(d.questionUnanswered || 0);
   setBadge('nb-q', d.questionUnanswered); setBadge('tc-q', d.questionUnanswered);
   setBadge('nb-o', needShip); setBadge('tc-o', needShip);
+  const hc = $('#hubClaimCount'); if (hc) hc.textContent = fmt(d.claimTodo != null ? d.claimTodo : (d.claimOpen || 0));
   setBadge('nb-c', d.claimTodo != null ? d.claimTodo : d.claimOpen); setBadge('tc-c', d.claimTodo != null ? d.claimTodo : d.claimOpen);
   notifyNewItems(Number(d.questionUnanswered || 0), Number((d.claimTodo != null ? d.claimTodo : d.claimOpen) || 0));
 }
@@ -1686,6 +1688,55 @@ async function loadSales(force) {
   }
 }
 
+function renderHubTrend() {
+  const root = $('#hubTrend'); if (!root) return;
+  const rows = salesView.data?.rows || [], currency = salesView.data?.currency || 'BRL';
+  if (!rows.length) { root.innerHTML = '<div class="empty">所选期间暂无销售数据</div>'; const note=$('#hubTrendNote'); if(note)note.textContent='销售数据暂不可用或所选期间没有订单。'; return; }
+  const valid = rows.filter(r => r.status !== 'cancelled' && r.status !== 'invalid');
+  const singleDay = salesView.from === salesView.to;
+  const keys = singleDay ? Array.from({length:24},(_,i)=>String(i).padStart(2,'0')) : [...new Set(valid.map(r=>r.date).filter(Boolean))].sort();
+  const sales = Object.fromEntries(keys.map(k=>[k,0]));
+  for (const r of valid) { const k=singleDay?String(r.hour==null?0:r.hour).padStart(2,'0'):r.date; if (k in sales) sales[k]+=Number(r.amount)||0; }
+  const adDaily = adsView.data?.daily || [], ads = Object.fromEntries(keys.map(k=>[k,0]));
+  if (!singleDay) for (const r of adDaily) if (r.date in ads) ads[r.date]+=Number(r.cost)||0;
+  const sv=keys.map(k=>sales[k]||0), av=keys.map(k=>ads[k]||0), max=Math.max(1,...sv,...av)*1.18;
+  const W=760,H=210,L=46,R=12,T=12,B=27,x=i=>L+(keys.length<2?0:i*(W-L-R)/(keys.length-1)),y=v=>H-B-(v/max)*(H-T-B);
+  const path=a=>a.map((v,i)=>(i?'L':'M')+x(i).toFixed(1)+' '+y(v).toFixed(1)).join(' ');
+  const area=path(sv)+' L '+x(keys.length-1).toFixed(1)+' '+(H-B)+' L '+x(0).toFixed(1)+' '+(H-B)+' Z';
+  let grid=''; for(let j=0;j<4;j++){const val=max*j/3, yy=y(val);grid+='<line class="hub-gridline" x1="'+L+'" x2="'+(W-R)+'" y1="'+yy.toFixed(1)+'" y2="'+yy.toFixed(1)+'"/><text class="hub-axis" x="'+(L-7)+'" y="'+(yy+3)+'" text-anchor="end">'+escHtml(money(val,currency))+'</text>'; }
+  const ticks=keys.length<=5?keys.map((_,i)=>i):[0,Math.round((keys.length-1)/3),Math.round((keys.length-1)*2/3),keys.length-1];let labels='';for(const i of [...new Set(ticks)]){const label=singleDay?(keys[i]+':00'):String(keys[i]).slice(5);labels+='<text class="hub-axis" x="'+x(i)+'" y="'+(H-5)+'" text-anchor="middle">'+escHtml(label)+'</text>'; }
+  root.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img" aria-label="销售额与广告花费趋势"><defs><linearGradient id="hubSalesGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--cyan)" stop-opacity=".28"/><stop offset="1" stop-color="var(--cyan)" stop-opacity="0"/></linearGradient></defs>'+grid+labels+'<path class="hub-sales-area" d="'+area+'"/><path class="hub-sales-line" d="'+path(sv)+'"/>'+(!singleDay&&adDaily.length?'<path class="hub-ads-line" d="'+path(av)+'"/>':'')+'</svg>';
+  const adLegend=document.querySelector('.hub-legend span:nth-child(2)');if(adLegend)adLegend.hidden=singleDay||!adDaily.length;
+  const note=$('#hubTrendNote');if(note)note.textContent=(singleDay?'单日销售按小时汇总；广告为按日口径，详见右侧。':'销售与广告按日期汇总 · '+(salesView.data?.range?.from||salesView.from)+' 至 '+(salesView.data?.range?.to||salesView.to))+(salesView.data?.truncated?' · 订单较多，销售接口返回部分记录':'');
+}
+
+function renderHubListings(d) {
+  const root=$('#hubListingSummary');if(!root)return;const list=d.listings||[],totals=d.totals||{},cur=d.currency||'BRL';
+  if(!list.length){root.innerHTML='<div class="empty">所选期间没有 Listing 出单</div>';const n=$('#hubListingCount');if(n)n.textContent='0';const q=$('#hubListingQty');if(q)q.textContent='0';return;}
+  const n=$('#hubListingCount'),q=$('#hubListingQty'),period=$('#hubListingPeriod');if(n)n.textContent=fmt(totals.listings??list.length);if(q)q.textContent=fmt(totals.qty||0);if(period&&d.range)period.textContent=d.range.from===d.range.to?d.range.from:d.range.from+' 至 '+d.range.to;
+  const rows=list.slice(0,5).map(x=>{const img=x.thumbnail?'<img src="'+escHtml(x.thumbnail)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':'<span class="hub-thumb">ML</span>';const title=escHtml(x.title||('Listing '+x.id));const item=x.permalink?'<a href="'+escHtml(x.permalink)+'" target="_blank" rel="noreferrer" title="'+title+'">'+title+'</a>':'<span>'+title+'</span>';return '<tr><td><div class="hub-product">'+img+'<div>'+item+'<small>'+escHtml(x.id||'')+'</small></div></div></td><td>'+fmt(x.qty||0)+' 件</td><td>'+fmt(x.orders||0)+' 单</td><td>'+money(x.amount||0,cur)+'</td></tr>';}).join('');
+  root.innerHTML='<div class="tw"><table class="hub-list-table"><thead><tr><th>商品 / Listing</th><th>出单件数</th><th>订单数</th><th>销售额</th></tr></thead><tbody>'+rows+'</tbody></table></div><div class="hub-table-more"><span>显示前 '+Math.min(5,list.length)+' 个 · 共 '+fmt(totals.listings??list.length)+' 个 Listing</span><a href="#profit" data-go="profit">查看成本与利润 ↗</a></div>';
+}
+
+function setHubRange(range, from, to, run=true) {
+  const today=brToday();let f=from||today,t=to||today;
+  if(range!=='custom'){if(range==='7')f=addDays(today,-6);else if(range==='30')f=addDays(today,-29);else f=today;t=today;}
+  if(f>t){const z=f;f=t;t=z;}
+  salesView.range=range;salesView.from=f;salesView.to=t;listingView.range=range;listingView.from=f;listingView.to=t;
+  const af=$('#salesFrom'),at=$('#salesTo'),lf=$('#listingFrom'),lt=$('#listingTo'),hf=$('#hubFrom'),ht=$('#hubTo');if(af)af.value=f;if(at)at.value=t;if(lf)lf.value=f;if(lt)lt.value=t;if(hf)hf.value=f;if(ht)ht.value=t;
+  for(const id of ['salesRange','listingRange']){const el=$('#'+id);if(el)el.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.r===range));}
+  const adsSpan=(Date.parse(t+'T12:00:00Z')-Date.parse(f+'T12:00:00Z'))/86400000;let adsFrom=f;if(adsSpan>89){adsFrom=addDays(t,-89);if(run)toast('广告数据最多查询 90 天，已单独收窄广告统计范围');}
+  adsView.range=range;adsView.from=adsFrom;adsView.to=t;const adf=$('#adsFrom'),adt=$('#adsTo');if(adf)adf.value=adsFrom;if(adt)adt.value=t;const ar=$('#adsRange');if(ar)ar.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.r===range));
+  const pf=$('#profitOrderFrom'),pt=$('#profitOrderTo');if(pf)pf.value=f;if(pt)pt.value=t;const pr=$('#profitOrderRange');if(pr)pr.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.range===range));
+  const hr=$('#hubRange');if(hr)hr.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.range===range));
+  if(run)refreshOverview();
+}
+function bindOverviewEvents(){
+  const ranges=$('#hubRange');if(ranges)ranges.querySelectorAll('button[data-range]').forEach(b=>b.addEventListener('click',()=>setHubRange(b.dataset.range)));
+  $('#hubApply')?.addEventListener('click',()=>{const f=$('#hubFrom')?.value||'',t=$('#hubTo')?.value||'';if(!/^\d{4}-\d{2}-\d{2}$/.test(f)||!/^\d{4}-\d{2}-\d{2}$/.test(t)){toast('请选择完整的起止日期');return;}setHubRange('custom',f,t);});
+  $('#hubFrom')?.addEventListener('change',()=>$('#hubRange')?.querySelectorAll('button').forEach(b=>b.classList.remove('on')));$('#hubTo')?.addEventListener('change',()=>$('#hubRange')?.querySelectorAll('button').forEach(b=>b.classList.remove('on')));
+  setHubRange('7',null,null,false);
+}
 function renderSales(d) {
   setStateEl($('#salesState'), 'ok', '实时');
   hideSalesNote();
@@ -1704,7 +1755,7 @@ function renderSales(d) {
 
   const body = $('#salesBody');
   const rows = d.rows || [];
-  if (!rows.length) { body.innerHTML = '<div class="empty">该时间范围内没有订单</div>'; return; }
+  if (!rows.length) { body.innerHTML = '<div class="empty">该时间范围内没有订单</div>'; renderHubTrend(); return; }
 
   const sameDay = d.range.from === d.range.to;
   const asc = rows.slice().sort((a, b) => String(a.time).localeCompare(String(b.time)));
@@ -1761,6 +1812,7 @@ function renderSales(d) {
   body.innerHTML = '<div class="tw"><table class="otable stable"><thead>' + head + '</thead><tbody>' + trs + '</tbody><tfoot>' + foot + '</tfoot></table></div>';
 
   if (d.truncated) showSalesNote('订单较多，本页仅统计最近 ' + fmt(rows.length) + ' 单（接口共 ' + fmt(d.apiTotal) + ' 单）。缩小日期范围可查看完整明细。');
+  renderHubTrend();
 }
 
 function bindSalesEvents() {
@@ -1799,7 +1851,7 @@ function bindSalesEvents() {
 /* 经营看板：三块（Listing 出单 / 实时订单 / 销售流水）吃的是同一份订单数据，
    所以共用一个刷新按钮、一次全刷 —— 并行发请求，比原来点三次快。 */
 async function refreshOverview() {
-  await Promise.all([loadOrderSummary(true), loadSales(true), loadListings(true)]);
+  await Promise.all([loadOrderSummary(true), loadSales(true), loadListings(true), loadAds(true)]);
 }
 
 function startSalesTimer() {
@@ -1904,6 +1956,7 @@ function renderListings(d) {
 
   const body = $('#listingBody');
   const list = d.listings || [];
+  renderHubListings(d);
   if (!list.length) { body.innerHTML = '<div class="empty">该时间范围内没有出单</div>'; return; }
 
   const rows = list.map(l => {
@@ -1982,6 +2035,7 @@ function setAdsRange(r) {
   if (rb) rb.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.r === r));
 }
 function clearAds() {
+  renderHubAds(null);
   ['ak-cost', 'ak-amount', 'ak-amount-sub', 'ak-acos', 'ak-roas', 'ak-clicks', 'ak-clicks-sub', 'ak-units', 'ak-cpc', 'ak-ctr'].forEach(id => { const e = $('#' + id); if (e) e.textContent = '—'; });
   const b = $('#adsBody'); if (b) b.innerHTML = '<div class="empty">暂无数据</div>';
 }
@@ -2019,7 +2073,12 @@ async function loadAds(force) {
   }
 }
 
+function renderHubAds(d) {
+  const note=$('#hubAdsNote');if(!d){const ids=['hubAdsCost','hubAdCostDetail','hubAdSales','hubAdAcos','hubAdRoas','hubAdOrders','hubAdUnits'];for(const id of ids){const e=$('#'+id);if(e)e.textContent='—';}const fx=$('#hubAdsFx');if(fx)fx.textContent='广告数据暂不可用';if(note)note.textContent='请检查 API 授权或刷新重试';return;}
+  const t=d.totals||{},cur=d.currency||'BRL',set=(id,v)=>{const e=$('#'+id);if(e)e.textContent=v;};set('hubAdsCost',money(t.cost,cur));set('hubAdCostDetail',money(t.cost,cur));set('hubAdSales',money(t.totalAmount,cur));set('hubAdAcos',t.totalAmount>0?pct(t.acos):'—');set('hubAdRoas',t.cost>0?ratioStr(t.roas):'—');set('hubAdOrders','—');set('hubAdUnits',fmt(t.units||0)+' 件');const fx=$('#hubAdsFx');if(fx)fx.textContent=cur+' · 美客多广告原币';if(note)note.textContent='范围 '+(d.range?.from||adsView.from)+' 至 '+(d.range?.to||adsView.to)+(d.cached?' · 缓存':'');renderHubTrend();
+}
 function renderAds(d) {
+  renderHubAds(d);
   setStateEl($('#adsState'), 'ok', '实时');
   hideAdsTip();
   const t = d.totals || {}, cur = d.currency || 'BRL';
@@ -3319,6 +3378,7 @@ function init() {
   bindSalesEvents();
   bindListingEvents();
   bindAdsEvents();
+  bindOverviewEvents();
   initRouting();
   splash();
   applyModeUI();
