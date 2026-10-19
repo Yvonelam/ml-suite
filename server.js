@@ -1414,7 +1414,7 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
   try{
     const u=await mlUser(),today=tzToday();let from=isDateStr(req.query.from)?String(req.query.from):today,to=isDateStr(req.query.to)?String(req.query.to):today;
     if(from>to){const t=from;from=to;to=t;}
-    const cacheKey=`${auth.currentUserId()}|${u.id}|${from}|${to}`,cached=profitOrderCache.get(cacheKey);
+    const cacheKey=`ads-v1|${auth.currentUserId()}|${u.id}|${from}|${to}`,cached=profitOrderCache.get(cacheKey);
     if(!req.query.refresh&&cached&&Date.now()-cached.at<30000)return res.json({...cached.data,cached:true});
     const pulled=await fetchAllOrders(u.id,from,to);
     const rawOrders=pulled.orders,apiTotal=pulled.apiTotal;
@@ -1535,28 +1535,69 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
       }
       if(String(x.date)>p.lastDate)p.lastDate=String(x.date);
     }
+    // Product Ads API: fetch current Ad Group cost metrics for this exact period.
+    // ITEM groups map directly by ad_group_external_id; family/catalog costs stay visible as unmatched.
+    let adStatus={available:false,error:'广告数据尚未读取',currency:mlSite(mlEffectiveSite(cfg.mlSite)||u.site_id||'MLB').currency,matchedCost:0,unmatchedCost:0,matchedGroups:0,unmatchedGroups:0};
+    const adCostsByItem=new Map();
+    try{
+      if(daysBetween(from,to)>ADS_MAX_DAYS-1) throw new Error(`广告指标最多查询 ${ADS_MAX_DAYS} 天；请缩短日期范围后重新计算`);
+      const siteCode=String(mlEffectiveSite(cfg.mlSite)||u.site_id||'MLB').toUpperCase(), adv=await mlAdvertiser(siteCode);
+      const pageLimit=50, adGroups=[];
+      for(let offset=0, total=Infinity;offset<total;offset+=pageLimit){
+        const qs=new URLSearchParams({date_from:from,date_to:to,metrics:'COST',limit:String(pageLimit),offset:String(offset)});
+        const d=await mlRequest(`/advertising/${adv.site}/advertisers/${encodeURIComponent(adv.id)}/product_ads/ad_groups/search?${qs}`,{headers:{'api-version':'2'}});
+        const batch=Array.isArray(d?.results)?d.results:[];adGroups.push(...batch);
+        total=Number(d?.paging?.total||batch.length);if(!batch.length||offset+batch.length>=total)break;
+      }
+      let matchedCost=0,unmatchedCost=0,matchedGroups=0,unmatchedGroups=0;
+      for(const g of adGroups){
+        const raw=g.metrics?.cost??g.cost??g.metrics?.COST??g.COST;
+        if(raw===undefined||raw===null||!Number.isFinite(Number(raw)))continue;
+        const amount=Number(raw), externalId=String(g.ad_group_external_id||''), type=String(g.ad_group_type||'').toUpperCase();
+        if(type==='ITEM'&&externalId){adCostsByItem.set(externalId,(adCostsByItem.get(externalId)||0)+amount);matchedCost+=amount;matchedGroups++;}
+        else{unmatchedCost+=amount;unmatchedGroups++;}
+      }
+      adStatus={available:true,error:'',currency:mlSite(siteCode).currency,matchedCost:r2(matchedCost),unmatchedCost:r2(unmatchedCost),matchedGroups,unmatchedGroups};
+    }catch(e){adStatus={...adStatus,available:false,error:String(e.message||e)};}
+    // Add advertised items without orders so spend is still visible and included in net profit.
+    for(const [itemId,adCost] of adCostsByItem){
+      if(!byItem.has(itemId))byItem.set(itemId,{itemId,title:'Listing '+itemId,units:0,cancelledUnits:0,cancelledLines:0,orders:new Set(),cancelledOrders:new Set(),revenue:0,saleFee:0,shipping:0,tax:0,cost:0,profit:0,profitCny:0,revenueCny:0,computed:0,lines:0,lastDate:''});
+    }
+    let adRates={};
+    if(adStatus.available){try{adRates=await getBocFxRates([adStatus.currency]);}catch(e){adStatus={...adStatus,available:false,error:'广告数据已读取，但中国银行汇率获取失败：'+e.message};}}
+    if(adStatus.available){
+      const fx=Number(adRates[adStatus.currency]?.localPerCny||0);
+      if(!fx)adStatus={...adStatus,available:false,error:`中国银行暂无 ${adStatus.currency} 牌价，广告费暂无法折算成人民币`};
+      else{
+        adStatus.fxCnyPer100=Number(adRates[adStatus.currency]?.cnyPer100||0);adStatus.fxPublishedAt=adRates[adStatus.currency]?.publishedAt||'';
+        adStatus.matchedCostCny=r2(adStatus.matchedCost/fx);adStatus.unmatchedCostCny=r2(adStatus.unmatchedCost/fx);
+      }
+    }
     let itemInfo={};
     try{itemInfo=await mlItemInfo([...byItem.values()].map(p=>p.itemId).filter(Boolean));}catch{/* 图取不到不影响数字 */}
     const products=[...byItem.values()].map(p=>{
       const inf=itemInfo[p.itemId]||{};
+      const adCostLocal=adCostsByItem.get(p.itemId)||0, adCostCny=adStatus.available?adCostLocal/(Number(adRates[adStatus.currency]?.localPerCny)||1):null;
+      const afterAdsCny=adStatus.available?r2(p.profitCny-adCostCny):null;
       return {itemId:p.itemId,title:inf.title||p.title,thumbnail:inf.thumbnail||'',permalink:inf.permalink||'',
         units:p.units,orders:p.orders.size,cancelledUnits:p.cancelledUnits,cancelledOrders:p.cancelledOrders.size,cancelledLines:p.cancelledLines,
         revenue:r2(p.revenue),saleFee:r2(p.saleFee),shipping:r2(p.shipping),tax:r2(p.tax),cost:r2(p.cost),
         profit:r2(p.profit),profitCny:r2(p.profitCny),revenueCny:r2(p.revenueCny),
         margin:p.revenueCny?r2(p.profitCny/p.revenueCny*100):null,
+        adCostLocal:r2(adCostLocal),adCostCny:adCostCny===null?null:r2(adCostCny),profitAfterAdsCny:afterAdsCny,
         computed:p.computed,lines:p.lines,lastDate:p.lastDate};
     }).sort((a,b)=>b.units-a.units||b.profitCny-a.profitCny);
 
     const data={ok:true,range:{from,to},currency:'CNY',taxRate,defaultTaxRate:DEFAULT_TAX_RATE,
       truncated:rawOrders.length<apiTotal,
       apiTotal,pulled:rawOrders.length,cancelled:cancelledOrders.length,strategy:pulled.strategy,
-      orders:lines,products,
+      orders:lines,products,ads:adStatus,
       totals:{allOrders:rawOrders.length,orders:validOrders.length,cancelledOrders:cancelledOrders.length,
         ordersWithMultiItem:rawOrders.filter(o=>(o.order_items||[]).length>1).length,
         lines:lines.length,validLines:active.length,matched:complete.length,unmatched:active.length-complete.length,
         units:qtyOf(lines),validUnits:qtyOf(active),cancelledUnits:qtyOf(deadLines),profitUnits:qtyOf(complete),
         cancelledRevenueCny:r2(deadLines.reduce((s,x)=>s+(x.revenueCny||0),0)),
-        profitCny:r2(totalProfitCny),margin:totalRevenueCny?Math.round(totalProfitCny/totalRevenueCny*10000)/100:null},
+        profitCny:r2(totalProfitCny),profitAfterAdsCny:adStatus.available?r2(totalProfitCny-(adStatus.matchedCostCny||0)-(adStatus.unmatchedCostCny||0)):null,margin:totalRevenueCny?Math.round(totalProfitCny/totalRevenueCny*10000)/100:null},
       updatedAt:Date.now()};
     profitOrderCache.set(cacheKey,{at:Date.now(),data});res.json(data);
   }catch(e){sendMlError(res,e);}
@@ -1800,11 +1841,14 @@ function daysBetween(a, b) {
   return Math.round((new Date(b + 'T12:00:00Z') - new Date(a + 'T12:00:00Z')) / 86400000);
 }
 
-let adsAdvertiserCache = null; // { site, id, name, accountName, at }
+// Advertiser IDs are private to the connected ML account; never reuse across users.
+const adsAdvertiserCache = new Map();
 
 // 发现当前账号在指定站点的广告账户（advertiser_id）
 async function mlAdvertiser(siteCode) {
-  if (adsAdvertiserCache && adsAdvertiserCache.site === siteCode && Date.now() - adsAdvertiserCache.at < 3600000) return adsAdvertiserCache;
+  const cacheKey = `${auth.currentUserId()}|${siteCode}`;
+  const cached = adsAdvertiserCache.get(cacheKey);
+  if (cached && cached.site === siteCode && Date.now() - cached.at < 3600000) return cached;
   const d = await mlRequest('/advertising/advertisers?product_id=PADS', { headers: { 'api-version': '1' } });
   const list = (d && d.advertisers) || [];
   if (!list.length) {
@@ -1812,18 +1856,19 @@ async function mlAdvertiser(siteCode) {
     e.status = 404; e.needAds = true; throw e;
   }
   const pick = list.find(a => String(a.site_id || '').toUpperCase() === siteCode) || list[0];
-  adsAdvertiserCache = {
+  const advertiser = {
     site: String(pick.site_id || '').toUpperCase(),
     id: pick.advertiser_id,
     name: pick.advertiser_name || '',
     accountName: pick.account_name || '',
     at: Date.now(),
   };
+  adsAdvertiserCache.set(cacheKey, advertiser);
   const cfg = loadConfig();
-  if (String(cfg.mlAdvertiserId || '') !== String(adsAdvertiserCache.id)) {
-    try { saveConfig({ ...cfg, mlAdvertiserId: String(adsAdvertiserCache.id), mlAdvertiserSite: adsAdvertiserCache.site }); } catch { }
+  if (String(cfg.mlAdvertiserId || '') !== String(advertiser.id)) {
+    try { saveConfig({ ...cfg, mlAdvertiserId: String(advertiser.id), mlAdvertiserSite: advertiser.site }); } catch { }
   }
-  return adsAdvertiserCache;
+  return advertiser;
 }
 
 function adsRow(r) {
