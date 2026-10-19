@@ -1650,7 +1650,7 @@ app.get('/api/ml/warehouse-stock', async (req,res)=>{
     }
     const all=[];
     for(let i=0;i<ids.length;i+=20){
-      const d=await mlRequest(`/items?ids=${ids.slice(i,i+20).join(',')}&attributes=id,title,permalink,thumbnail,pictures,status,shipping,inventory_id,user_product_id,variations`);
+      const d=await mlRequest(`/items?ids=${ids.slice(i,i+20).join(',')}&attributes=id,title,permalink,thumbnail,status,shipping,inventory_id,user_product_id,variations`);
       for(const row of(Array.isArray(d)?d:[])){const item=row?.body;if(item?.id&&item.status==='active')all.push(item);}
     }
     const listings=all.filter(item=>item.shipping?.logistic_type==='fulfillment'||item.user_product_id||(item.variations||[]).some(v=>v.inventory_id||v.user_product_id));
@@ -1683,43 +1683,14 @@ app.get('/api/ml/warehouse-stock', async (req,res)=>{
     }
     const rows=listings.map(item=>{
       const vars=Array.isArray(item.variations)&&item.variations.length?item.variations:null;
-      const pictures=new Map((Array.isArray(item.pictures)?item.pictures:[]).map(p=>[String(p.id||''),String(p.secure_url||p.url||'')]));
-      const stockUnits=vars?vars.map(v=>({userProductId:String(v.user_product_id||''),inventoryId:String(v.inventory_id||''),variationId:String(v.id||''),label:(v.attribute_combinations||[]).map(a=>a.value_name).filter(Boolean).join(' / '),thumbnail:(v.picture_ids||[]).map(id=>pictures.get(String(id))).find(Boolean)||String(item.thumbnail||'')})):[{userProductId:String(item.user_product_id||''),inventoryId:String(item.inventory_id||''),variationId:'',label:'',thumbnail:String(item.thumbnail||'')}];
-      const units=stockUnits.map(x=>{const stockKey=x.userProductId?'up:'+x.userProductId:'inventory:'+x.inventoryId,stock=stockByKey.get(stockKey)?.[0];return {...(stock||{...x,available:null,notAvailable:null,total:null,detail:[],error:'库存暂不可用'}),variationId:x.variationId,label:x.label,thumbnail:x.thumbnail};});
+      const stockUnits=vars?vars.map(v=>({userProductId:String(v.user_product_id||''),inventoryId:String(v.inventory_id||''),variationId:String(v.id||''),label:(v.attribute_combinations||[]).map(a=>a.value_name).filter(Boolean).join(' / ')})):[{userProductId:String(item.user_product_id||''),inventoryId:String(item.inventory_id||''),variationId:'',label:''}];
+      const units=stockUnits.map(x=>{const stockKey=x.userProductId?'up:'+x.userProductId:'inventory:'+x.inventoryId,stock=stockByKey.get(stockKey)?.[0];return {...(stock||{...x,available:null,notAvailable:null,total:null,detail:[],error:'库存暂不可用'}),variationId:x.variationId,label:x.label};});
       const complete=units.length>0&&units.every(x=>Number.isFinite(x.available));
       return {id:String(item.id),title:String(item.title||''),permalink:String(item.permalink||''),thumbnail:String(item.thumbnail||''),available:complete?units.reduce((s,x)=>s+x.available,0):null,notAvailable:complete&&units.every(x=>Number.isFinite(x.notAvailable))?units.reduce((s,x)=>s+(Number(x.notAvailable)||0),0):null,total:complete?units.reduce((s,x)=>s+(Number(x.total)||0),0):null,variations:units,errors:units.filter(x=>x.error).map(x=>x.error),missingInventoryId:units.every(x=>!x.userProductId&&!x.inventoryId)};
     }).sort((a,b)=>(a.available??-1)-(b.available??-1)||a.title.localeCompare(b.title,'zh-CN'));
     const distinctStock=[...stockByKey.values()].map(x=>x[0]),data={ok:true,rows,totalListings:total,loadedListings:all.length,truncated:total>ids.length,updatedAt:Date.now(),summary:{listings:rows.length,available:distinctStock.filter(x=>Number.isFinite(x.available)).reduce((s,x)=>s+x.available,0),confirmed:rows.filter(x=>x.available!==null).length,unknown:rows.filter(x=>x.available===null||x.errors.length>0).length}};
     warehouseStockCache.set(key,{at:Date.now(),data});res.json(data);
   }catch(e){sendMlError(res,e);}
-});
-
-// ---- Full 送仓计划草稿：仅保存到当前 ML Suite 账号，不向美客多提交入仓 ----
-function readWarehouseDraft(){
-  try{const d=JSON.parse(fs.readFileSync(privateDataFile('full-shipment-draft.json'),'utf8'));return Array.isArray(d?.items)?d:{items:[],updatedAt:null};}
-  catch{return {items:[],updatedAt:null};}
-}
-app.get('/api/ml/warehouse-draft',(req,res)=>res.json({ok:true,...readWarehouseDraft()}));
-app.put('/api/ml/warehouse-draft',(req,res)=>{
-  const incoming=req.body?.items;
-  if(!Array.isArray(incoming)||incoming.length>500)return res.status(400).json({error:'送仓草稿格式无效'});
-  const items=[],seen=new Set();
-  for(const x of incoming){
-    const itemId=String(x?.itemId||'').trim(),userProductId=String(x?.userProductId||'').trim(),inventoryId=String(x?.inventoryId||'').trim(),variationId=String(x?.variationId||'').trim(),quantity=Number(x?.quantity);
-    if(!/^ML[A-Z]{1,3}\d{4,}$/.test(itemId)||!Number.isSafeInteger(quantity)||quantity<1||quantity>100000)return res.status(400).json({error:'商品编号或送仓数量无效'});
-    if(userProductId&&!/^[A-Za-z0-9_-]{1,32}$/.test(userProductId))return res.status(400).json({error:'User Product 编号无效'});
-    if(inventoryId&&!/^[A-Za-z0-9_-]{1,32}$/.test(inventoryId))return res.status(400).json({error:'库存编号无效'});
-    if(variationId&&!/^\d{1,24}$/.test(variationId))return res.status(400).json({error:'变体编号无效'});
-    const key=userProductId?'up:'+userProductId:inventoryId?'inventory:'+inventoryId:'item:'+itemId+'|variation:'+variationId;if(seen.has(key))return res.status(400).json({error:'草稿中有重复库存商品'});seen.add(key);
-    items.push({itemId,userProductId,inventoryId,variationId,label:String(x?.label||'').slice(0,100),title:String(x?.title||'').slice(0,200),quantity});
-  }
-  const next={items,updatedAt:new Date().toISOString()};
-  try{fs.writeFileSync(privateDataFile('full-shipment-draft.json'),JSON.stringify(next,null,2),'utf8');res.json({ok:true,...next});}
-  catch(e){res.status(500).json({error:'保存送仓草稿失败：'+e.message});}
-});
-app.delete('/api/ml/warehouse-draft',(req,res)=>{
-  try{fs.writeFileSync(privateDataFile('full-shipment-draft.json'),JSON.stringify({items:[],updatedAt:new Date().toISOString()},null,2),'utf8');res.json({ok:true,items:[]});}
-  catch(e){res.status(500).json({error:'清空送仓草稿失败：'+e.message});}
 });
 
 app.get('/api/ml/listings', async (req, res) => {
@@ -3807,3 +3778,4 @@ const server = app.listen(PORT, () => {
 server.timeout = 600000; // 10 分钟
 server.keepAliveTimeout = 600000;
 server.requestTimeout = 600000;
+
