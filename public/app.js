@@ -126,6 +126,7 @@ function renderProfitListings() {
     const missingCost=x.cost?.costCny===''||x.cost?.costCny==null||x.cost?.freightCny===''||x.cost?.freightCny==null;
     return '<tr><td><div class="profit-product">'+(x.thumbnail?'<img src="'+escHtml(x.thumbnail)+'" alt="">':'<span class="profit-thumb">ML</span>')+'<div><a target="_blank" rel="noopener" href="'+escHtml(x.permalink)+'">'+escHtml(x.title)+'</a><small>'+escHtml(x.id)+' · '+escHtml(x.site)+'</small></div></div></td><td>'+profitMoney(x.price,x.currency)+'</td><td>'+profitMoney(x.fee,x.currency)+(x.fee==null?'<small class="profit-sub">费率暂不可用</small>':'')+'</td><td>'+profitMoney(x.shipping,x.currency)+(x.shipping==null?'<small class="profit-sub">暂不可用</small>':'')+'</td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="costCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.costCny??'')+'" placeholder="0.00"></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="freightCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.freightCny??'')+'" placeholder="0.00"></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="otherFee" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.otherFee??'')+'" placeholder="0.00"><small class="profit-sub">'+cur+'</small></td><td class="profit-value '+(profitCny!=null&&profitCny<0?'negative':'')+'">'+(profitCny==null?(x.shipping==null?'等待运费估算':(missingCost?'填写产品成本和头程':'等待中国银行牌价或平台费用')):profitMoney(profitCny,'CNY'))+'</td><td>'+(margin==null?'—':margin.toFixed(1)+'%')+'</td></tr>';
   }).join(''):'<tr><td colspan="9" class="empty">'+(profitItems.length?'没有匹配的商品':'当前账户没有读取到在售 Listing')+'</td></tr>';
+  const costCnt=$('#profitCostCnt');if(costCnt){costCnt.textContent=String(profitItems.length);costCnt.hidden=!profitItems.length;}
   const shippingCount=profitItems.filter(x=>x.shipping!==null&&x.shipping!==undefined).length;$('#profitStatus').textContent=profitItems.length?'已加载 '+profitItems.length+' 个在售 Listing；平台尾程费用 API 已匹配 '+shippingCount+' 个。人工成本和头程可保存到当前账户。':'暂时没有可显示的 Listing。';
 }
 async function loadProfitListings(refresh=false) {
@@ -272,9 +273,42 @@ async function loadProfitOrders(refresh=false){
   catch(e){$('#profitOrderSummary').hidden=true;$('#profitOrderRows').innerHTML='<tr><td colspan="9" class="empty">'+escHtml(e.message)+'</td></tr>';status.textContent='订单读取失败：'+e.message;}
   finally{$('#profitOrderApply').disabled=false;}
 }
+/* ---- 税费估算税率：输入框按百分比显示，存到服务器按小数 ---- */
+function showTaxRateState(text, bad) {
+  const el = $('#profitTaxRateState'); if (!el) return;
+  el.textContent = text || '';
+  el.style.color = bad ? 'var(--bad)' : 'var(--ok)';
+  el.classList.add('show');
+  clearTimeout(showTaxRateState._t);
+  showTaxRateState._t = setTimeout(() => el.classList.remove('show'), 2600);
+}
+async function loadProfitTaxRate() {
+  try {
+    const d = await mlGet('/api/ml/profit/settings');
+    const pct = Number(d?.taxRate);
+    if (Number.isFinite(pct)) $('#profitTaxRate').value = String(Math.round(pct * 1000) / 10);
+  } catch { /* 读不到就用页面默认值 8 */ }
+}
+function bindProfitTaxRate() {
+  loadProfitTaxRate();
+  $('#profitTaxRateSave')?.addEventListener('click', async e => {
+    const btn = e.currentTarget, input = $('#profitTaxRate'); if (!btn || !input) return;
+    const raw = Number(input.value);
+    if (!Number.isFinite(raw) || raw < 0 || raw >= 100) { showTaxRateState('税率需为 0 ~ 99 之间的数字', true); return; }
+    btn.disabled = true; btn.textContent = '保存中…';
+    try {
+      const r = await fetch('/api/ml/profit/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taxRate: raw / 100 }) });
+      const d = await r.json(); if (!r.ok) throw Error(d.error || '保存失败');
+      showTaxRateState('已保存 · 税率 ' + (Math.round(raw * 10) / 10) + '%');
+      await loadProfitOrders(true);   // 用新税率重算
+    } catch (err) { showTaxRateState('保存失败：' + err.message, true); }
+    finally { btn.disabled = false; btn.textContent = '保存并重算'; }
+  });
+}
 function bindProfitEvents(){
   $('#profitRefresh')?.addEventListener('click',async e=>{const b=e.currentTarget;if(b.disabled)return;b.disabled=true;b.textContent='正在刷新…';try{await loadProfitListings(true);}finally{b.disabled=false;b.textContent='刷新商品/运费';}});$('#profitSearch')?.addEventListener('input',renderProfitListings);
   applyProfitHeaders();   // 表头按平台币种命名，先对齐再加载数据
+  bindProfitTaxRate();    // 税费估算税率：加载 + 保存后重算
   setProfitOrderRange('today',false);
   $('#profitOrderRange')?.addEventListener('click',e=>{const b=e.target.closest('button[data-range]');if(!b)return;if(b.dataset.range==='custom'){ $('#profitOrderRange').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));$('#profitOrderFrom').focus();return;}setProfitOrderRange(b.dataset.range,true);});
   $('#profitOrderFrom')?.addEventListener('change',()=>$('#profitOrderRange')?.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.range==='custom')));
@@ -492,12 +526,21 @@ let currentBatchResults = [], currentBatchKeyword = '';
 let autoSaveTimer = null, suppressAutoSave = true;
 
 function switchRankTab(mode) {
-  $$('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
+  // 只管排名页自己的页签：产品利润页也用了 .tabs，全局选中会互相抢
+  $$('#v-rank .tabs button').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
   $('#rank-single').style.display = mode === 's' ? 'block' : 'none';
   $('#rank-batch').style.display = mode === 'b' ? 'block' : 'none';
   $('#rank-cfg').style.display = mode === 'cfg' ? 'block' : 'none';
 }
-$$('.tabs button').forEach(b => b.onclick = () => switchRankTab(b.dataset.m));
+$$('#v-rank .tabs button').forEach(b => b.onclick = () => switchRankTab(b.dataset.m));
+/* ---- 产品利润页：子页签（按订单计算利润 / Listing 成本与头程） ---- */
+function switchProfitTab(p) {
+  $$('#profitSubTabs button').forEach(b => b.classList.toggle('on', b.dataset.p === p));
+  const o = $('#profitPanelOrders'), c = $('#profitPanelCosts');
+  if (o) o.hidden = p !== 'orders';
+  if (c) c.hidden = p !== 'costs';
+}
+$$('#profitSubTabs button').forEach(b => b.onclick = () => switchProfitTab(b.dataset.p));
 
 function showProg(pct) {
   const pr = $('#prog');

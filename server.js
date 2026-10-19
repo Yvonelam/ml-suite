@@ -1313,6 +1313,19 @@ async function getBocFxRates(currencies) {
 }
 function readProfitCosts() { try { return JSON.parse(fs.readFileSync(privateDataFile('product-profit.json'), 'utf8')) || {}; } catch { return {}; } }
 function saveProfitCosts(data) { fs.writeFileSync(privateDataFile('product-profit.json'), JSON.stringify(data, null, 2), 'utf8'); }
+// 利润页设置：税费估算税率。没设置过就用 DEFAULT_TAX_RATE，永远返回一个合法的小数税率。
+function readProfitSettings() {
+  try {
+    const d = JSON.parse(fs.readFileSync(privateDataFile('profit-settings.json'), 'utf8')) || {};
+    const r = Number(d.taxRate);
+    return { taxRate: Number.isFinite(r) && r >= 0 && r < 1 ? r : DEFAULT_TAX_RATE };
+  } catch { return { taxRate: DEFAULT_TAX_RATE }; }
+}
+function saveProfitSettings(patch) {
+  const next = Object.assign(readProfitSettings(), patch);
+  fs.writeFileSync(privateDataFile('profit-settings.json'), JSON.stringify(next, null, 2), 'utf8');
+  return next;
+}
 // ---- 订单全量抓取 ----
 // 踩过的坑：原来写死 CAP=500，10 月有 779 单时只拉了 500 条（过滤取消后剩 465），
 // 于是「利润只核算了 400 多单」。现在：
@@ -1462,6 +1475,7 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
       for(const [id,cost] of part)shipmentCosts[id]=cost;
     }
     const costs=readProfitCosts(), currencies=[...new Set(rawOrders.flatMap(o=>[o.currency_id,...(o.order_items||[]).map(x=>x.currency_id)].filter(Boolean)))],rates=await getBocFxRates(currencies);
+    const taxRate=readProfitSettings().taxRate;
     const flattened=[];
     for(const order of rawOrders){
       const dead=isDeadOrder(order);
@@ -1473,7 +1487,7 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
       // 按订单收入 × DEFAULT_TAX_RATE 估算（卖家实际仍有税费成本，按 0 会虚高利润）。
       const taxRaw=order.taxes&&typeof order.taxes==='object'?order.taxes.amount:order.taxes;
       const taxNum=Number(taxRaw),taxKnown=true,taxAssumed=taxRaw===undefined||taxRaw===null||!Number.isFinite(taxNum);
-      const taxAmount=taxAssumed?sumRevenue*DEFAULT_TAX_RATE:taxNum,currency=order.currency_id||(items[0]?.currency_id)||'';
+      const taxAmount=taxAssumed?sumRevenue*taxRate:taxNum,currency=order.currency_id||(items[0]?.currency_id)||'';
       const shipment=shipmentCosts[shipmentId],shipmentTotal=shipment?Number(shipment.amount):null;
       const shipmentGroup=shipmentId+'|'+currency;
       for(let i=0;i<items.length;i++)flattened.push({order,item:items[i],currency,cancelled:dead,qty:Number(items[i].quantity)||1,revenue:revenues[i],taxShare:sumRevenue?taxAmount*revenues[i]/sumRevenue:0,taxAssumed,shipmentId,shipmentGroup,orderRevenue:sumRevenue,shipmentTotal,shipmentCurrency:shipment?.currency||''});
@@ -1532,7 +1546,7 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
         computed:p.computed,lines:p.lines,lastDate:p.lastDate};
     }).sort((a,b)=>b.units-a.units||b.profitCny-a.profitCny);
 
-    const data={ok:true,range:{from,to},currency:'CNY',
+    const data={ok:true,range:{from,to},currency:'CNY',taxRate,defaultTaxRate:DEFAULT_TAX_RATE,
       truncated:rawOrders.length<apiTotal,
       apiTotal,pulled:rawOrders.length,cancelled:cancelledOrders.length,strategy:pulled.strategy,
       orders:lines,products,
@@ -1578,6 +1592,21 @@ app.get('/api/ml/profit/listings', async (req, res) => {
     }
     const data={ok:true,items:output,total,loaded:items.length,truncated:total>ids.length,updatedAt:Date.now()}; profitCache.set(key,{at:Date.now(),data}); res.json(data);
   } catch(e){sendMlError(res,e);}
+});
+// 利润页设置：税费估算税率（按账号存，不进仓库）
+app.get('/api/ml/profit/settings', (req,res)=>{
+  res.json({ ok:true, ...readProfitSettings(), defaultTaxRate:DEFAULT_TAX_RATE });
+});
+app.put('/api/ml/profit/settings', (req,res)=>{
+  const raw=req.body?.taxRate;
+  const n = raw===''||raw===null||raw===undefined ? DEFAULT_TAX_RATE : Number(raw);
+  if(!Number.isFinite(n)||n<0||n>=1)return res.status(400).json({error:'税率需为 0 ~ 1 之间的小数（8% 填 0.08）'});
+  const next=saveProfitSettings({ taxRate:n });
+  // 税率变了，利润缓存全部失效，下次查询会用新税率重算
+  const prefix=auth.currentUserId()+'|';
+  for(const key of profitOrderCache.keys())if(key.startsWith(prefix))profitOrderCache.delete(key);
+  for(const key of profitCache.keys())if(key.startsWith(prefix))profitCache.delete(key);
+  res.json({ ok:true, ...next, defaultTaxRate:DEFAULT_TAX_RATE });
 });
 app.put('/api/ml/profit/items', (req,res)=>{
   const rows=Array.isArray(req.body?.items)?req.body.items:null;

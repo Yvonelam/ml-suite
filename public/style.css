@@ -563,3 +563,14 @@ a.pp-card:hover{border-color:#3a3a46;background:rgba(255,255,255,.05);transform:
 .profit-order-stat small.sub{margin-top:5px;font-size:9px;color:var(--mut);line-height:1.45}
 
 @media(max-width:900px){.profit-intro{align-items:flex-start;flex-direction:column}.profit-toolbar{align-items:flex-start;flex-direction:column}}
+/* 产品利润：子页签面板 + 税费估算税率编辑条 */
+.panel[hidden]{display:none}
+.profit-rate-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 2px;padding:10px 12px;border:1px solid rgba(56,189,248,.22);border-radius:9px;background:linear-gradient(110deg,rgba(56,189,248,.06),rgba(255,255,255,.02))}
+.profit-rate-bar b{font-size:11px;color:var(--cyan)}
+.profit-rate-bar input{width:76px;padding:6px 8px;border:1px solid var(--bd2);border-radius:7px;background:var(--s2);color:var(--ink);font:inherit;font-size:12px;text-align:right}
+.profit-rate-bar input:focus{outline:1px solid var(--ac);border-color:var(--ac)}
+.profit-rate-bar .unit{font-size:11px;color:var(--tx2)}
+.profit-rate-bar .profit-rate-note{font-size:10px;color:var(--mut)}
+.profit-rate-state{font-size:10px;color:var(--ok);opacity:0;transition:opacity .25s}
+.profit-rate-state.show{opacity:1}
+@media(max-width:900px){.profit-rate-bar .profit-rate-note{flex-basis:100%}}
