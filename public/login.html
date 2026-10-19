@@ -116,4 +116,28 @@ const loginForm=document.getElementById('login-form'),loginBtn=document.getEleme
 loginForm.addEventListener('submit',async e=>{e.preventDefault();if(loginBtn.disabled)return;loginBtn.disabled=true;loginBtn.innerHTML='<i class="auth-spinner" aria-hidden="true"></i>正在验证账号…';msg.className='hint auth-pending';msg.textContent='已收到登录请求，正在验证，请稍候。';try{const d=await req('login',{username:document.getElementById('login-user').value,password:document.getElementById('login-pass').value});msg.className='hint auth-success';msg.textContent='登录成功，正在进入工作台…';loginBtn.textContent='登录成功 ✓';location.href=d.role==='admin'?'/admin.html':'/';}catch(x){loginBtn.disabled=false;loginBtn.textContent='重新登录 →';msg.className='hint auth-error';msg.textContent=x.message;}});
 const registerForm=document.getElementById('register-form'),registerBtn=document.getElementById('reg-submit');
 registerForm.addEventListener('submit',async e=>{e.preventDefault();if(registerBtn.disabled)return;registerBtn.disabled=true;registerBtn.innerHTML='<i class="auth-spinner" aria-hidden="true"></i>正在提交…';msg.className='hint auth-pending';msg.textContent='正在处理账号申请，请稍候。';try{const status=await fetch('/api/auth/status').then(r=>r.json());const username=document.getElementById('reg-user').value,password=document.getElementById('reg-pass').value,confirmPassword=document.getElementById('reg-confirm').value;let d;if(status.bootstrapRequired){const legacyPassword=prompt('请输入旧版访问口令以初始化管理员');if(!legacyPassword){registerBtn.disabled=false;registerBtn.textContent='提交审批 →';msg.textContent='已取消';return;}d=await req('bootstrap',{username,password,confirmPassword,legacyPassword});location.href='/admin.html';}else{d=await req('register',{username,password,confirmPassword});msg.className='hint auth-success';msg.textContent=d.message;}}catch(x){msg.className='hint auth-error';msg.textContent=x.message;}finally{registerBtn.disabled=false;registerBtn.textContent='提交审批 →';}});})();
-</script></div></body></html>
+</script></div>
+<style>
+/* 同步运营页「彩色毛玻璃」美术 + 光斑动态（只追加样式，不动结构与脚本） */
+:root{--g-v:#7c3aed;--g-p:#ec4899;--g-b:#2563eb;--g-o:#f97316;--glass-hi:rgba(255,255,255,.3);--btn-grad:linear-gradient(135deg,#ff8ad8,#8b7bff)}
+html,body{background:#1a1040}
+body{background:radial-gradient(60rem 40rem at 8% -10%,var(--g-v),transparent 60%),radial-gradient(50rem 40rem at 100% 10%,var(--g-p),transparent 55%),radial-gradient(55rem 45rem at 70% 110%,var(--g-b),transparent 60%),radial-gradient(40rem 30rem at 0% 90%,var(--g-o),transparent 60%),#1a1040;background-attachment:fixed}
+body:before{background:var(--g-v);opacity:.3}
+body:after{background:var(--g-p);opacity:.26}
+/* 光斑动态：缓慢漂移 + 呼吸缩放，与运营页 orb 节奏一致 */
+body:before{animation:authDrift1 26s ease-in-out infinite alternate}
+body:after{animation:authDrift2 32s ease-in-out infinite alternate}
+@keyframes authDrift1{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(7vw,5vh,0) scale(1.14)}}
+@keyframes authDrift2{from{transform:translate3d(0,0,0) scale(1.06)}to{transform:translate3d(-6vw,-4vh,0) scale(1)}}
+@media(prefers-reduced-motion:reduce){body:before,body:after{animation:none}}
+#mlsuite-auth-preview{--bg:#1a1040;--ink:#f3f4fb;--tx2:#dfe2f6;--mut:#b4b9d8;--ac:#c9b8ff;--cyan:#c9b8ff;--violet:#ff9ad8;--ok:#7cdbbb;--bad:#ff8998;--bd:rgba(255,255,255,.2);--bd2:rgba(255,255,255,.28);--glass:rgba(255,255,255,.085);--glass-border:rgba(255,255,255,.2);border:1px solid var(--glass-border);border-radius:26px;background:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,.05));backdrop-filter:blur(24px) saturate(150%);box-shadow:inset 0 1px 0 var(--glass-hi),0 28px 70px -24px rgba(10,5,40,.7)}
+#mlsuite-auth-preview .brand-mark{background:linear-gradient(135deg,#ff8ad8,#8b7bff);color:#fff;box-shadow:0 0 24px rgba(236,72,153,.3)}
+#mlsuite-auth-preview .auth-card,#mlsuite-auth-preview .feature,#mlsuite-auth-preview .live,#mlsuite-auth-preview .tabs{border-color:var(--glass-border);background:linear-gradient(135deg,rgba(255,255,255,.14),rgba(255,255,255,.045));backdrop-filter:blur(24px) saturate(150%)}
+#mlsuite-auth-preview .auth-card{border-radius:22px}
+#mlsuite-auth-preview .input{border-color:rgba(255,255,255,.22);background-color:rgba(20,28,48,.45);color:var(--ink)}
+#mlsuite-auth-preview .input:focus{border-color:var(--ac);box-shadow:0 0 0 3px rgba(201,184,255,.14)}
+#mlsuite-auth-preview .submit,#mlsuite-auth-preview .tab.active{background:var(--btn-grad);border-color:rgba(255,255,255,.3);color:#fff;box-shadow:0 8px 24px rgba(236,72,153,.28),inset 0 1px rgba(255,255,255,.4)}
+#mlsuite-auth-preview .feature-mark{background:linear-gradient(135deg,rgba(255,138,216,.22),rgba(139,123,255,.22));color:var(--violet)}
+</style>
+
+</body></html>
