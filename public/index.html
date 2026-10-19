@@ -238,7 +238,7 @@
       <div class="tabs" id="profitSubTabs"><button data-p="orders" class="on" type="button">按订单计算利润</button><button data-p="costs" type="button">Listing 成本与头程 <span class="cnt" id="profitCostCnt" hidden>0</span></button></div>
       <div class="panel" id="profitPanelOrders">
       <div class="card pad profit-order-card">
-        <div class="profit-order-head"><div><h2>按订单计算利润</h2><p>选择下单日期范围；订单收入 / 平台费按当地币显示，成本、头程与利润按人民币显示。Listing 汇总和整体净利润会扣除所选日期内的商品广告费，按中国银行牌价折算；逐单明细和订单件数保持原样，不重复分摊广告费。</p></div><div class="profit-order-controls">
+        <div class="profit-order-head"><div><h2>按订单计算利润</h2><p>选择下单日期范围；订单收入 / 平台费按当地币显示，成本、头程与订单利润按人民币显示。主页汇总读取所选期间 Product Ads 广告总额，按中国银行最新牌价折算并从总利润扣除；不分摊到 Listing，逐单明细和订单件数保持原样。</p></div><div class="profit-order-controls">
           <div class="seg" id="profitOrderRange"><button data-range="today" class="on">当天</button><button data-range="7">近 7 天</button><button data-range="30">近 30 天</button><button data-range="custom">自定义</button></div>
           <div class="profit-order-dates"><input type="date" id="profitOrderFrom"><span>至</span><input type="date" id="profitOrderTo"><button class="btn y" id="profitOrderApply" type="button">查询并计算</button></div>
         </div></div>
@@ -247,7 +247,7 @@
         <div class="profit-order-summary" id="profitOrderSummary" hidden></div>
         <div class="profit-products" id="profitProducts" hidden></div>
         <div class="profit-order-table-wrap"><table class="profit-order-table"><thead><tr><th>日期 / 订单</th><th>商品 / Listing ID</th><th>数量</th><th id="poThRev">订单收入（巴币）</th><th id="poThFee">销售费（巴币）</th><th id="poThShip">尾程运费（巴币）</th><th id="poThTax">税费（巴币）</th><th id="poThCost">成本与头程（人民币）</th><th id="poThProfit">订单利润（人民币）</th></tr></thead><tbody id="profitOrderRows"><tr><td colspan="9" class="empty">选择日期后查询订单</td></tr></tbody></table></div>
-        <p class="profit-disclaimer"><b>取消 / 退款单照样列出来</b>（行首带「已取消」徽章、整行置灰），只是不计入利润合计 —— 后台看到的售出件数就是<b>含取消单</b>的口径。订单按平台 <code>paging.total</code> <b>全量抓取</b>，不再有 500 条上限；单量过大时自动按天切片，避开接口 offset 上限。一笔订单买多件（同一 Listing 数量 &gt; 1）按件数计；一笔订单买多个不同商品时，该单会被拆成多行，<b>运费按实售价比例分摊，摊完加总恒等于整单运费，不会重复扣</b>。运费或销售费缺失时该行标记为待核对，不会按 0 计入利润。税费单独占一列并计入利润：平台返回 <code>order.taxes.amount</code> 有数字就用平台值；巴西站目前平台不代扣税（<code>order.taxes</code> 为空），按<b>订单收入 × 上方税率</b>估算（默认 8%，可在上方输入框修改；鼠标停在税费上也能看到说明），避免利润被算高。收入与费用的巴币值来自平台原始数据，成本与利润用中国银行最新牌价折成人民币，因此同一行里<b>不能直接相减</b>。平台广告费从 Product Ads 广告组读取：可对应商品 Listing 的广告费按商品汇总；无法对应单一 Listing 的费用单独显示并计入整体净利润。广告指标最多查询 90 天；接口不可用或中行牌价缺失时会明确标记，净利润显示待核对。广告费只在 Listing 汇总和整体净利润中扣一次，不修改逐单明细。最终结算仍以美客多账单核对。</p>
+        <p class="profit-disclaimer"><b>取消 / 退款单照样列出来</b>（行首带「已取消」徽章、整行置灰），只是不计入利润合计 —— 后台看到的售出件数就是<b>含取消单</b>的口径。订单按平台 <code>paging.total</code> <b>全量抓取</b>，不再有 500 条上限；单量过大时自动按天切片，避开接口 offset 上限。一笔订单买多件（同一 Listing 数量 &gt; 1）按件数计；一笔订单买多个不同商品时，该单会被拆成多行，<b>运费按实售价比例分摊，摊完加总恒等于整单运费，不会重复扣</b>。运费或销售费缺失时该行标记为待核对，不会按 0 计入利润。税费单独占一列并计入利润：平台返回 <code>order.taxes.amount</code> 有数字就用平台值；巴西站目前平台不代扣税（<code>order.taxes</code> 为空），按<b>订单收入 × 上方税率</b>估算（默认 8%，可在上方输入框修改；鼠标停在税费上也能看到说明），避免利润被算高。收入与费用的巴币值来自平台原始数据，成本与利润用中国银行最新牌价折成人民币，因此同一行里<b>不能直接相减</b>。所选期间广告总额从美客多 Product Ads 广告组读取，按中国银行最新牌价折算成人民币后仅从整体利润中扣除，不分摊至 Listing 或逐单明细。广告指标最多查询 90 天；接口不可用或中行牌价缺失时会明确标记，净利润显示待核对。最终结算以美客多账单核对。</p>
       </div></div>
       <div class="panel" id="profitPanelCosts" hidden>
       <div class="sales-filter profit-toolbar"><input id="profitSearch" class="profit-search" placeholder="搜索商品名称或 Listing ID"><span id="profitFxNote" class="profit-note">成本换算：等待中国银行牌价</span><div class="profit-actions" style="margin-left:auto"><button class="btn" id="profitRefresh" type="button">刷新商品/运费</button><button class="btn y" id="profitSave" type="button">保存 Listing 成本/运费</button></div></div>
@@ -699,7 +699,7 @@
 
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="vendor/pdf.min.js"></script>
-<script src="app.js?v=55"></script>
+<script src="app.js?v=56"></script>
 </body>
 </html>
 

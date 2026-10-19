@@ -209,10 +209,9 @@ function renderProfitOrders(data){
     +'<div class="profit-order-stat"><small>售出件数</small><b>'+fmt(totals.units||0)+'</b><small class="sub">有效 '+fmt(totals.validUnits||0)+' 件'+(deadUnits?(' · 取消 '+fmt(deadUnits)+' 件'):'')+'</small></div>'
     +'<div class="profit-order-stat"><small>可算商品行</small><b>'+fmt(totals.matched||0)+' / '+fmt(totals.validLines||0)+'</b><small class="sub">'+((totals.unmatched||0)?('待核对 '+fmt(totals.unmatched)+' 行'):'全部核算完成')+'</small></div>'
     +'<div class="profit-order-stat" title="折合 '+money(profitSumLocal,lcur)+'"><small>订单利润合计（人民币）</small><b class="'+(profitSum<0?'negative':'')+'">'+money(profitSum,'CNY')+'</b><small class="sub">有效 '+fmt(totals.profitUnits||0)+' 件计入</small></div>'
-    +'<div class="profit-order-stat"><small>广告费（'+escHtml(ads.currency||lcur)+'）</small><b class="'+(!ads.available?'pending':'')+'">'+(ads.available?money(ads.matchedCost||0,ads.currency||lcur):'待读取')+'</b><small class="sub">匹配 '+fmt(ads.matchedGroups||0)+' 个商品广告组</small></div>'
-    +'<div class="profit-order-stat"><small>扣广告后净利润（人民币）</small><b class="'+(afterAds!==null&&afterAds!==undefined&&Number(afterAds)<0?'negative':'')+'">'+(ads.available?money(afterAds,'CNY'):'—')+'</b><small class="sub">'+(ads.available?'广告费按 Listing 匹配并按中行牌价折算':escHtml(ads.error||'广告数据暂不可用'))+'</small></div>'
-    +'<div class="profit-order-stat"><small>未匹配广告费（'+escHtml(ads.currency||lcur)+'）</small><b class="'+((ads.unmatchedCost||0)>0?'pending':'')+'">'+(ads.available?money(ads.unmatchedCost||0,ads.currency||lcur):'—')+'</b><small class="sub">'+(ads.available?'无法对应单个 Listing 的广告组': '广告数据未成功读取')+'</small></div>'
-    +'<div class="profit-order-stat"><small>整体利润率</small><b>'+(totals.margin==null?'—':Number(totals.margin).toFixed(2)+'%')+'</b><small class="sub">订单利润 ÷ 收入</small></div>';
+    +'<div class="profit-order-stat"><small>当前期间广告总额（'+escHtml(ads.currency||lcur)+'）</small><b class="'+(!ads.available?'pending':'')+'">'+(ads.available?money(ads.costLocal,ads.currency||lcur):'待读取')+'</b><small class="sub">'+(ads.available?'折合 '+money(ads.costCny,'CNY')+(ads.fxCnyPer100?' · 中行牌价 '+Number(ads.fxCnyPer100).toFixed(2)+'/100 '+escHtml(ads.currency):'')+(ads.fxPublishedAt?' · '+escHtml(ads.fxPublishedAt):''):escHtml(ads.error||'广告数据暂不可用'))+'</small></div>'
+    +'<div class="profit-order-stat"><small>扣除广告费后净利润（人民币）</small><b class="'+(afterAds!==null&&afterAds!==undefined&&Number(afterAds)<0?'negative':'')+'">'+(ads.available?money(afterAds,'CNY'):'—')+'</b><small class="sub">订单利润减去当前期间广告总额</small></div>'
+    +'<div class="profit-order-stat"><small>广告前利润率</small><b>'+(totals.margin==null?'—':Number(totals.margin).toFixed(2)+'%')+'</b><small class="sub">订单利润 ÷ 收入</small></div>';
   renderProfitProducts(data);
   if(!items.length){rows.innerHTML='<tr><td colspan="9" class="empty">所选日期范围内没有订单</td></tr>';return;}
   rows.innerHTML=items.map(x=>{
@@ -271,9 +270,7 @@ function renderProfitProducts(data){
       +'<div class="pp-metrics"><span class="pp-units"><b>'+fmt(p.units||0)+'</b> 件</span><span class="pp-orders">'+fmt(p.orders||0)+' 单</span>'
         +((Number(p.cancelledUnits)||0)?'<span class="pp-dead" title="该 Listing 在所选区间有取消 / 退款件数，不计入利润">取消 '+fmt(p.cancelledUnits)+' 件</span>':'')+'</div>'
       +'<div class="pp-money"><span title="折合 '+money(p.revenueCny,'CNY')+'">收入 '+money(p.revenue,lcur)+'</span>'
-        +'<span>广告费 '+(p.adCostCny===null||p.adCostCny===undefined?'待核对':money(p.adCostLocal, data.ads?.currency||lcur)+' · '+money(p.adCostCny,'CNY'))+'</span></div>'
-      +'<div class="pp-money"><span>广告前利润 '+money(profit,'CNY')+'</span>'
-        +'<span class="pp-profit '+((p.profitAfterAdsCny??profit)<0?'negative':'')+'">扣广告后 '+(p.profitAfterAdsCny===null||p.profitAfterAdsCny===undefined?'待核对':money(p.profitAfterAdsCny,'CNY'))+'</span></div>'
+        +'<span class="pp-profit '+cls+'">利润 '+money(profit,'CNY')+'</span></div>'
       +'<div class="pp-metrics"><span class="pp-margin">利润率 '+(p.margin==null?'—':Number(p.margin).toFixed(2)+'%')+'</span>'
         +(pending>0?'<span class="pp-warn">'+fmt(pending)+' 行待核对</span>':'')+'</div>'
       +'</div>';
@@ -284,7 +281,7 @@ function renderProfitProducts(data){
   box.hidden=false;
   box.innerHTML='<div class="pp-head"><h3>产品出单统计<span class="pp-count">'+fmt(list.length)+' 个产品</span></h3>'
     +'<p>按 Listing 汇总所选区间：有效 <b>'+fmt(validUnits)+'</b> 件'+(deadUnits?(' · 取消 / 退款 <b>'+fmt(deadUnits)+'</b> 件'):'')
-    +' · 广告费仅在 Listing 汇总与总净利润中扣一次，不改变逐单行和订单件数 · 点卡片可打开该 Listing</p></div>'
+    +' · Listing 利润保持原口径；广告总额只从页面总利润中扣除，不分摊到商品 · 点卡片可打开该 Listing</p></div>'
     +'<div class="pp-grid">'+cards+'</div>';
 }
 async function loadProfitOrders(refresh=false){
@@ -299,8 +296,7 @@ async function loadProfitOrders(refresh=false){
       +' · 有效 '+fmt(T.orders||0)+' 单 / '+fmt(T.validUnits||0)+' 件'
       +((T.cancelledOrders)?' · 取消/退款 '+fmt(T.cancelledOrders)+' 单（'+fmt(T.cancelledUnits||0)+' 件，已列在表里并置灰，不计利润）':'')
       +' · 共售出 '+fmt(T.units||0)+' 件'
-      +(d.ads?.available?' · 广告费已匹配 '+fmt(d.ads.matchedGroups||0)+' 个商品广告组': ' · 广告费未计入净利润：'+(d.ads?.error||'广告数据读取失败'))
-      +(d.ads?.available&&(d.ads.unmatchedCost||0)>0?' · 有 '+money(d.ads.unmatchedCost,d.ads.currency||'BRL')+' 广告费无法匹配到 Listing':'')
+      +(d.ads?.available?' · 已读取当前期间广告总额 '+money(d.ads.costLocal,d.ads.currency||'BRL')+'（折合 '+money(d.ads.costCny,'CNY')+'）': ' · 广告费未计入净利润：'+(d.ads?.error||'广告数据读取失败'))
       +' · 已计算 '+fmt(T.matched||0)+' / '+fmt(T.validLines||0)+' 行'
       +((T.unmatched||0)?' · '+fmt(T.unmatched)+' 行待核对，请查看各行原因':'')
       +(d.cached?' · 缓存数据':' · 已更新');}
