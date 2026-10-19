@@ -1239,6 +1239,7 @@ const listingsCache = { key: '', at: 0, data: null };
 const profitCache = new Map();
 const profitOrderCache = new Map();
 const shipmentCostCache = new Map();
+const warehouseStockCache = new Map();
 
 // ---- 运费成本持久缓存 ----
 // 一单的运费在发货之后就不再变了，但原来只放在内存 Map（1 小时 TTL）：
@@ -1631,6 +1632,53 @@ app.put('/api/ml/profit/items/:id', (req,res)=>{
   const all=readProfitCosts();all[id]=next;saveProfitCosts(all);
   const prefix=auth.currentUserId()+'|'; for(const key of profitCache.keys())if(key.startsWith(prefix))profitCache.delete(key);for(const key of profitOrderCache.keys())if(key.startsWith(prefix))profitOrderCache.delete(key);
   res.json({ok:true,cost:next});
+});
+
+// ---- Fulfillment 平台仓库存：按 Listing 汇总可售及不可售库存 ----
+app.get('/api/ml/warehouse-stock', async (req,res)=>{
+  const cfg=loadConfig();
+  if(!mlConfigured(cfg))return res.json({ok:false,needConfig:true,message:'尚未配置美客多 API 凭证'});
+  if(!mlAuthorized(cfg))return res.json({ok:false,needAuth:true,message:'请先完成美客多账号授权'});
+  try{
+    const u=await mlUser(), key=String(auth.currentUserId())+'|'+u.id, cached=warehouseStockCache.get(key);
+    if(!req.query.refresh&&cached&&Date.now()-cached.at<60000)return res.json({...cached.data,cached:true});
+    const ids=[];let offset=0,total=0;
+    while(offset<1000){
+      const d=await mlRequest(`/users/${encodeURIComponent(u.id)}/items/search?status=active&limit=100&offset=${offset}`);
+      const batch=d?.results||[];total=Number(d?.paging?.total||batch.length);ids.push(...batch.map(String));offset+=batch.length;
+      if(!batch.length||offset>=total)break;
+    }
+    const all=[];
+    for(let i=0;i<ids.length;i+=20){
+      const d=await mlRequest(`/items?ids=${ids.slice(i,i+20).join(',')}&attributes=id,title,permalink,thumbnail,status,shipping,inventory_id,available_quantity,variations`);
+      for(const row of(Array.isArray(d)?d:[])){const item=row?.body;if(item?.id&&item.status==='active')all.push(item);}
+    }
+    const listings=all.filter(item=>item.shipping?.logistic_type==='fulfillment'||(item.variations||[]).some(v=>v.inventory_id));
+    const work=[],stockByKey=new Map();
+    for(const item of listings){
+      const vars=Array.isArray(item.variations)&&item.variations.length?item.variations:null;
+      const stockUnits=vars?vars.map(v=>({inventoryId:String(v.inventory_id||''),variationId:String(v.id||''),label:(v.attribute_combinations||[]).map(a=>a.value_name).filter(Boolean).join(' / ')})):[{inventoryId:String(item.inventory_id||''),variationId:'',label:''}];
+      for(const unit of stockUnits){
+        if(unit.inventoryId)work.push({item,unit});
+        else {const group=stockByKey.get(String(item.id))||[];group.push({id:String(item.id),inventoryId:'',variationId:unit.variationId,label:unit.label,available:null,notAvailable:null,total:null,detail:[],error:'该变体缺少库存编号'});stockByKey.set(String(item.id),group);}
+      }
+    }
+    for(let i=0;i<work.length;i+=8){
+      const results=await Promise.all(work.slice(i,i+8).map(async({item,unit})=>{
+        try{
+          const d=await mlRequest(`/inventories/${encodeURIComponent(unit.inventoryId)}/stock/fulfillment`);
+          return {id:String(item.id),inventoryId:unit.inventoryId,variationId:unit.variationId,label:unit.label,available:Number(d?.available_quantity),notAvailable:Number(d?.not_available_quantity),total:Number(d?.total),detail:Array.isArray(d?.not_available_detail)?d.not_available_detail:[],error:''};
+        }catch(e){return {id:String(item.id),inventoryId:unit.inventoryId,variationId:unit.variationId,label:unit.label,available:null,notAvailable:null,total:null,detail:[],error:e.status===403?'无库存接口权限':e.status===404?'库存编号未关联该账号':e.message||'读取失败'};}
+      }));
+      for(const row of results){const group=stockByKey.get(row.id)||[];group.push(row);stockByKey.set(row.id,group);}
+    }
+    const rows=listings.map(item=>{
+      const units=stockByKey.get(String(item.id))||[],complete=units.length>0&&units.every(x=>Number.isFinite(x.available));
+      return {id:String(item.id),title:String(item.title||''),permalink:String(item.permalink||''),thumbnail:String(item.thumbnail||''),available:complete?units.reduce((s,x)=>s+x.available,0):null,notAvailable:complete?units.reduce((s,x)=>s+(Number(x.notAvailable)||0),0):null,total:complete?units.reduce((s,x)=>s+(Number(x.total)||0),0):null,variations:units,errors:units.filter(x=>x.error).map(x=>x.error),missingInventoryId:units.length===0};
+    }).sort((a,b)=>(a.available??-1)-(b.available??-1)||a.title.localeCompare(b.title,'zh-CN'));
+    const data={ok:true,rows,totalListings:total,loadedListings:all.length,truncated:total>ids.length,updatedAt:Date.now(),summary:{listings:rows.length,available:rows.reduce((s,x)=>s+(x.available||0),0),notAvailable:rows.reduce((s,x)=>s+(x.notAvailable||0),0),unknown:rows.filter(x=>x.available===null||x.errors.length>0).length}};
+    warehouseStockCache.set(key,{at:Date.now(),data});res.json(data);
+  }catch(e){sendMlError(res,e);}
 });
 
 app.get('/api/ml/listings', async (req, res) => {

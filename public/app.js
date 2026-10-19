@@ -94,9 +94,11 @@ function hideSplash() {
 $('#skip').onclick = hideSplash;
 $('#replay').onclick = splash;
 
-const TT = { hub: '概览', ads: '广告投放', orders: '订单管理', questions: '商品问答', claims: '退货与投诉', rank: '关键词排名', box: '箱唛裁切', profit: '产品利润' };
+const TT = { hub: '概览', ads: '广告投放', orders: '订单管理', questions: '商品问答', claims: '退货与投诉', rank: '关键词排名', box: '箱唛裁切', profit: '产品利润', warehouse: '平台仓库存' };
 let currentView = 'hub';
 let profitItems = [];
+let warehouseRows = [];
+let warehouseLoading = false;
 
 function go(v, push = true) {
   currentView = v;
@@ -106,6 +108,7 @@ function go(v, push = true) {
   if (v === 'questions') loadQuestions();
   if (v === 'claims') loadClaims();
   if (v === 'profit') { loadProfitListings(); loadProfitOrders(); }
+  if (v === 'warehouse') loadWarehouseStock();
   $$('.view').forEach(e => e.classList.toggle('on', e.id === 'v-' + v));
   $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.go === v));
   $('#ct').textContent = TT[v];
@@ -133,6 +136,29 @@ async function loadProfitListings(refresh=false) {
   const status=$('#profitStatus');if(!status)return;status.textContent='正在同步当前账户的在售 Listing…';
   try { const d=await mlGet('/api/ml/profit/listings'+(refresh?'?refresh=1':''));profitItems=d.items||[];const rates=profitItems.filter(x=>x.fxCnyPer100),quote=rates.map(x=>x.fxPublishedAt).filter(Boolean).sort().at(-1);$('#profitFxNote').textContent=rates.length?'汇率：中国银行现汇卖出价（无现汇牌价时用中行折算价，人民币/100当地币）'+(quote?' · 牌价 '+quote:''):'中国银行暂无在售币种牌价，相关利润待核对。';renderProfitListings(); }
   catch(e){profitItems=[];status.textContent=e.message;$('#profitRows').innerHTML='<tr><td colspan="9" class="empty">'+escHtml(e.message)+'</td></tr>';}
+}
+function renderWarehouseStock(){
+  const q=($('#warehouseSearch')?.value||'').trim().toLowerCase(),tbody=$('#warehouseRows');if(!tbody)return;
+  const rows=warehouseRows.filter(x=>!q||x.title.toLowerCase().includes(q)||x.id.toLowerCase().includes(q));
+  tbody.innerHTML=rows.length?rows.map(x=>{
+    const detail=x.variations.flatMap(v=>v.detail.map(d=>({status:d.status,quantity:d.quantity,label:v.label}))).filter(d=>Number(d.quantity)>0);
+    const notes=[];if(x.missingInventoryId)notes.push('缺少库存编号');for(const e of x.errors)if(!notes.includes(e))notes.push(e);
+    const state=detail.map(d=>'<span class="warehouse-state">'+escHtml(d.status)+' '+escHtml(d.quantity)+(d.label?' · '+escHtml(d.label):'')+'</span>').join('');
+    return '<tr><td><div class="profit-product">'+(x.thumbnail?'<img src="'+escHtml(x.thumbnail)+'" alt="">':'<span class="profit-thumb">ML</span>')+'<div><a target="_blank" rel="noopener" href="'+escHtml(x.permalink)+'">'+escHtml(x.title||('Listing '+x.id))+'</a><small>'+escHtml(x.id)+'</small></div></div></td><td class="warehouse-number">'+(x.available==null?'<span class="warehouse-unknown">待确认</span>':escHtml(x.available))+'</td><td class="warehouse-number">'+(x.notAvailable==null?'—':escHtml(x.notAvailable))+'</td><td class="warehouse-number">'+(x.total==null?'—':escHtml(x.total))+'</td><td>'+(state||'—')+(notes.length?'<small class="warehouse-error">'+notes.map(escHtml).join(' · ')+'</small>':'')+'</td></tr>';
+  }).join(''):'<tr><td colspan="5" class="empty">'+(warehouseRows.length?'没有匹配的 Listing':'当前账户没有检测到平台仓 Listing')+'</td></tr>';
+}
+async function loadWarehouseStock(refresh=false){
+  const status=$('#warehouseUpdated'),body=$('#warehouseRows'),button=$('#warehouseRefresh');if(!status||!body)return;
+  if(warehouseLoading)return;warehouseLoading=true;
+  if(button&&refresh){button.disabled=true;button.textContent='正在刷新…';}
+  status.textContent='正在同步平台仓库存…';
+  try{
+    const d=await mlGet('/api/ml/warehouse-stock'+(refresh?'?refresh=1':''));if(!d.ok)throw Error(d.message||'库存读取失败');
+    warehouseRows=d.rows||[];const s=d.summary||{};
+    $('#warehouseListingCount').textContent=String(s.listings??warehouseRows.length);$('#warehouseAvailable').textContent=String(s.available??0);$('#warehouseNotAvailable').textContent=String(s.notAvailable??0);$('#warehouseUnknown').textContent=String(s.unknown??0);
+    renderWarehouseStock();const date=new Date(d.updatedAt||Date.now());status.textContent='最近更新：'+date.toLocaleString('zh-CN')+(d.cached?' · 缓存数据':'')+(d.truncated?' · Listing 超过接口单次统计范围，结果可能不完整':'');
+  }catch(e){body.innerHTML='<tr><td colspan="5" class="empty">'+escHtml(e.message)+'</td></tr>';status.textContent='库存同步失败：'+e.message;}
+  finally{warehouseLoading=false;if(button&&refresh){button.disabled=false;button.textContent='立即刷新';}}
 }
 function setProfitOrderRange(range,run=true){
   const today=brToday(),from=range==='7'?addDays(today,-6):range==='30'?addDays(today,-29):today;
@@ -344,6 +370,10 @@ function bindProfitEvents(){
     catch(err){$('#profitStatus').textContent=err.message;}
   });
 }
+
+$('#warehouseRefresh')?.addEventListener('click',()=>loadWarehouseStock(true));
+$('#warehouseSearch')?.addEventListener('input',renderWarehouseStock);
+setInterval(()=>{if(currentView==='warehouse')loadWarehouseStock();},300000);
 
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-go]');
