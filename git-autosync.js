@@ -49,6 +49,9 @@ const QUIET_MS = Number(process.env.SYNC_QUIET_MS) || 25 * 1000;
 const MAX_WAIT_MS = Number(process.env.SYNC_MAX_WAIT_MS) || 5 * 60 * 1000;
 const PUSH_BACKOFF_MAX = 5 * 60 * 1000;
 const LOG_MAX_BYTES = 1024 * 1024;   // 同步日志超过 1MB 自动截断，别无限长
+// 拉取间隔：工作区干净时每 2 分钟 fetch 一次，看远端（别的 AI / 别的机器）有没有新提交。
+// 老版本只 push 不 fetch，所以远端推上来的改动永远进不了本机 —— 单向半闭环。
+const FETCH_MS = Number(process.env.SYNC_FETCH_MS) || 2 * 60 * 1000;
 
 // GIT_TERMINAL_PROMPT=0：凭据失效时立刻报错，而不是弹窗卡死一个后台进程
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', LC_ALL: 'C' };
@@ -131,6 +134,52 @@ function gitBusy() {
 function aheadCount() {
   const r = git(['rev-list', '--count', 'origin/' + BRANCH + '..HEAD']);
   return r.ok ? (parseInt(r.out, 10) || 0) : 0;
+}
+
+// 远端比本地多几个提交（本机落后多少）
+function behindCount() {
+  const r = git(['rev-list', '--count', 'HEAD..origin/' + BRANCH]);
+  return r.ok ? (parseInt(r.out, 10) || 0) : 0;
+}
+
+// ---- 从远端拉 ----
+// 只在工作区干净时合入：正在编辑的文件被 rebase 换掉，热重载会读到半成品。
+// --autostash 是双保险，万一有残留改动也不会丢。
+let lastFetchAt = 0;
+let lastPulledHead = '';
+
+function syncFromRemote(force) {
+  const now = Date.now();
+  if (!force && now - lastFetchAt < FETCH_MS) return false;
+  lastFetchAt = now;
+
+  const f = git(['fetch', '--quiet', 'origin', BRANCH]);
+  if (!f.ok) {
+    log('拉取远端状态失败（本地不受影响，稍后重试）：' + (f.err || f.out).slice(0, 200));
+    return false;
+  }
+
+  const behind = behindCount();
+  if (!behind) return false;
+
+  const remoteHead = git(['rev-parse', '--short', 'origin/' + BRANCH]).out;
+  if (remoteHead && remoteHead === lastPulledHead) return false;
+
+  log('远端有 ' + behind + ' 个新提交（' + remoteHead + '），开始合入…');
+  const r = git(['pull', '--rebase', '--autostash', 'origin', BRANCH]);
+  if (r.ok) {
+    const head = git(['rev-parse', '--short', 'HEAD']).out;
+    lastPulledHead = remoteHead;
+    log('已合入远端 ' + behind + ' 个提交，本地现在是 ' + head + '。');
+    // 合进来的若是 .js 改动，热重载会自己重启服务，这里只提示一下
+    log('（若改动涉及后端代码，服务会自动热重启，无需手动操作）');
+    return true;
+  }
+
+  log('合入远端失败（可能有冲突），已撤销 rebase，本地提交保持完整：' + (r.err || r.out).slice(0, 300));
+  git(['rebase', '--abort']);
+  lastPulledHead = remoteHead;   // 避免同一批提交反复撞
+  return false;
 }
 
 function tryPush() {
@@ -218,10 +267,11 @@ function tick() {
 
   const files = st.out ? st.out.split('\n').map((s) => s.trim()).filter(Boolean) : [];
 
-  // 工作区干净 → 如果还有没推上去的提交，补推
+  // 工作区干净 → 先把本地没推的补推掉，没得推就去远端看看有没有新东西
   if (!files.length) {
     dirtySince = 0; lastSig = ''; lastChangeAt = 0;
-    if (aheadCount() > 0) tryPush();
+    if (aheadCount() > 0) { tryPush(); return; }
+    syncFromRemote();
     return;
   }
 
@@ -247,13 +297,25 @@ function tick() {
 }
 
 // ---- 启动 ----
+const ONCE = process.argv.includes('--once');
 log('自动同步已启动（PID ' + process.pid + '）：每 ' + Math.round(POLL_MS / 1000) + ' 秒检查一次，'
-  + '停手 ' + Math.round(QUIET_MS / 1000) + ' 秒即自动提交并推送到 origin/' + BRANCH + '（连改时最多 ' + Math.round(MAX_WAIT_MS / 60000) + ' 分钟兜底一次）。');
+  + '停手 ' + Math.round(QUIET_MS / 1000) + ' 秒即自动提交并推送到 origin/' + BRANCH + '（连改时最多 ' + Math.round(MAX_WAIT_MS / 60000) + ' 分钟兜底一次）；'
+  + '空闲时每 ' + Math.round(FETCH_MS / 60000) + ' 分钟拉一次远端，别人推上来的改动会自动合入。');
 if (fs.existsSync(PAUSE_FLAG)) log('注意：.sync-pause 存在，当前处于暂停状态。');
 
 const head = git(['rev-parse', '--short', 'HEAD']);
-const behind = git(['rev-list', '--count', 'HEAD..origin/' + BRANCH]);
-log('当前 HEAD ' + head.out + (behind.ok && Number(behind.out) > 0 ? '，落后远端 ' + behind.out + ' 个提交（下次有改动时会 rebase）' : ''));
+log('当前 HEAD ' + head.out);
+
+if (ONCE) {
+  // 手动跑一轮：先在本地检查改动 / 补推，再强制拉一次远端。给 sync-status 和排查用。
+  lastFetchAt = 0;
+  tick();
+  syncFromRemote(true);
+  const h2 = git(['rev-parse', '--short', 'HEAD']).out;
+  const st = gitStatusPorcelain();
+  log('单轮结束：HEAD ' + h2 + '，工作区' + (st.out ? '有未提交改动（下次静默 25 秒后会提交）' : '干净') + '，领先远端 ' + aheadCount() + ' 个提交。');
+  process.exit(0);
+}
 
 tick();
 // 注意：这里**不能** unref，否则事件循环里没有引用者，进程跑完第一轮就退出了
