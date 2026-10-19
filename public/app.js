@@ -2074,8 +2074,8 @@ async function loadAds(force) {
 }
 
 function renderHubAds(d) {
-  const note=$('#hubAdsNote');if(!d){const ids=['hubAdsCost','hubAdCostDetail','hubAdSales','hubAdAcos','hubAdRoas','hubAdOrders','hubAdUnits'];for(const id of ids){const e=$('#'+id);if(e)e.textContent='—';}const fx=$('#hubAdsFx');if(fx)fx.textContent='广告数据暂不可用';if(note)note.textContent='请检查 API 授权或刷新重试';return;}
-  const t=d.totals||{},cur=d.currency||'BRL',set=(id,v)=>{const e=$('#'+id);if(e)e.textContent=v;};set('hubAdsCost',money(t.cost,cur));set('hubAdCostDetail',money(t.cost,cur));set('hubAdSales',money(t.totalAmount,cur));set('hubAdAcos',t.totalAmount>0?pct(t.acos):'—');set('hubAdRoas',t.cost>0?ratioStr(t.roas):'—');set('hubAdOrders','—');set('hubAdUnits',fmt(t.units||0)+' 件');const fx=$('#hubAdsFx');if(fx)fx.textContent=cur+' · 美客多广告原币';if(note)note.textContent='范围 '+(d.range?.from||adsView.from)+' 至 '+(d.range?.to||adsView.to)+(d.cached?' · 缓存':'');renderHubTrend();
+  const note=$('#hubAdsNote');if(!d){const ids=['hubAdsCost','hubAdCostDetail','hubAdSales','hubAdAcos','hubAdRoas','hubAdUnits'];for(const id of ids){const e=$('#'+id);if(e)e.textContent='—';}const fx=$('#hubAdsFx');if(fx)fx.textContent='广告数据暂不可用';if(note)note.textContent='请检查 API 授权或刷新重试';return;}
+  const t=d.totals||{},cur=d.currency||'BRL',set=(id,v)=>{const e=$('#'+id);if(e)e.textContent=v;};set('hubAdsCost',money(t.cost,cur));set('hubAdCostDetail',money(t.cost,cur));set('hubAdSales',money(t.totalAmount,cur));set('hubAdAcos',t.totalAmount>0?pct(t.acos):'—');set('hubAdRoas',t.cost>0?ratioStr(t.roas):'—');set('hubAdUnits',fmt(t.units||0)+' 件');const fx=$('#hubAdsFx');if(fx)fx.textContent=cur+' · 美客多广告原币';if(note)note.textContent='范围 '+(d.range?.from||adsView.from)+' 至 '+(d.range?.to||adsView.to)+(d.cached?' · 缓存':'');renderHubTrend();
 }
 function renderAds(d) {
   renderHubAds(d);
