@@ -89,7 +89,6 @@ function hideSplash() {
   clearTimeout(spT);
   $('#splash').classList.add('leave');
   document.body.classList.add('ready');
-  setTimeout(() => { if (currentView === 'hub') drawChart(); }, 600);
 }
 $('#skip').onclick = hideSplash;
 $('#replay').onclick = splash;
@@ -102,7 +101,7 @@ let warehouseLoading = false;
 
 function go(v, push = true) {
   currentView = v;
-  if (v === 'hub') setTimeout(() => { drawChart(); loadOrderSummary(); loadSales(); loadListings(); }, 60);
+  if (v === 'hub') setTimeout(() => { loadOrderSummary(); loadSales(); loadListings(); loadHubExtras(); }, 60);
   if (v === 'ads') { loadAds(); loadAdsHourly(); }
   if (v === 'orders') loadOrders();
   if (v === 'questions') loadQuestions();
@@ -398,54 +397,6 @@ function initRouting() {
    ========================================================= */
 function fmt(n) { return Number(n || 0).toLocaleString('en-US'); }
 
-function sparklines() {
-  $$('.spk').forEach(e => {
-    const v = (e.dataset.v || '0').split(',').map(Number);
-    if (!v.length || v.every(x => !x)) { e.innerHTML = ''; return; }
-    const mx = Math.max(...v), mn = Math.min(...v), w = 96, h = 28;
-    e.innerHTML = `<svg viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" points="${v.map((a, i) => `${(i * w / (v.length - 1)).toFixed(1)},${(h - 2 - (a - mn) / ((mx - mn) || 1) * (h - 4)).toFixed(1)}`).join(' ')}"/></svg>`;
-  });
-}
-
-function rnd(seed) { let s = seed; return () => ((s = (s * 16807) % 2147483647) / 2147483647); }
-
-function drawChart() {
-  const k = +$('#cp .on').dataset.p, n = k;
-  const r = rnd(k * 97 + 3);
-  const base = k === 12 ? 900 : k === 30 ? 60 : 70;
-  const up = k === 12 ? 3.2 : k === 30 ? 1.9 : 1.5;
-  const v = [...Array(n)].map((_, i) => Math.round(base * (1 + (up - 1) * i / (n - 1)) * (.9 + r() * .2)));
-  const W = 800, H = 260, L = 44, R = 16, T = 18, B = 30;
-  const mx = Math.max(...v) * 1.12;
-  const x = i => L + i * (W - L - R) / (n - 1);
-  const y = a => H - B - a / mx * (H - T - B);
-  let d = `M${x(0)} ${y(v[0])}`;
-  for (let i = 1; i < n; i++) { const c = (x(i - 1) + x(i)) / 2; d += `C${c} ${y(v[i - 1])} ${c} ${y(v[i])} ${x(i)} ${y(v[i])}`; }
-  const lab = i => k === 12 ? (i + 1) + '月' : k === 7 ? ['一', '二', '三', '四', '五', '六', '日'][i] : (i + 1) + '日';
-  const step = k === 30 ? 5 : 1;
-  let g = '';
-  for (let j = 0; j <= 4; j++) { const a = mx / 1.12 * j / 4, yy = y(a); g += `<line class="gl2" x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}"/><text class="tx" x="${L - 8}" y="${yy + 4}" text-anchor="end">${Math.round(a)}</text>`; }
-  for (let i = 0; i < n; i += step) g += `<text class="tx" x="${x(i)}" y="${H - 8}" text-anchor="middle">${lab(i)}</text>`;
-  $('#cs').innerHTML = `<defs><linearGradient id="lg" x1="0" x2="1"><stop offset="0" stop-color="#60a5fa"/><stop offset="1" stop-color="#3b82f6"/></linearGradient><linearGradient id="ag" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#3b82f6" stop-opacity=".35"/><stop offset="1" stop-color="#3b82f6" stop-opacity="0"/></linearGradient></defs>${g}<path class="ar2" d="${d}L${x(n - 1)} ${H - B}L${x(0)} ${H - B}Z"/><path class="ln" pathLength="1" d="${d}"/><circle class="ep" cx="${x(n - 1)}" cy="${y(v[n - 1])}" r="6"/><circle class="ed" cx="${x(n - 1)}" cy="${y(v[n - 1])}" r="5"/><line class="cx" id="cx" y1="${T}" y2="${H - B}"/><circle class="hd" id="hd" r="5"/>`;
-
-  const s = v.reduce((a, b) => a + b, 0);
-  const h = Math.max(1, Math.floor(n / 3));
-  const gr = (v.slice(-h).reduce((a, b) => a + b, 0) / v.slice(0, h).reduce((a, b) => a + b, 0) - 1) * 100;
-  countUp($('#kg'), gr, e => '+' + e.toFixed(1) + '%');
-  countUp($('#kt'), s, e => fmt(Math.round(e)));
-
-  const svg = $('#cs'), tip = $('#tip'), cx = $('#cx'), hd = $('#hd');
-  svg.onmousemove = e => {
-    const rc = svg.getBoundingClientRect(), px = (e.clientX - rc.left) / rc.width * W;
-    const i = Math.max(0, Math.min(n - 1, Math.round((px - L) / ((W - L - R) / (n - 1)))));
-    cx.setAttribute('x1', x(i)); cx.setAttribute('x2', x(i)); cx.style.opacity = 1;
-    hd.setAttribute('cx', x(i)); hd.setAttribute('cy', y(v[i])); hd.style.opacity = 1;
-    tip.innerHTML = `<span>${k === 12 ? (i + 1) + ' 月' : k === 7 ? '周' + lab(i) : (i + 1) + ' 日'}</span><b>${fmt(v[i])} 件</b>`;
-    tip.style.left = x(i) / W * 100 + '%'; tip.style.top = y(v[i]) / H * rc.height + 'px'; tip.style.opacity = 1;
-  };
-  svg.onmouseleave = () => { cx.style.opacity = 0; hd.style.opacity = 0; tip.style.opacity = 0; };
-}
-
 function countUp(el, to, fmtf, ms = 1500) {
   cancelAnimationFrame(el._r);
   const t0 = performance.now();
@@ -456,7 +407,6 @@ function countUp(el, to, fmtf, ms = 1500) {
   })(t0);
 }
 
-$$('#cp button').forEach(b => b.onclick = () => { $$('#cp button').forEach(x => x.classList.toggle('on', x === b)); drawChart(); });
 
 // 实时热搜词（真实数据：大麦数据 MCP）
 // 热度口径 = 该关键词 Top100 商品的「近30天销量合计」，归一化到 0-100（后端算好的）。
@@ -873,17 +823,9 @@ function showCfgStatus(msg, type) {
   el.textContent = msg; el.className = 'config-status ' + type; el.style.display = 'block';
 }
 function updateOverviewConfig(c) {
-  const ts = c.productTitles.length;
-  $('#kpi-keywords').textContent = c.keyword || '—';
-  $('#kpi-titles').textContent = ts || '—';
   $('#task-schedule').textContent = c.scheduleEnabled ? `每日 ${c.scheduleHour}:${String(c.scheduleMinute).padStart(2, '0')} 发送` : '未启用';
   const st = $('#status-schedule');
   st.innerHTML = c.scheduleEnabled ? '<i></i>已启用' : '<i class="off"></i>未启用';
-  // 基于配置更新 sparkline 数据（模拟）
-  const kpi = $$('.kpi');
-  kpi[0].querySelector('.spk').dataset.v = [ts, ts, ts + 1, ts + 1, ts + 2, ts + 2, ts + 3, ts + 3].join(',');
-  kpi[3].querySelector('.spk').dataset.v = [0, 0, Math.min(ts, 10), Math.min(ts * 2, 20), Math.min(ts * 3, 40), Math.min(ts * 4, 60), Math.min(ts * 5, 80), Math.min(ts * 6, 100)].join(',');
-  sparklines();
 }
 
 /* ---------- 发报运行状态（上次/下次发送）----------
@@ -1543,10 +1485,10 @@ function toolError(stateEl, body, e, retry) {
 /* ---- 概览：实时订单看板 ---- */
 let mlSummaryAt = 0;
 function clearSummary() {
-  ['ml-today', 'ml-pending', 'ml-shipped', 'ml-cancelled'].forEach(id => { const e = $('#' + id); if (e) e.textContent = '—'; });
+  ['ml-pending', 'ml-shipped', 'ml-cancelled', 'hub-q', 'hub-c'].forEach(id => { const e = $('#' + id); if (e) e.textContent = '—'; });
   const a = $('#ml-today-amt'); if (a) a.textContent = '—';
   const u = $('#mlUpdated'); if (u) u.textContent = '尚未同步';
-  ['nb-q', 'nb-o', 'nb-c', 'tc-q', 'tc-o', 'tc-c'].forEach(id => setBadge(id, 0));
+  ['nb-q', 'nb-o', 'nb-c'].forEach(id => setBadge(id, 0));
 }
 function showMlHint(t) { const e = $('#mlHint'); if (e) { e.textContent = t; e.style.display = 'block'; } }
 function hideMlHint() { const e = $('#mlHint'); if (e) e.style.display = 'none'; }
@@ -1595,14 +1537,11 @@ function applySummary(d) {
   setStateEl($('#mlState'), 'ok', '实时');
   hideMlHint();
   const set = (id, v) => { const e = $('#' + id); if (e) e.textContent = (v == null) ? '—' : fmt(v); };
-  set('ml-today', d.today);
   // 待发货 = 需要我动手发货的自发货/打面单订单；官方代发的不算
   const needShip = (d.pendingTodo != null) ? d.pendingTodo : d.pending;
   set('ml-pending', needShip);
   set('ml-shipped', d.shipped);
   set('ml-cancelled', d.cancelled);
-  const amt = $('#ml-today-amt');
-  if (amt) amt.textContent = d.todayAmount ? money(d.todayAmount, d.currency) : '今日暂未成交';
   const po = $('#ml-pending');
   if (po && po.parentElement) po.parentElement.classList.toggle('alert', (needShip || 0) > 0);
   const ps = $('#ml-pending-sub');
@@ -1611,9 +1550,11 @@ function applySummary(d) {
     : '自发货/打面单才提醒';
   const u = $('#mlUpdated');
   if (u) u.textContent = '更新于 ' + timeStr(d.updatedAt) + ' · ' + (d.site || '') + ' · ' + (d.day || '');
-  setBadge('nb-q', d.questionUnanswered); setBadge('tc-q', d.questionUnanswered);
-  setBadge('nb-o', needShip); setBadge('tc-o', needShip);
-  setBadge('nb-c', d.claimTodo != null ? d.claimTodo : d.claimOpen); setBadge('tc-c', d.claimTodo != null ? d.claimTodo : d.claimOpen);
+  setBadge('nb-q', d.questionUnanswered);
+  set('hub-q', d.questionUnanswered); set('hub-c', d.claimTodo != null ? d.claimTodo : d.claimOpen);
+  [['hub-q', d.questionUnanswered], ['ml-pending', needShip], ['hub-c', d.claimTodo != null ? d.claimTodo : d.claimOpen]].forEach(([id, v]) => { const e = $('#' + id); if (e && e.closest('.todo')) e.closest('.todo').classList.toggle('alert', (v || 0) > 0); });
+  setBadge('nb-o', needShip);
+  setBadge('nb-c', d.claimTodo != null ? d.claimTodo : d.claimOpen);
   notifyNewItems(Number(d.questionUnanswered || 0), Number((d.claimTodo != null ? d.claimTodo : d.claimOpen) || 0));
 }
 
@@ -1799,7 +1740,7 @@ function bindSalesEvents() {
 /* 经营看板：三块（Listing 出单 / 实时订单 / 销售流水）吃的是同一份订单数据，
    所以共用一个刷新按钮、一次全刷 —— 并行发请求，比原来点三次快。 */
 async function refreshOverview() {
-  await Promise.all([loadOrderSummary(true), loadSales(true), loadListings(true)]);
+  await Promise.all([loadOrderSummary(true), loadSales(true), loadListings(true), loadHubExtras(true)]);
 }
 
 function startSalesTimer() {
@@ -1842,6 +1783,27 @@ let summaryTimer = null;
 function startSummaryTimer() {
   if (summaryTimer) return;
   summaryTimer = setInterval(() => { if (!document.hidden) loadOrderSummary(true); }, 60000);
+}
+
+
+/* ---- 概览：广告 / 平台仓 摘要（只读，详情在各自页面） ---- */
+let hubExtrasAt = 0;
+async function loadHubExtras(force) {
+  if (!force && hubExtrasAt && Date.now() - hubExtrasAt < 60000) return;
+  hubExtrasAt = Date.now();
+  const set = (id, v) => { const e = $('#' + id); if (e) e.textContent = v; };
+  const today = brToday();
+  try {
+    const d = await mlGet('/api/ml/ads?from=' + today + '&to=' + today);
+    const t = d.totals || {}, cur = d.currency || 'BRL';
+    set('hub-ad-cost', money(t.cost, cur));
+    set('hub-ad-sub', 'ACOS ' + (t.totalAmount > 0 ? pct(t.acos) : '—') + ' · ROAS ' + (t.cost > 0 ? ratioStr(t.roas) : '—'));
+  } catch (e) { set('hub-ad-cost', '—'); set('hub-ad-sub', '未授权或暂不可用'); }
+  try {
+    const w = await mlGet('/api/ml/warehouse-stock');
+    const s = w.summary || {};
+    set('hub-wh-avail', fmt(s.available ?? 0)); set('hub-wh-n', fmt(s.listings ?? 0)); set('hub-wh-unk', fmt(s.unknown ?? 0));
+  } catch (e) { ['hub-wh-avail', 'hub-wh-n', 'hub-wh-unk'].forEach(id => set(id, '—')); }
 }
 
 /* ---- 概览：Listing 出单统计 ---- */
@@ -3328,6 +3290,7 @@ function init() {
   loadOrderSummary();
   loadSales();
   loadListings();
+  loadHubExtras();
   startSalesTimer();
   startAdsTimer();
   startSummaryTimer();
@@ -3336,7 +3299,6 @@ function init() {
   loadPushStatus();
   catchOAuthCode();
   ['MLM', 'MLB', 'MLA'].forEach(code => checkSite(code));
-  sparklines();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
 else init();

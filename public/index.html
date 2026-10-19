@@ -74,121 +74,110 @@
   <main>
     <!-- 概览 -->
     <section class="view on" id="v-hub">
-      <div class="ph2"><h1>概览</h1><p>三个站点的连接状态与运营工具入口 · 实时数据</p></div>
-      <div class="kpis">
-        <div class="card kpi"><label>监控关键词</label><b id="kpi-keywords">—</b><div class="dl" id="kpi-keywords-dl">—</div><div class="spk" data-v="0,0,0,0,0,0,0,0"></div></div>
-        <div class="card kpi"><label>平均排名</label><b id="kpi-avg">—</b><div class="dl" id="kpi-avg-dl">—</div><div class="spk" data-v="0,0,0,0,0,0,0,0"></div></div>
-        <div class="card kpi"><label>前 10 名占比</label><b id="kpi-top10">—</b><div class="dl" id="kpi-top10-dl">—</div><div class="spk" data-v="0,0,0,0,0,0,0,0"></div></div>
-        <div class="card kpi"><label>产品标题数</label><b id="kpi-titles">—</b><div class="dl" id="kpi-titles-dl">—</div><div class="spk" data-v="0,0,0,0,0,0,0,0"></div></div>
+      <!-- 概览 = 今天要做什么（待办）+ 钱进来多少（经营）+ 外部环境（广告/仓库/热搜/站点）。
+           已删：假趋势图（随机数生成）、模拟 sparkline、与关键词排名页重复的 4 张 KPI、与左侧导航重复的工具入口。 -->
+      <div class="ph2 hub-head">
+        <div><h1>概览</h1><p id="mlUpdated">尚未同步</p></div>
+        <div class="ob-actions">
+          <span class="st" id="mlState"><i class="off"></i>未连接</span>
+          <label class="sales-auto" title="开启后每 30 秒自动同步一次"><input type="checkbox" id="salesAuto" checked><span>自动刷新</span></label>
+          <button class="ghost" id="mlCfgBtn" title="配置美客多 API 凭证">API 设置</button>
+          <button class="btn y" id="ovRefresh">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+            刷新
+          </button>
+        </div>
+      </div>
+      <div class="note" id="mlHint" style="display:none"></div>
+
+      <!-- ① 今日待办：点进去直接处理 -->
+      <div class="hub-todo">
+        <a class="card todo" data-go="questions"><span>待回复问答</span><b id="hub-q">—</b><small>买家提问 · 越快回复转化越高</small><i class="go">›</i></a>
+        <a class="card todo" data-go="orders"><span>待我发货</span><b id="ml-pending">—</b><small id="ml-pending-sub">自发货/打面单才提醒</small><i class="go">›</i></a>
+        <a class="card todo" data-go="claims"><span>售后待处理</span><b id="hub-c">—</b><small>退货 / 投诉 / 平台调解</small><i class="go">›</i></a>
+        <a class="card todo" data-go="ads"><span>今日广告花费</span><b id="hub-ad-cost">—</b><small id="hub-ad-sub">ACOS — · ROAS —</small><i class="go">›</i></a>
       </div>
 
-      <!-- 经营看板：Listing 出单 / 实时订单 / 销售流水
-           三块其实吃的是同一份订单数据，所以合并成一个区块、共用一个刷新按钮；
-           Listing 出单统计放最前 —— 进来第一眼就能看到哪款产品出单多。 -->
-      <div class="card pad biz-band">
-        <div class="ob-head">
-          <div class="ob-title">
-            <h3>经营看板</h3>
-            <span id="mlUpdated">尚未同步</span>
-          </div>
-          <div class="ob-actions">
-            <span class="st" id="mlState"><i class="off"></i>未连接</span>
-            <label class="sales-auto" title="开启后每 30 秒自动同步一次"><input type="checkbox" id="salesAuto" checked><span>自动刷新</span></label>
-            <button class="ghost" id="mlCfgBtn" title="配置美客多 API 凭证">API 设置</button>
-            <button class="btn y" id="ovRefresh">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
-              刷新
-            </button>
-          </div>
-        </div>
-
-        <!-- ① Listing 出单统计（放最前：一眼看到哪款出得多） -->
-        <section class="biz-sec">
-          <div class="biz-sec-h">
-            <h4>Listing 出单统计</h4>
-            <span class="biz-note" id="listingTzNote">按商品聚合出单数量与金额 · 默认当天</span>
-            <span class="st" id="listingState"><i class="off"></i>未连接</span>
-          </div>
-          <div class="sales-filter">
-            <div class="seg" id="listingRange">
-              <button data-r="today" class="on">当天</button>
-              <button data-r="7">7 天</button>
-              <button data-r="30">30 天</button>
-              <button data-r="custom">自定义</button>
+      <div class="hub-main">
+        <div class="hub-left">
+          <!-- ② 经营：销售金额为主角，其余数字并排 -->
+          <div class="card pad biz-band">
+            <div class="biz-sec-h">
+              <h4>销售金额 · 实时流水</h4>
+              <span class="biz-note" id="salesTzNote">按巴西时间（GMT-3）统计</span>
+              <span class="st" id="salesState"><i class="off"></i>未连接</span>
             </div>
-            <div class="sales-dates">
-              <input type="date" id="listingFrom"><span>至</span><input type="date" id="listingTo">
-              <button class="btn" id="listingApply">应用</button>
-            </div>
-          </div>
-          <div id="listingBody"><div class="empty">正在加载 Listing 出单数据…</div></div>
-          <div class="note" id="listingNote" style="display:none"></div>
-        </section>
-
-        <!-- ② 实时订单 -->
-        <section class="biz-sec">
-          <div class="biz-sec-h">
-            <h4>实时订单</h4>
-            <span class="biz-note">今日成交 · 待发货 · 在途 · 取消</span>
-          </div>
-          <div class="ostat-grid">
-            <div class="ostat"><span>今日订单</span><b id="ml-today">—</b><small id="ml-today-amt">—</small></div>
-            <div class="ostat"><span>待我发货</span><b id="ml-pending">—</b><small id="ml-pending-sub">自发货/打面单才提醒</small></div>
-            <div class="ostat"><span>已发货</span><b id="ml-shipped">—</b><small>运输中 / 已签收</small></div>
-            <div class="ostat"><span>已取消</span><b id="ml-cancelled">—</b><small>含退款与关闭</small></div>
-          </div>
-          <div class="note" id="mlHint" style="display:none"></div>
-        </section>
-
-        <!-- ③ 销售金额 · 实时流水（按巴西时区） -->
-        <section class="biz-sec">
-          <div class="biz-sec-h">
-            <h4>销售金额 · 实时流水</h4>
-            <span class="biz-note" id="salesTzNote">按巴西时间（GMT-3）统计 · 来源：美客多官方订单接口</span>
-            <span class="st" id="salesState"><i class="off"></i>未连接</span>
-          </div>
-          <div class="ostat-grid sales-kpis">
-            <div class="ostat"><span>订单数</span><b id="sk-orders">—</b><small id="sk-orders-sub">—</small></div>
-            <div class="ostat good"><span>销售金额</span><b id="sk-amount">—</b><small id="sk-amount-sub">—</small></div>
-            <div class="ostat"><span>售出件数</span><b id="sk-items">—</b><small>含多件下单</small></div>
-            <div class="ostat"><span>客单价</span><b id="sk-avg">—</b><small>销售金额 ÷ 订单数</small></div>
-          </div>
-          <div class="sales-filter">
-            <div class="seg" id="salesRange">
-              <button data-r="today" class="on">今天</button>
-              <button data-r="7">近 7 天</button>
-              <button data-r="30">近 30 天</button>
-              <button data-r="month">本月</button>
-              <button data-r="custom">自定义</button>
-            </div>
-            <div class="sales-dates">
-              <input type="date" id="salesFrom"><span>至</span><input type="date" id="salesTo">
-              <button class="btn" id="salesApply">应用</button>
-            </div>
-            <div class="sales-gran">
-              <span class="sg-label">聚合</span>
-              <div class="seg" id="salesGran">
-                <button data-g="order" class="on">按单</button>
-                <button data-g="hour">按小时</button>
-                <button data-g="day">按天</button>
+            <div class="sales-hero">
+              <div class="sh-main"><span>销售金额</span><b id="sk-amount">—</b><small id="sk-amount-sub">—</small></div>
+              <div class="sh-side">
+                <div><span>订单数</span><b id="sk-orders">—</b><small id="sk-orders-sub">—</small></div>
+                <div><span>售出件数</span><b id="sk-items">—</b><small>含多件下单</small></div>
+                <div><span>客单价</span><b id="sk-avg">—</b><small>金额 ÷ 订单</small></div>
               </div>
             </div>
+            <div class="sales-filter">
+              <div class="seg" id="salesRange">
+                <button data-r="today" class="on">今天</button>
+                <button data-r="7">近 7 天</button>
+                <button data-r="30">近 30 天</button>
+                <button data-r="month">本月</button>
+                <button data-r="custom">自定义</button>
+              </div>
+              <div class="sales-dates">
+                <input type="date" id="salesFrom"><span>至</span><input type="date" id="salesTo">
+                <button class="btn" id="salesApply">应用</button>
+              </div>
+              <div class="sales-gran">
+                <span class="sg-label">聚合</span>
+                <div class="seg" id="salesGran">
+                  <button data-g="order" class="on">按单</button>
+                  <button data-g="hour">按小时</button>
+                  <button data-g="day">按天</button>
+                </div>
+              </div>
+            </div>
+            <div id="salesBody"><div class="empty">正在加载销售数据…</div></div>
+            <div class="note" id="salesNote" style="display:none"></div>
+            <div class="hub-foot">累计 <b>已发货 <em id="ml-shipped">—</em></b><b>已取消 <em id="ml-cancelled">—</em></b></div>
           </div>
-          <div id="salesBody"><div class="empty">正在加载销售数据…</div></div>
-          <div class="note" id="salesNote" style="display:none"></div>
-        </section>
-      </div>
 
-      <div class="g2">
-        <div class="card">
-          <div class="cph"><div class="nums"><div class="ck"><b id="kg">+0%</b><span>较期初增长</span></div><div class="ck"><b id="kt">0</b><span>站内累计销量(件)</span></div></div><div class="seg" id="cp"><button data-p="7">7 天</button><button class="on" data-p="30">30 天</button><button data-p="12">12 月</button></div></div>
-          <div class="cw" id="cw"><svg id="cs" viewBox="0 0 800 260" role="img" aria-label="销量趋势图"></svg><div class="tip" id="tip"></div></div>
+          <!-- ③ 哪款在出单 -->
+          <div class="card pad biz-band">
+            <div class="biz-sec-h">
+              <h4>Listing 出单排行</h4>
+              <span class="biz-note" id="listingTzNote">按商品聚合出单数量与金额</span>
+              <span class="st" id="listingState"><i class="off"></i>未连接</span>
+            </div>
+            <div class="sales-filter">
+              <div class="seg" id="listingRange">
+                <button data-r="today" class="on">当天</button>
+                <button data-r="7">7 天</button>
+                <button data-r="30">30 天</button>
+                <button data-r="custom">自定义</button>
+              </div>
+              <div class="sales-dates">
+                <input type="date" id="listingFrom"><span>至</span><input type="date" id="listingTo">
+                <button class="btn" id="listingApply">应用</button>
+              </div>
+            </div>
+            <div id="listingBody"><div class="empty">正在加载 Listing 出单数据…</div></div>
+            <div class="note" id="listingNote" style="display:none"></div>
+          </div>
         </div>
-        <div class="col">
+
+        <div class="hub-right">
           <div class="card">
-            <div class="ch"><div><h3>实时热搜词</h3><span>MLB 耳机类 · 大麦数据真实数据</span></div><div class="lv"><span class="st"><i class="pulse" id="lvd"></i><b id="lvs">大麦数据</b></span><button class="ghost" id="lvb">刷新</button></div></div>
+            <div class="ch"><h3>平台仓库存</h3><a class="hub-more" data-go="warehouse">详情 ›</a></div>
+            <div class="hub-mini">
+              <div><span>仓内可售</span><b id="hub-wh-avail">—</b></div>
+              <div><span>Listing</span><b id="hub-wh-n">—</b></div>
+              <div><span>待确认</span><b id="hub-wh-unk">—</b></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="ch"><div><h3>实时热搜词</h3><span>MLB 耳机类 · 大麦数据</span></div><div class="lv"><button class="ghost" id="lvb">刷新</button></div></div>
             <div class="rl" id="rl" aria-live="off"></div>
-            <div class="lf"><span id="lvsrc">数据来源：大麦数据 MCP · search_product_snapshots</span><span id="lvt">--:--:--</span></div>
+            <div class="lf"><span id="lvsrc">数据来源：大麦数据 MCP</span><span id="lvt">--:--:--</span></div>
           </div>
           <div class="card">
             <div class="ch"><h3>站点与任务</h3></div>
@@ -200,34 +189,6 @@
               <div class="li"><span class="nm">微信提醒<small id="task-push">未配置</small></span><span class="st" id="status-push"><i class="off"></i>未开启</span></div>
             </div>
           </div>
-        </div>
-      </div>
-      <!-- 运营工具入口 -->
-      <div class="card pad" style="margin-top:14px">
-        <div class="ob-head" style="padding-bottom:14px;border-bottom:1px solid var(--bd);margin-bottom:16px">
-          <div class="ob-title"><h3>运营工具入口</h3><span>售前答疑与售后履约，全部对接美客多官方 API</span></div>
-        </div>
-        <div class="tools-grid">
-          <a class="tool-card" data-go="orders">
-            <span class="tc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg></span>
-            <span class="tc-tx"><b>订单管理<i class="role after">售后</i></b><small>实时订单、状态筛选、发货进度</small></span>
-            <span class="tc-badge" id="tc-o"></span>
-          </a>
-          <a class="tool-card" data-go="questions">
-            <span class="tc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg></span>
-            <span class="tc-tx"><b>商品问答<i class="role before">售前</i></b><small>买家提问、快速回复、未回复提醒</small></span>
-            <span class="tc-badge" id="tc-q"></span>
-          </a>
-          <a class="tool-card" data-go="claims">
-            <span class="tc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg></span>
-            <span class="tc-tx"><b>退货与投诉<i class="role after">售后</i></b><small>平台调解 / 买家咨询 / 无需操作 自动分流</small></span>
-            <span class="tc-badge" id="tc-c"></span>
-          </a>
-          <a class="tool-card" data-go="ads">
-            <span class="tc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg></span>
-            <span class="tc-tx"><b>广告投放<i class="role after">运营</i></b><small>Product Ads 花费、销售额、ACOS、ROAS</small></span>
-            <span class="tc-badge" id="tc-a"></span>
-          </a>
         </div>
       </div>
     </section>

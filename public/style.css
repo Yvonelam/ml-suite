@@ -607,3 +607,33 @@ html,body{background:#1a1040}
 .btn.y{background:var(--btn-grad);border-color:rgba(255,255,255,.3);color:#fff;box-shadow:0 8px 24px rgba(236,72,153,.3),inset 0 1px rgba(255,255,255,.4)}.btn.y:hover{background:var(--btn-grad);filter:brightness(1.1)}
 .seg button.on{background:rgba(255,255,255,.25);color:#fff}
 .table th,.orders th{background:rgba(255,255,255,.08)}.table td,.table th{border-color:rgba(255,255,255,.14)}
+
+/* ===== I 概览页重做：待办 → 经营 → 外部环境（删除假图表/重复KPI/工具入口） ===== */
+.hub-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}.hub-head .ob-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hub-todo{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:0 0 16px}
+.todo{position:relative;display:flex;flex-direction:column;gap:6px;padding:18px 20px 16px;cursor:pointer;text-decoration:none;color:var(--ink);overflow:hidden;transition:transform .2s,border-color .2s,box-shadow .2s}
+.todo:hover{transform:translateY(-2px);border-color:var(--glass-border-hover)}
+.todo>span{font-size:12.5px;color:var(--mut);letter-spacing:.04em}
+.todo>b{font-size:38px;line-height:1.05;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.todo>small{font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.todo .go{position:absolute;right:16px;top:14px;font-style:normal;font-size:22px;color:var(--mut);transition:transform .2s,color .2s}.todo:hover .go{transform:translateX(3px);color:var(--ink)}
+.todo::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--ok);opacity:.55}
+.todo.alert::before{background:linear-gradient(180deg,var(--g-p),var(--g-o));opacity:1}.todo.alert>b{color:var(--bad)}
+.todo:last-child::before{background:var(--ac)}
+.hub-main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}
+.hub-left,.hub-right{display:flex;flex-direction:column;gap:16px;min-width:0}
+.hub-main .biz-band{padding:20px 22px}
+.biz-sec-h{display:flex;align-items:center;gap:12px;margin-bottom:14px}.biz-sec-h h4{margin:0;font-size:15px;font-weight:600}.biz-sec-h .biz-note{flex:1;font-size:12px;color:var(--mut)}
+.sales-hero{display:grid;grid-template-columns:1.25fr 2fr;gap:14px;margin-bottom:16px}
+.sales-hero>div{border-radius:16px;border:1px solid var(--glass-border);background:linear-gradient(135deg,var(--glass-strong),var(--glass))}
+.sh-main{padding:18px 22px;display:flex;flex-direction:column;gap:6px;background:linear-gradient(135deg,rgba(124,58,237,.34),rgba(236,72,153,.2))!important;box-shadow:inset 0 1px 0 var(--glass-hi)}
+.sh-main span,.sh-side span{font-size:12.5px;color:var(--tx2)}.sh-main b{font-size:36px;font-weight:700;white-space:nowrap;letter-spacing:-.02em;font-variant-numeric:tabular-nums}.sh-main small,.sh-side small{font-size:11.5px;color:var(--mut)}
+.sh-side{display:grid;grid-template-columns:repeat(3,1fr);padding:0!important;overflow:hidden}.sh-side>div{padding:18px 20px;display:flex;flex-direction:column;gap:6px}.sh-side>div+div{border-left:1px solid var(--line)}
+.sh-side b{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.hub-main .sales-filter{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-bottom:14px}
+.hub-foot{display:flex;gap:22px;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);font-size:12.5px;color:var(--mut)}.hub-foot b{font-weight:400}.hub-foot em{font-style:normal;color:var(--ink);font-weight:600;margin-left:4px;font-variant-numeric:tabular-nums}
+.hub-more{font-size:12.5px;color:var(--ac);cursor:pointer;text-decoration:none}.hub-more:hover{color:var(--ink)}
+.hub-mini{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:4px 18px 18px}.hub-mini>div{display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:12px;background:var(--s2);border:1px solid var(--line)}
+.hub-mini span{font-size:11.5px;color:var(--mut)}.hub-mini b{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+@media(max-width:1180px){.hub-main{grid-template-columns:1fr}.hub-todo{grid-template-columns:repeat(2,1fr)}.hub-right{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}}
+@media(max-width:720px){.sales-hero,.sh-side{grid-template-columns:1fr}.sh-side>div+div{border-left:0;border-top:1px solid var(--line)}.hub-todo{grid-template-columns:1fr 1fr}.todo>b{font-size:30px}}
