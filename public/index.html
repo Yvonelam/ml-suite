@@ -75,7 +75,7 @@
     <!-- 概览：订单、销售、广告与待办合并为经营视图 -->
     <section class="view on" id="v-hub">
       <div class="hub-heading"><div class="ph2"><h1>经营总览</h1><p>销售、广告、Listing 表现与待处理事项 · 巴西时间 GMT−3</p></div><div class="hub-toolbar"><span class="st" id="mlState"><i class="off"></i>未连接</span><label class="sales-auto" title="开启后每 30 秒自动同步订单和销售数据"><input type="checkbox" id="salesAuto" checked><span>自动刷新</span></label><button class="ghost" id="mlCfgBtn" title="配置美客多 API 凭证">API 设置</button><button class="btn y" id="ovRefresh" type="button">↻ 刷新数据</button><button class="ghost hub-head-link" data-go="profit" type="button">利润核算 ↗</button></div></div>
-      <div class="hub-period"><div class="seg" id="hubRange"><button data-range="today">今天</button><button class="on" data-range="7">近 7 天</button><button data-range="30">近 30 天</button></div><div class="hub-dates"><input type="date" id="hubFrom" aria-label="开始日期"><span>至</span><input type="date" id="hubTo" aria-label="结束日期"><button class="btn" id="hubApply" type="button">应用</button></div><small>广告接口最多查询 90 天</small></div>
+      <div class="hub-period"><div class="seg" id="hubRange"><button class="on" data-range="today">今天</button><button data-range="7">近 7 天</button><button data-range="30">近 30 天</button></div><div class="hub-dates"><input type="date" id="hubFrom" aria-label="开始日期"><span>至</span><input type="date" id="hubTo" aria-label="结束日期"><button class="btn" id="hubApply" type="button">应用</button></div><small>广告接口最多查询 90 天</small></div>
       <div class="hub-notices"><div class="note" id="mlHint" style="display:none"></div><div class="note" id="salesNote" style="display:none"></div><div class="note" id="listingNote" style="display:none"></div></div>
       <section class="hub-metrics">
         <article class="card hub-metric"><span>销售额</span><b id="sk-amount">—</b><small id="sk-amount-sub">—</small></article>
@@ -573,7 +573,7 @@
 
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="vendor/pdf.min.js"></script>
-<script src="app.js?v=56"></script>
+<script src="app.js?v=57"></script>
 </body>
 </html>
 

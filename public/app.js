@@ -1735,7 +1735,7 @@ function bindOverviewEvents(){
   const ranges=$('#hubRange');if(ranges)ranges.querySelectorAll('button[data-range]').forEach(b=>b.addEventListener('click',()=>setHubRange(b.dataset.range)));
   $('#hubApply')?.addEventListener('click',()=>{const f=$('#hubFrom')?.value||'',t=$('#hubTo')?.value||'';if(!/^\d{4}-\d{2}-\d{2}$/.test(f)||!/^\d{4}-\d{2}-\d{2}$/.test(t)){toast('请选择完整的起止日期');return;}setHubRange('custom',f,t);});
   $('#hubFrom')?.addEventListener('change',()=>$('#hubRange')?.querySelectorAll('button').forEach(b=>b.classList.remove('on')));$('#hubTo')?.addEventListener('change',()=>$('#hubRange')?.querySelectorAll('button').forEach(b=>b.classList.remove('on')));
-  setHubRange('7',null,null,false);
+  setHubRange('today',null,null,false);
 }
 function renderSales(d) {
   setStateEl($('#salesState'), 'ok', '实时');
