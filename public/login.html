@@ -51,6 +51,15 @@
     #mlsuite-auth-preview .hint.auth-pending { color:#7dd3fc; }
     #mlsuite-auth-preview .hint.auth-error { color:#fca5a5; }
     #mlsuite-auth-preview .hint.auth-success { color:#86efac; }
+    #mlsuite-auth-preview { --bg:#0b1020; --s1:rgba(31,38,58,.48); --s2:rgba(93,103,151,.14); --s3:rgba(204,214,255,.12); --bd:rgba(218,227,255,.10); --bd2:rgba(224,232,255,.17); --ink:#f3f4fb; --tx2:#d0d2e4; --mut:#969bb5; --ac:#a8a8d7; --ok:#7cdbbb; --cyan:#a8a8d7; --violet:#d0b6d0; --glass:rgba(220,229,255,.085); --glass-border:rgba(218,227,255,.12); --glass-strong:rgba(197,208,255,.14); --glass-hover:rgba(183,183,230,.34); border-color:var(--glass-border); background:linear-gradient(145deg,rgba(204,214,255,.13),rgba(131,144,194,.065) 52%,rgba(75,85,126,.10)); box-shadow:0 22px 65px rgba(0,0,0,.30),inset 0 1px rgba(255,255,255,.16); backdrop-filter:blur(30px) saturate(170%); }
+    body { background:radial-gradient(ellipse at 84% 7%,rgba(121,104,177,.28),transparent 34%),radial-gradient(ellipse at 45% 58%,rgba(110,151,163,.13),transparent 44%),#0b1020; }
+    body:before { background:#a8a8d7; opacity:.16; } body:after { background:#614c8b; opacity:.18; }
+    #mlsuite-auth-preview .auth-card { border-color:rgba(222,230,255,.16); background:linear-gradient(145deg,rgba(204,214,255,.16),rgba(131,144,194,.075) 55%,rgba(75,85,126,.12)); box-shadow:0 24px 68px rgba(0,0,0,.28),inset 0 1px rgba(255,255,255,.19); backdrop-filter:blur(32px) saturate(175%); }
+    #mlsuite-auth-preview .live,#mlsuite-auth-preview .tabs { background:rgba(220,229,255,.075); border-color:rgba(218,227,255,.12); backdrop-filter:blur(22px); }
+    #mlsuite-auth-preview .tab.active { background:rgba(197,208,255,.16); box-shadow:inset 0 1px rgba(255,255,255,.16); }
+    #mlsuite-auth-preview .input { background:rgba(20,28,48,.52); border-color:var(--bd2); } #mlsuite-auth-preview .input:focus { border-color:rgba(183,183,230,.55); box-shadow:0 0 0 3px rgba(168,168,215,.13); }
+    #mlsuite-auth-preview .submit { color:#17172a; border-color:rgba(231,228,255,.3); background:linear-gradient(135deg,#b7b7e6,#9a91c8); box-shadow:0 8px 24px rgba(133,121,191,.26),inset 0 1px rgba(255,255,255,.45); }
+    #mlsuite-auth-preview .submit:hover { filter:brightness(1.08); } #mlsuite-auth-preview .foot { border-color:rgba(218,227,255,.10); }
   </style>
   <div class="shell">
     <header class="topbar"><div class="brand"><span class="brand-mark">ML</span><span>ML SUITE</span></div><span class="live"><i aria-hidden="true"></i> WORKSPACE ACCESS</span></header>
