@@ -607,3 +607,21 @@ html,body{background:#1a1040}
 .btn.y{background:var(--btn-grad);border-color:rgba(255,255,255,.3);color:#fff;box-shadow:0 8px 24px rgba(236,72,153,.3),inset 0 1px rgba(255,255,255,.4)}.btn.y:hover{background:var(--btn-grad);filter:brightness(1.1)}
 .seg button.on{background:rgba(255,255,255,.25);color:#fff}
 .table th,.orders th{background:rgba(255,255,255,.08)}.table td,.table th{border-color:rgba(255,255,255,.14)}
+
+/* H 概览页排版优化：先看钱（销售金额）→ 再看订单状态 → 最后看 Listing 明细；只用 CSS 重排，不动 DOM 与 id */
+#v-hub .kpis{gap:12px;margin-bottom:14px}#v-hub .kpi{padding:13px 16px}#v-hub .kpi b{font-size:22px;margin:3px 0 2px}
+.biz-band{display:flex;flex-direction:column;padding:22px 24px}.biz-band>.ob-head{order:0}
+.biz-band>.biz-sec{border-top:0;margin-top:0;padding-top:0}
+.biz-band>.biz-sec:nth-of-type(3){order:1;padding-bottom:22px;margin-bottom:22px;border-bottom:1px solid var(--bd)}
+.biz-band>.biz-sec:nth-of-type(2){order:2;padding-bottom:22px;margin-bottom:22px;border-bottom:1px solid var(--bd)}
+.biz-band>.biz-sec:nth-of-type(1){order:3}
+.biz-band .biz-sec-h h4{font-size:15px;font-weight:700}
+.biz-band .sales-kpis{grid-template-columns:1.6fr 1fr 1fr 1fr;align-items:stretch}.biz-band .sales-kpis .ostat.good{order:-1}
+.biz-band .sales-kpis .ostat.good{background:linear-gradient(135deg,rgba(124,219,187,.22),rgba(124,219,187,.05));border-color:rgba(124,219,187,.38)}
+.biz-band .sales-kpis .ostat.good b{white-space:nowrap;font-size:36px;letter-spacing:-.03em;margin:8px 0 4px}
+.ostat{background:linear-gradient(145deg,rgba(255,255,255,.10),rgba(255,255,255,.03));border-color:var(--glass-border);border-radius:16px;position:relative;overflow:hidden;transition:transform .2s,background .2s}.ostat:hover{transform:translateY(-2px);background:linear-gradient(145deg,rgba(255,255,255,.15),rgba(255,255,255,.05))}
+.ostat-grid:not(.sales-kpis) .ostat::after{content:'';position:absolute;left:16px;right:16px;bottom:0;height:3px;border-radius:3px 3px 0 0;background:var(--c,var(--ac));opacity:.85}
+.ostat-grid:not(.sales-kpis) .ostat:nth-child(1){--c:#c9b8ff}.ostat-grid:not(.sales-kpis) .ostat:nth-child(2){--c:#ffc46b}.ostat-grid:not(.sales-kpis) .ostat:nth-child(3){--c:#7cdbbb}.ostat-grid:not(.sales-kpis) .ostat:nth-child(4){--c:#969bb5}
+.biz-band .sales-filter{padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid var(--bd)}
+#v-hub .g2{grid-template-columns:1fr 380px;gap:16px;margin-top:16px}
+@media(max-width:1100px){.biz-band .sales-kpis{grid-template-columns:1fr 1fr}.biz-band .sales-kpis .ostat.good{grid-column:1/-1}#v-hub .g2{grid-template-columns:1fr}}
