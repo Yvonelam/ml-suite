@@ -38,11 +38,12 @@ start "ML-Suite 自动同步" /min node "%~dp0git-autosync.js"
 
 echo.
 echo   启动后行为：
-echo     - 每 30 秒检查一次本地改动
-echo     - 改动稳定 15 秒后自动提交并推送到 GitHub 的 main 分支
+echo     - 每 20 秒检查一次本地改动；停手 25 秒就提交并推送到 GitHub 的 main
 echo     - 推送失败自动重试（5 秒起，最长 5 分钟一次，永不放弃）
-echo     - 远端有新提交时会自动 rebase 后再推
+echo     - 远端有新提交时自动 rebase 后再推
+echo     - 空闲时每 2 分钟拉一次远端，别人（远端 AI / 别的电脑）推的改动自动合入
 echo.
+echo   查看状态：双击「同步状态.bat」（一眼看出有没有没推上去的提交）
 echo   临时暂停：在本目录新建一个 .sync-pause 文件
 echo   停止同步：双击「自动同步-关闭.bat」
 echo   查看日志：同步日志.txt

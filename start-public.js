@@ -502,6 +502,21 @@ function startAutosync() {
   }
 }
 
+// 自动同步进程一死，本地改动就再也推不上 GitHub，而表面完全看不出来（服务照跑、页面照开）。
+// 所以跟隧道一样每分钟体检一次，死了就原地拉起来 —— 不依赖看门狗，也不依赖重启机器。
+let autosyncCheckTimer = null;
+function ensureAutosync() {
+  if (shuttingDown || fs.existsSync(SYNC_OFF)) return;
+  const script = path.join(ROOT, 'git-autosync.js');
+  if (!fs.existsSync(script)) return;
+  let pid = 0;
+  try { pid = parseInt(fs.readFileSync(AUTOSYNC_PID, 'utf8'), 10) || 0; } catch (e) { }
+  if (pid && pidAlive(pid)) return;
+  try { fs.unlinkSync(AUTOSYNC_PID); } catch (e) { }   // 陈旧 pid 会让新进程误以为重复启动
+  console.warn('  [自动同步] 进程不在了（原 PID ' + (pid || '无') + '），正在重新拉起…');
+  startAutosync();
+}
+
 (async () => {
   // 先抢单实例锁：开机自启 + 手动双击撞车时，后来者直接退出
   const otherPid = acquireLock();
@@ -528,6 +543,11 @@ function startAutosync() {
 
   // 轮询「停止标记」：stop-public.js 写入后 3 秒内本启动器优雅退出
   setInterval(() => { if (stopRequested()) shutdown(); }, 3000).unref();
+
+  // 自动同步体检：60 秒一次，死了就拉起来。独立于隧道健康检查 ——
+  // 隧道挂掉时 healthTick 会提前 return，不能让它顺带把同步也漏掉。
+  autosyncCheckTimer = setInterval(ensureAutosync, 60 * 1000);
+  autosyncCheckTimer.unref();
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
