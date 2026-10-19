@@ -9,7 +9,7 @@
 <link rel="icon" href="favicon-16.png" type="image/png" sizes="16x16">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#09090b">
-<link rel="stylesheet" href="style.css?v=48">
+<link rel="stylesheet" href="style.css?v=49">
 </head>
 <body>
 <!-- 开屏动画 -->
@@ -49,6 +49,7 @@
     <a data-go="box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>箱唛裁切</a>
     <a data-go="profit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 14 4-4 4 3 6-7"/><path d="M17 6h4v4"/></svg>产品利润</a>
     <a data-go="warehouse"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 7 9-4 9 4-9 4-9-4Z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/><path d="m7 5 9 4"/></svg>平台仓库存</a>
+    <a data-go="warehousePlan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v15H4z"/><path d="M8 3v4M16 3v4M4 10h16M8 14h3M8 17h7"/></svg>Full 送仓计划</a>
   </nav>
   <div class="sidefoot">本地版 v1.2<br>数据在本机处理</div>
 </aside>
@@ -269,6 +270,24 @@
       <div class="card pad warehouse-toolbar"><input id="warehouseSearch" type="search" placeholder="搜索商品名称或 Listing ID"><span id="warehouseUpdated">等待读取库存…</span></div>
       <div class="card pad warehouse-table-wrap"><table class="warehouse-table"><thead><tr><th>商品 / Listing</th><th>Fulfillment 库存</th><th>不可售数量*</th><th>仓库状态</th></tr></thead><tbody id="warehouseRows"><tr><td colspan="4" class="empty">正在读取平台仓库存…</td></tr></tbody></table></div>
       <p class="profit-disclaimer">库存按美客多 Fulfillment 商品库存接口读取；同一 User Product 关联多个 Listing 时，总件数只计一次。只有平台仓 Listing 会显示在此页；若接口权限不足、Listing 未返回库存编号或接口暂时不可用，会标记“待确认”。*不可售数量仅在平台库存接口提供明细时展示。页面在打开期间每 5 分钟刷新一次，也可手动刷新。</p>
+    </section>
+
+    <section class="view" id="v-warehousePlan">
+      <div class="ph2 warehouse-head"><div><h1>Full 送仓计划</h1><p>选择要送入巴西 Full 仓的商品和数量，在 MLsuite 保存送仓草稿并整理清单。</p></div><button class="btn" id="warehousePlanRefresh" type="button">刷新库存</button></div>
+      <div class="card pad warehouse-plan-notice"><b>真实送仓和预约仍需在美客多后台完成</b><p>当前公开 API 可读取 Full 库存与补货建议，没有查到创建巴西本地 Full 送仓单的接口。此处保存的是 MLsuite 草稿，不会向美客多提交入仓或预约；请检查数量、包装和发票资料后，再到平台后台完成。</p></div>
+      <div class="warehouse-plan-steps"><span class="on">01　选择商品与数量</span><span>02　保存送仓草稿</span><span>03　前往美客多提交和约仓</span></div>
+      <div class="warehouse-plan-layout">
+        <div class="card pad warehouse-plan-products"><div class="ph"><div><h2>选择送仓商品</h2><p>读取当前账户的 Full 库存商品；数量按本次实际发货填写。</p></div><div class="warehouse-plan-tools"><input id="warehousePlanSearch" type="search" placeholder="搜索商品名或 Listing ID"><button class="btn" id="warehousePlanSelectAll" type="button">全选</button></div></div>
+          <div class="warehouse-table-wrap"><table class="warehouse-plan-table"><thead><tr><th><input type="checkbox" id="warehousePlanAllCheck" aria-label="全选"></th><th>商品 / Listing</th><th>变体</th><th>当前 Full 库存</th><th>本次送仓数量</th></tr></thead><tbody id="warehousePlanRows"><tr><td colspan="5" class="empty">正在读取 Full 库存…</td></tr></tbody></table></div>
+          <small class="profit-sub" id="warehousePlanStatus">送仓草稿仅保存在当前 MLsuite 账户。</small>
+        </div>
+        <aside class="card pad warehouse-plan-summary"><div class="ph"><div><h2>送仓草稿摘要</h2><p>先在 MLsuite 整理，再前往平台完成提交。</p></div></div>
+          <div class="warehouse-plan-stat"><span>已选商品 / 变体</span><b id="warehousePlanSelected">0 项</b></div><div class="warehouse-plan-stat"><span>计划送仓数量</span><b id="warehousePlanUnits">0 件</b></div>
+          <div class="warehouse-plan-tip">实际建单时，美客多还会要求送货方式、箱/托盘、发票等信息，并由平台校验可送数量。</div>
+          <button class="btn" id="warehousePlanCopy" type="button">复制送仓清单</button><button class="btn y" id="warehousePlanSave" type="button">保存送仓草稿</button><button class="btn danger" id="warehousePlanClear" type="button">清空草稿</button>
+        </aside>
+      </div>
+      <div class="card pad warehouse-plan-footer"><p>美客多官方流程：在“Gestão de estoque Full / Planejamento de envios”创建送仓，随后选择日期和时段。MLsuite 草稿不会自动提交或预约。</p><a class="btn" href="https://vendedores.mercadolivre.com.br/aprender/nota/o-que-considerar-ao-fazer-seu-primeiro-envio-ao-full" target="_blank" rel="noopener">查看官方送仓流程 ↗</a></div>
     </section>
 
     <!-- 关键词排名 -->
@@ -699,6 +718,6 @@
 
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="vendor/pdf.min.js"></script>
-<script src="app.js?v=50"></script>
+<script src="app.js?v=51"></script>
 </body>
 </html>
