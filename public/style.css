@@ -593,3 +593,17 @@ input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{b
 .account-menu-item:hover{background:rgba(197,208,255,.10)}.account-menu-avatar{background:rgba(168,168,215,.16);border-color:rgba(168,168,215,.28)}
 .account-shade,.modal-mask{background:rgba(5,9,20,.62);backdrop-filter:blur(12px)}
 .table th,.orders th{background:rgba(220,229,255,.035)}.table td,.table th{border-color:rgba(218,227,255,.09)}
+
+/* G 彩色毛玻璃：在 F 柔雾玻璃之上提高色彩饱和度与玻璃通透感（只改变量与材质，不动结构） */
+:root{--g-v:#7c3aed;--g-p:#ec4899;--g-b:#2563eb;--g-o:#f97316;--ac:#c9b8ff;--cyan:#c9b8ff;--violet:#ff9ad8;--tx2:#dfe2f6;--mut:#b4b9d8;--glass-border:rgba(255,255,255,.2);--glass-hi:rgba(255,255,255,.3);--btn-grad:linear-gradient(135deg,#ff8ad8,#8b7bff)}
+html,body{background:#1a1040}
+.liquid-bg{background:radial-gradient(60rem 40rem at 8% -10%,var(--g-v),transparent 60%),radial-gradient(50rem 40rem at 100% 10%,var(--g-p),transparent 55%),radial-gradient(55rem 45rem at 70% 110%,var(--g-b),transparent 60%),radial-gradient(40rem 30rem at 0% 90%,var(--g-o),transparent 60%),#1a1040}
+.orb-1,.orb-2,.orb-3{opacity:.3}.liquid-grid{opacity:.5}
+.side,.card,.modal,.dock,.tool-card,.account-menu,.account-dialog{background:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,.05));border-color:var(--glass-border);backdrop-filter:blur(24px) saturate(150%);box-shadow:inset 0 1px 0 var(--glass-hi),0 20px 50px -20px rgba(10,5,40,.6)}
+.card,.tool-card{border-radius:22px}.side{border-radius:26px}
+.card::before{background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent)}
+.tb{background:rgba(26,16,64,.35);border-color:rgba(255,255,255,.12)}
+#nav a.on{background:rgba(255,255,255,.2);box-shadow:inset 0 1px 0 rgba(255,255,255,.35)}
+.btn.y{background:var(--btn-grad);border-color:rgba(255,255,255,.3);color:#fff;box-shadow:0 8px 24px rgba(236,72,153,.3),inset 0 1px rgba(255,255,255,.4)}.btn.y:hover{background:var(--btn-grad);filter:brightness(1.1)}
+.seg button.on{background:rgba(255,255,255,.25);color:#fff}
+.table th,.orders th{background:rgba(255,255,255,.08)}.table td,.table th{border-color:rgba(255,255,255,.14)}
