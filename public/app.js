@@ -144,8 +144,8 @@ function renderWarehouseStock(){
     const detail=x.variations.flatMap(v=>v.detail.map(d=>({status:d.status,quantity:d.quantity,label:v.label}))).filter(d=>Number(d.quantity)>0);
     const notes=[];if(x.missingInventoryId)notes.push('缺少库存编号');for(const e of x.errors)if(!notes.includes(e))notes.push(e);
     const state=detail.map(d=>'<span class="warehouse-state">'+escHtml(d.status)+' '+escHtml(d.quantity)+(d.label?' · '+escHtml(d.label):'')+'</span>').join('');
-    return '<tr><td><div class="profit-product">'+(x.thumbnail?'<img src="'+escHtml(x.thumbnail)+'" alt="">':'<span class="profit-thumb">ML</span>')+'<div><a target="_blank" rel="noopener" href="'+escHtml(x.permalink)+'">'+escHtml(x.title||('Listing '+x.id))+'</a><small>'+escHtml(x.id)+'</small></div></div></td><td class="warehouse-number">'+(x.available==null?'<span class="warehouse-unknown">待确认</span>':escHtml(x.available))+'</td><td class="warehouse-number">'+(x.notAvailable==null?'—':escHtml(x.notAvailable))+'</td><td class="warehouse-number">'+(x.total==null?'—':escHtml(x.total))+'</td><td>'+(state||'—')+(notes.length?'<small class="warehouse-error">'+notes.map(escHtml).join(' · ')+'</small>':'')+'</td></tr>';
-  }).join(''):'<tr><td colspan="5" class="empty">'+(warehouseRows.length?'没有匹配的 Listing':'当前账户没有检测到平台仓 Listing')+'</td></tr>';
+    return '<tr><td><div class="profit-product">'+(x.thumbnail?'<img src="'+escHtml(x.thumbnail)+'" alt="">':'<span class="profit-thumb">ML</span>')+'<div><a target="_blank" rel="noopener" href="'+escHtml(x.permalink)+'">'+escHtml(x.title||('Listing '+x.id))+'</a><small>'+escHtml(x.id)+'</small></div></div></td><td class="warehouse-number">'+(x.available==null?'<span class="warehouse-unknown">待确认</span>':escHtml(x.available))+'</td><td class="warehouse-number">'+(x.notAvailable==null?'—':escHtml(x.notAvailable))+'</td><td>'+(state||'—')+(notes.length?'<small class="warehouse-error">'+notes.map(escHtml).join(' · ')+'</small>':'')+'</td></tr>';
+  }).join(''):'<tr><td colspan="4" class="empty">'+(warehouseRows.length?'没有匹配的 Listing':'当前账户没有检测到平台仓 Listing')+'</td></tr>';
 }
 async function loadWarehouseStock(refresh=false){
   const status=$('#warehouseUpdated'),body=$('#warehouseRows'),button=$('#warehouseRefresh');if(!status||!body)return;
@@ -155,7 +155,7 @@ async function loadWarehouseStock(refresh=false){
   try{
     const d=await mlGet('/api/ml/warehouse-stock'+(refresh?'?refresh=1':''));if(!d.ok)throw Error(d.message||'库存读取失败');
     warehouseRows=d.rows||[];const s=d.summary||{};
-    $('#warehouseListingCount').textContent=String(s.listings??warehouseRows.length);$('#warehouseAvailable').textContent=String(s.available??0);$('#warehouseNotAvailable').textContent=String(s.notAvailable??0);$('#warehouseUnknown').textContent=String(s.unknown??0);
+    $('#warehouseListingCount').textContent=String(s.listings??warehouseRows.length);$('#warehouseAvailable').textContent=String(s.available??0);$('#warehouseConfirmed').textContent=String(s.confirmed??0);$('#warehouseUnknown').textContent=String(s.unknown??0);
     renderWarehouseStock();const date=new Date(d.updatedAt||Date.now());status.textContent='最近更新：'+date.toLocaleString('zh-CN')+(d.cached?' · 缓存数据':'')+(d.truncated?' · Listing 超过接口单次统计范围，结果可能不完整':'');
   }catch(e){body.innerHTML='<tr><td colspan="5" class="empty">'+escHtml(e.message)+'</td></tr>';status.textContent='库存同步失败：'+e.message;}
   finally{warehouseLoading=false;if(button&&refresh){button.disabled=false;button.textContent='立即刷新';}}

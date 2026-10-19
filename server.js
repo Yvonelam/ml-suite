@@ -1650,33 +1650,45 @@ app.get('/api/ml/warehouse-stock', async (req,res)=>{
     }
     const all=[];
     for(let i=0;i<ids.length;i+=20){
-      const d=await mlRequest(`/items?ids=${ids.slice(i,i+20).join(',')}&attributes=id,title,permalink,thumbnail,status,shipping,inventory_id,available_quantity,variations`);
+      const d=await mlRequest(`/items?ids=${ids.slice(i,i+20).join(',')}&attributes=id,title,permalink,thumbnail,status,shipping,inventory_id,user_product_id,variations`);
       for(const row of(Array.isArray(d)?d:[])){const item=row?.body;if(item?.id&&item.status==='active')all.push(item);}
     }
-    const listings=all.filter(item=>item.shipping?.logistic_type==='fulfillment'||(item.variations||[]).some(v=>v.inventory_id));
-    const work=[],stockByKey=new Map();
+    const listings=all.filter(item=>item.shipping?.logistic_type==='fulfillment'||item.user_product_id||(item.variations||[]).some(v=>v.inventory_id||v.user_product_id));
+    const stockByKey=new Map(),stockRequests=new Map();
     for(const item of listings){
       const vars=Array.isArray(item.variations)&&item.variations.length?item.variations:null;
-      const stockUnits=vars?vars.map(v=>({inventoryId:String(v.inventory_id||''),variationId:String(v.id||''),label:(v.attribute_combinations||[]).map(a=>a.value_name).filter(Boolean).join(' / ')})):[{inventoryId:String(item.inventory_id||''),variationId:'',label:''}];
+      const stockUnits=vars?vars.map(v=>({userProductId:String(v.user_product_id||''),inventoryId:String(v.inventory_id||''),variationId:String(v.id||''),label:(v.attribute_combinations||[]).map(a=>a.value_name).filter(Boolean).join(' / ')})):[{userProductId:String(item.user_product_id||''),inventoryId:String(item.inventory_id||''),variationId:'',label:''}];
       for(const unit of stockUnits){
-        if(unit.inventoryId)work.push({item,unit});
-        else {const group=stockByKey.get(String(item.id))||[];group.push({id:String(item.id),inventoryId:'',variationId:unit.variationId,label:unit.label,available:null,notAvailable:null,total:null,detail:[],error:'该变体缺少库存编号'});stockByKey.set(String(item.id),group);}
+        const stockKey=unit.userProductId?'up:'+unit.userProductId:'inventory:'+unit.inventoryId;
+        if(unit.userProductId||unit.inventoryId){unit.stockKey=stockKey;if(!stockRequests.has(stockKey))stockRequests.set(stockKey,unit.userProductId?{kind:'up',id:unit.userProductId,inventoryId:unit.inventoryId}:{kind:'inventory',id:unit.inventoryId,inventoryId:unit.inventoryId});}
+        else {const group=stockByKey.get(String(item.id))||[];group.push({id:String(item.id),stockKey:'',inventoryId:'',userProductId:'',variationId:unit.variationId,label:unit.label,available:null,notAvailable:null,total:null,detail:[],error:'该变体缺少库存编号'});stockByKey.set(String(item.id),group);}
       }
     }
-    for(let i=0;i<work.length;i+=8){
-      const results=await Promise.all(work.slice(i,i+8).map(async({item,unit})=>{
+    const uniqueRequests=[...stockRequests.entries()];
+    let nextStockRequestAt=0;
+    async function limitedStockGet(path){const now=Date.now(),scheduled=Math.max(now,nextStockRequestAt);nextStockRequestAt=scheduled+650;if(scheduled>now)await new Promise(resolve=>setTimeout(resolve,scheduled-now));return mlRequest(path);}
+    for(let i=0;i<uniqueRequests.length;i+=5){
+      const results=await Promise.all(uniqueRequests.slice(i,i+5).map(async([stockKey,request])=>{
         try{
-          const d=await mlRequest(`/inventories/${encodeURIComponent(unit.inventoryId)}/stock/fulfillment`);
-          return {id:String(item.id),inventoryId:unit.inventoryId,variationId:unit.variationId,label:unit.label,available:Number(d?.available_quantity),notAvailable:Number(d?.not_available_quantity),total:Number(d?.total),detail:Array.isArray(d?.not_available_detail)?d.not_available_detail:[],error:''};
-        }catch(e){return {id:String(item.id),inventoryId:unit.inventoryId,variationId:unit.variationId,label:unit.label,available:null,notAvailable:null,total:null,detail:[],error:e.status===403?'无库存接口权限':e.status===404?'库存编号未关联该账号':e.message||'读取失败'};}
+          if(request.kind==='up'){
+            const d=await limitedStockGet(`/user-products/${encodeURIComponent(request.id)}/stock`),locations=Array.isArray(d?.locations)?d.locations:[],full=locations.find(x=>x.type==='meli_facility');
+            if(!full)throw new Error('平台仓未返回该商品库存');
+            return {stockKey,inventoryId:request.inventoryId,userProductId:request.id,available:Number(full.quantity),notAvailable:null,total:Number(full.quantity),detail:[],error:''};
+          }
+          const d=await limitedStockGet(`/inventories/${encodeURIComponent(request.id)}/stock/fulfillment`);
+          return {stockKey,inventoryId:request.inventoryId,userProductId:'',available:Number(d?.available_quantity),notAvailable:Number(d?.not_available_quantity),total:Number(d?.total),detail:Array.isArray(d?.not_available_detail)?d.not_available_detail:[],error:''};
+        }catch(e){return {stockKey,inventoryId:request.inventoryId,userProductId:request.kind==='up'?request.id:'',available:null,notAvailable:null,total:null,detail:[],error:e.status===403?'无库存接口权限':e.status===404?'库存编号或商品编号未关联该账号':e.message||'读取失败'};}
       }));
-      for(const row of results){const group=stockByKey.get(row.id)||[];group.push(row);stockByKey.set(row.id,group);}
+      for(const row of results)stockByKey.set(row.stockKey,[row]);
     }
     const rows=listings.map(item=>{
-      const units=stockByKey.get(String(item.id))||[],complete=units.length>0&&units.every(x=>Number.isFinite(x.available));
-      return {id:String(item.id),title:String(item.title||''),permalink:String(item.permalink||''),thumbnail:String(item.thumbnail||''),available:complete?units.reduce((s,x)=>s+x.available,0):null,notAvailable:complete?units.reduce((s,x)=>s+(Number(x.notAvailable)||0),0):null,total:complete?units.reduce((s,x)=>s+(Number(x.total)||0),0):null,variations:units,errors:units.filter(x=>x.error).map(x=>x.error),missingInventoryId:units.length===0};
+      const vars=Array.isArray(item.variations)&&item.variations.length?item.variations:null;
+      const stockUnits=vars?vars.map(v=>({userProductId:String(v.user_product_id||''),inventoryId:String(v.inventory_id||''),variationId:String(v.id||''),label:(v.attribute_combinations||[]).map(a=>a.value_name).filter(Boolean).join(' / ')})):[{userProductId:String(item.user_product_id||''),inventoryId:String(item.inventory_id||''),variationId:'',label:''}];
+      const units=stockUnits.map(x=>{const stockKey=x.userProductId?'up:'+x.userProductId:'inventory:'+x.inventoryId;return stockByKey.get(stockKey)?.[0]||{...x,available:null,notAvailable:null,total:null,detail:[],error:'库存暂不可用'};});
+      const complete=units.length>0&&units.every(x=>Number.isFinite(x.available));
+      return {id:String(item.id),title:String(item.title||''),permalink:String(item.permalink||''),thumbnail:String(item.thumbnail||''),available:complete?units.reduce((s,x)=>s+x.available,0):null,notAvailable:complete&&units.every(x=>Number.isFinite(x.notAvailable))?units.reduce((s,x)=>s+(Number(x.notAvailable)||0),0):null,total:complete?units.reduce((s,x)=>s+(Number(x.total)||0),0):null,variations:units,errors:units.filter(x=>x.error).map(x=>x.error),missingInventoryId:units.every(x=>!x.userProductId&&!x.inventoryId)};
     }).sort((a,b)=>(a.available??-1)-(b.available??-1)||a.title.localeCompare(b.title,'zh-CN'));
-    const data={ok:true,rows,totalListings:total,loadedListings:all.length,truncated:total>ids.length,updatedAt:Date.now(),summary:{listings:rows.length,available:rows.reduce((s,x)=>s+(x.available||0),0),notAvailable:rows.reduce((s,x)=>s+(x.notAvailable||0),0),unknown:rows.filter(x=>x.available===null||x.errors.length>0).length}};
+    const distinctStock=[...stockByKey.values()].map(x=>x[0]),data={ok:true,rows,totalListings:total,loadedListings:all.length,truncated:total>ids.length,updatedAt:Date.now(),summary:{listings:rows.length,available:distinctStock.filter(x=>Number.isFinite(x.available)).reduce((s,x)=>s+x.available,0),confirmed:rows.filter(x=>x.available!==null).length,unknown:rows.filter(x=>x.available===null||x.errors.length>0).length}};
     warehouseStockCache.set(key,{at:Date.now(),data});res.json(data);
   }catch(e){sendMlError(res,e);}
 });

@@ -262,13 +262,13 @@
       <div class="ph2 warehouse-head"><div><h1>平台仓库存</h1><p>按 Listing 汇总美客多 Fulfillment 仓可售库存和不可售库存；每 5 分钟自动刷新。</p></div><button class="btn y" id="warehouseRefresh" type="button">立即刷新</button></div>
       <div class="kpis warehouse-kpis">
         <div class="card kpi"><label>平台仓 Listing</label><b id="warehouseListingCount">—</b><div class="dl">正在使用平台仓库存的商品</div></div>
-        <div class="card kpi"><label>可售库存</label><b id="warehouseAvailable">—</b><div class="dl">当前可供买家下单</div></div>
-        <div class="card kpi"><label>不可售库存</label><b id="warehouseNotAvailable">—</b><div class="dl">含质检、转仓、损坏等状态</div></div>
-        <div class="card kpi"><label>待确认</label><b id="warehouseUnknown">—</b><div class="dl">接口未返回库存或权限不足</div></div>
+        <div class="card kpi"><label>平台仓库存件数</label><b id="warehouseAvailable">—</b><div class="dl">按 User Product 去重后的 Fulfillment 库存</div></div>
+        <div class="card kpi"><label>库存已确认商品数</label><b id="warehouseConfirmed">—</b><div class="dl">库存接口成功返回的商品数</div></div>
+        <div class="card kpi"><label>待确认商品数</label><b id="warehouseUnknown">—</b><div class="dl">接口未返回库存或权限不足</div></div>
       </div>
       <div class="card pad warehouse-toolbar"><input id="warehouseSearch" type="search" placeholder="搜索商品名称或 Listing ID"><span id="warehouseUpdated">等待读取库存…</span></div>
-      <div class="card pad warehouse-table-wrap"><table class="warehouse-table"><thead><tr><th>商品 / Listing</th><th>可售</th><th>不可售</th><th>平台仓总库存</th><th>不可售明细 / 状态</th></tr></thead><tbody id="warehouseRows"><tr><td colspan="5" class="empty">正在读取平台仓库存…</td></tr></tbody></table></div>
-      <p class="profit-disclaimer">库存来自美客多 Fulfillment 库存接口。只有平台仓 Listing 会显示在此页；若接口权限不足、Listing 未返回库存编号或接口暂时不可用，会标记“待确认”。页面在打开期间每 5 分钟刷新一次，也可手动刷新。</p>
+      <div class="card pad warehouse-table-wrap"><table class="warehouse-table"><thead><tr><th>商品 / Listing</th><th>Fulfillment 库存</th><th>不可售数量*</th><th>仓库状态</th></tr></thead><tbody id="warehouseRows"><tr><td colspan="4" class="empty">正在读取平台仓库存…</td></tr></tbody></table></div>
+      <p class="profit-disclaimer">库存按美客多 Fulfillment 商品库存接口读取；同一 User Product 关联多个 Listing 时，总件数只计一次。只有平台仓 Listing 会显示在此页；若接口权限不足、Listing 未返回库存编号或接口暂时不可用，会标记“待确认”。*不可售数量仅在平台库存接口提供明细时展示。页面在打开期间每 5 分钟刷新一次，也可手动刷新。</p>
     </section>
 
     <!-- 关键词排名 -->
