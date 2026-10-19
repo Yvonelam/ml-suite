@@ -640,6 +640,9 @@ html,body{background:#1a1040}
 /* 手机端修复：毛玻璃主题的桌面 .side 覆盖（height:calc(100vh - 24px) 等）写在前面媒体查询之后，会把底部导航撑成整屏面板；此处在文件末尾重新收窄为底部悬浮紧凑导航条 */
 @media(max-width:760px){
   .side{position:fixed;top:auto;bottom:0;left:0;right:0;height:auto;min-height:0;z-index:8;margin:0 10px calc(10px + env(safe-area-inset-bottom,0px));padding:4px 6px;border:1px solid var(--glass-border);border-right:1px solid var(--glass-border);border-radius:20px;background:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,.05));box-shadow:inset 0 1px 0 var(--glass-hi),0 14px 34px -14px rgba(10,5,40,.6);backdrop-filter:blur(24px) saturate(150%)}
-  #nav a{padding:4px 0;gap:2px;font-size:10px}
+  #nav{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;justify-content:flex-start;gap:2px}
+  #nav::-webkit-scrollbar{display:none}
+  #nav a{flex:0 0 auto;min-width:56px;padding:5px 8px;gap:2px;font-size:10px;white-space:nowrap}
+  #nav a span{white-space:nowrap}
   #nav a.on{border-radius:999px}
 }
