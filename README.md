@@ -479,6 +479,8 @@ node dm-mcp.js call search_product_snapshots '{"market_code":"MLB","keyword":"he
 | `probe-adsplit.js` | 广告单拆分的整数分配（15 项 + 1000 组随机压力） |
 | `probe-ledger.js` | 广告账本冻结语义（跨天 final 永不再改 + 小时分摊守恒） |
 | `probe-adsplit-ui.js` | 真浏览器悬停柱子读 tooltip，断言不出现半单 |
+| `sync-status.js` | **同步体检**（双击 `同步状态.bat`）：自动同步进程在不在 / 未提交几个 / 未推送几个（→ GitHub 是旧的）/ 未合入几个（→ 本地没跟上远端），并打印最近 8 条记录 |
+| `git-autosync.js --once` | 手动跑一轮同步并强制 fetch+rebase 一次，排查用 |
 
 ```bash
 node probe-resilience.js && node probe-profit-api.js && node probe-smoke.js
