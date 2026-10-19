@@ -9,7 +9,7 @@
 <link rel="icon" href="favicon-16.png" type="image/png" sizes="16x16">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#09090b">
-<link rel="stylesheet" href="style.css?v=49">
+<link rel="stylesheet" href="style.css?v=50">
 </head>
 <body>
 <!-- 开屏动画 -->
@@ -273,12 +273,12 @@
     </section>
 
     <section class="view" id="v-warehousePlan">
-      <div class="ph2 warehouse-head"><div><h1>Full 送仓计划</h1><p>选择要送入巴西 Full 仓的商品和数量，在 MLsuite 保存送仓草稿并整理清单。</p></div><button class="btn" id="warehousePlanRefresh" type="button">刷新库存</button></div>
+      <div class="ph2 warehouse-head"><div><h1>Full 送仓计划</h1><p>选择要送入巴西 Full 仓的商品和数量；相同库存自动合并，变体按颜色 / 型号显示对应图片。</p></div><button class="btn" id="warehousePlanRefresh" type="button">刷新库存</button></div>
       <div class="card pad warehouse-plan-notice"><b>真实送仓和预约仍需在美客多后台完成</b><p>当前公开 API 可读取 Full 库存与补货建议，没有查到创建巴西本地 Full 送仓单的接口。此处保存的是 MLsuite 草稿，不会向美客多提交入仓或预约；请检查数量、包装和发票资料后，再到平台后台完成。</p></div>
       <div class="warehouse-plan-steps"><span class="on">01　选择商品与数量</span><span>02　保存送仓草稿</span><span>03　前往美客多提交和约仓</span></div>
       <div class="warehouse-plan-layout">
         <div class="card pad warehouse-plan-products"><div class="ph"><div><h2>选择送仓商品</h2><p>读取当前账户的 Full 库存商品；数量按本次实际发货填写。</p></div><div class="warehouse-plan-tools"><input id="warehousePlanSearch" type="search" placeholder="搜索商品名或 Listing ID"><button class="btn" id="warehousePlanSelectAll" type="button">全选</button></div></div>
-          <div class="warehouse-table-wrap"><table class="warehouse-plan-table"><thead><tr><th><input type="checkbox" id="warehousePlanAllCheck" aria-label="全选"></th><th>商品 / Listing</th><th>变体</th><th>当前 Full 库存</th><th>本次送仓数量</th></tr></thead><tbody id="warehousePlanRows"><tr><td colspan="5" class="empty">正在读取 Full 库存…</td></tr></tbody></table></div>
+          <div class="warehouse-table-wrap"><table class="warehouse-plan-table"><thead><tr><th><input type="checkbox" id="warehousePlanAllCheck" aria-label="全选"></th><th>商品 / 颜色型号图片</th><th>颜色 / 型号</th><th>当前 Full 库存</th><th>本次送仓数量</th></tr></thead><tbody id="warehousePlanRows"><tr><td colspan="5" class="empty">正在读取 Full 库存…</td></tr></tbody></table></div>
           <small class="profit-sub" id="warehousePlanStatus">送仓草稿仅保存在当前 MLsuite 账户。</small>
         </div>
         <aside class="card pad warehouse-plan-summary"><div class="ph"><div><h2>送仓草稿摘要</h2><p>先在 MLsuite 整理，再前往平台完成提交。</p></div></div>
@@ -718,6 +718,6 @@
 
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="vendor/pdf.min.js"></script>
-<script src="app.js?v=51"></script>
+<script src="app.js?v=52"></script>
 </body>
 </html>

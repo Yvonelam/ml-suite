@@ -151,16 +151,24 @@ function renderWarehouseStock(){
     return '<tr><td><div class="profit-product">'+(x.thumbnail?'<img src="'+escHtml(x.thumbnail)+'" alt="">':'<span class="profit-thumb">ML</span>')+'<div><a target="_blank" rel="noopener" href="'+escHtml(x.permalink)+'">'+escHtml(x.title||('Listing '+x.id))+'</a><small>'+escHtml(x.id)+'</small></div></div></td><td class="warehouse-number">'+(x.available==null?'<span class="warehouse-unknown">待确认</span>':escHtml(x.available))+'</td><td class="warehouse-number">'+(x.notAvailable==null?'—':escHtml(x.notAvailable))+'</td><td>'+(state||'—')+(notes.length?'<small class="warehouse-error">'+notes.map(escHtml).join(' · ')+'</small>':'')+'</td></tr>';
   }).join(''):'<tr><td colspan="4" class="empty">'+(warehouseRows.length?'没有匹配的 Listing':'当前账户没有检测到平台仓 Listing')+'</td></tr>';
 }
-function warehousePlanKey(itemId,unit){return String(itemId)+'|'+String(unit.userProductId||unit.inventoryId||unit.variationId||'item');}
+function warehousePlanKey(itemId,unit){return unit.userProductId?'up:'+String(unit.userProductId):unit.inventoryId?'inventory:'+String(unit.inventoryId):'item:'+String(itemId)+'|variation:'+String(unit.variationId||'item');}
 function warehousePlanCandidates(){
-  return warehouseRows.flatMap(item=>{
+  const grouped=new Map();
+  warehouseRows.forEach(item=>{
     const units=Array.isArray(item.variations)&&item.variations.length?item.variations:[{userProductId:'',inventoryId:'',variationId:'',label:'',available:item.available,error:item.missingInventoryId?'缺少库存编号':''}];
-    return units.map((unit,index)=>{
-      const key=warehousePlanKey(item.id,unit),old=warehousePlanState.get(key)||{};
-      const entry={key,itemId:item.id,title:item.title||('Listing '+item.id),permalink:item.permalink||'',userProductId:unit.userProductId||'',inventoryId:unit.inventoryId||'',variationId:unit.variationId||'',label:unit.label||'',available:unit.available,error:unit.error||'',eligible:unit.available!==null&&unit.available!==undefined&&Number.isFinite(Number(unit.available))&&!!(unit.userProductId||unit.inventoryId),selected:!!old.selected,quantity:Number(old.quantity)||0};
-      warehousePlanState.set(key,entry);return entry;
+    units.forEach(unit=>{
+      const key=warehousePlanKey(item.id,unit),old=grouped.get(key)||warehousePlanState.get(key)||{};
+      const listing={id:String(item.id),title:item.title||('Listing '+item.id),permalink:item.permalink||''};
+      if(grouped.has(key)){
+        const entry=grouped.get(key);if(!entry.linkedListings.some(x=>x.id===listing.id))entry.linkedListings.push(listing);
+        if(!entry.label&&unit.label)entry.label=unit.label;if(!entry.thumbnail&&unit.thumbnail)entry.thumbnail=unit.thumbnail;
+      }else{
+        const entry={...old,key,itemId:String(item.id),title:item.title||('Listing '+item.id),permalink:item.permalink||'',thumbnail:unit.thumbnail||item.thumbnail||'',userProductId:unit.userProductId||'',inventoryId:unit.inventoryId||'',variationId:unit.variationId||'',label:unit.label||'',available:unit.available,error:unit.error||'',eligible:unit.available!==null&&unit.available!==undefined&&Number.isFinite(Number(unit.available))&&!!(unit.userProductId||unit.inventoryId),selected:!!old.selected,quantity:Number(old.quantity)||0,linkedListings:[listing]};
+        grouped.set(key,entry);
+      }
     });
   });
+  const entries=[...grouped.values()];for(const entry of entries)warehousePlanState.set(entry.key,entry);return entries;
 }
 function updateWarehousePlanSummary(){
   const entries=[...warehousePlanState.values()].filter(x=>x.selected&&x.eligible&&Number.isSafeInteger(Number(x.quantity))&&Number(x.quantity)>0);
@@ -171,13 +179,13 @@ function updateWarehousePlanSummary(){
 }
 function renderWarehousePlan(){
   const body=$('#warehousePlanRows');if(!body)return;const q=($('#warehousePlanSearch')?.value||'').trim().toLowerCase();
-  const entries=warehousePlanCandidates().filter(x=>!q||(x.title+' '+x.itemId+' '+x.label).toLowerCase().includes(q));
-  body.innerHTML=entries.length?entries.map(x=>'<tr><td><input type="checkbox" data-plan-check="'+escHtml(x.key)+'" '+(x.selected?'checked':'')+(!x.eligible&&!x.selected?' disabled':'')+' aria-label="选择 '+escHtml(x.title)+'"></td><td><div class="profit-product">'+(warehouseRows.find(r=>r.id===x.itemId)?.thumbnail?'<img src="'+escHtml(warehouseRows.find(r=>r.id===x.itemId).thumbnail)+'" alt="">':'<span class="profit-thumb">ML</span>')+'<div><a target="_blank" rel="noopener" href="'+escHtml(x.permalink)+'">'+escHtml(x.title)+'</a><small>'+escHtml(x.itemId)+'</small></div></div></td><td>'+(x.label?escHtml(x.label):x.variationId?('变体 '+escHtml(x.variationId)):'—')+'</td><td class="plan-stock">'+(x.available==null?'<span class="plan-disabled">待确认</span>':escHtml(x.available)+' 件')+(x.error?'<small class="warehouse-error">'+escHtml(x.error)+'</small>':'')+'</td><td><input class="plan-qty" type="number" min="1" max="100000" step="1" data-plan-qty="'+escHtml(x.key)+'" value="'+(x.quantity||'')+'" placeholder="件数" '+(!x.eligible||!x.selected?'disabled':'')+'></td></tr>').join(''):'<tr><td colspan="5" class="empty">'+(warehouseRows.length?'没有匹配的 Full 商品':'当前账户没有可用于草稿的 Full 库存商品')+'</td></tr>';
+  const entries=warehousePlanCandidates().filter(x=>!q||(x.title+' '+x.itemId+' '+x.label+' '+x.linkedListings.map(y=>y.id+' '+y.title).join(' ')).toLowerCase().includes(q));
+  body.innerHTML=entries.length?entries.map(x=>'<tr><td><input type="checkbox" data-plan-check="'+escHtml(x.key)+'" '+(x.selected?'checked':'')+(!x.eligible&&!x.selected?' disabled':'')+' aria-label="选择 '+escHtml(x.title)+'"></td><td><div class="profit-product">'+(x.thumbnail?'<img src="'+escHtml(x.thumbnail)+'" alt="'+escHtml(x.label||x.title)+'" loading="lazy">':'<span class="profit-thumb">ML</span>')+'<div><a target="_blank" rel="noopener" href="'+escHtml(x.permalink)+'">'+escHtml(x.title)+'</a><small>'+escHtml(x.itemId)+(x.linkedListings.length>1?' · 关联 Listing：'+x.linkedListings.map(y=>'<a target="_blank" rel="noopener" href="'+escHtml(y.permalink)+'">'+escHtml(y.id)+'</a>').join('、'):'')+'</small></div></div></td><td>'+(x.label?escHtml(x.label):x.variationId?('变体 '+escHtml(x.variationId)):'—')+'</td><td class="plan-stock">'+(x.available==null?'<span class="plan-disabled">待确认</span>':escHtml(x.available)+' 件')+(x.error?'<small class="warehouse-error">'+escHtml(x.error)+'</small>':'')+'</td><td><input class="plan-qty" type="number" min="1" max="100000" step="1" data-plan-qty="'+escHtml(x.key)+'" value="'+(x.quantity||'')+'" placeholder="件数" '+(!x.eligible||!x.selected?'disabled':'')+'></td></tr>').join(''):'<tr><td colspan="5" class="empty">'+(warehouseRows.length?'没有匹配的 Full 商品':'当前账户没有可用于草稿的 Full 库存商品')+'</td></tr>';
   updateWarehousePlanSummary();
 }
 async function loadWarehousePlanDraft(){
   const status=$('#warehousePlanStatus');if(!status)return;status.textContent='正在读取当前账户的送仓草稿…';
-  try{const d=await mlGet('/api/ml/warehouse-draft');warehousePlanState=new Map();warehousePlanDirty=false;for(const x of(d.items||[])){const key=warehousePlanKey(x.itemId,x);warehousePlanState.set(key,{...x,key,selected:true,quantity:Number(x.quantity)||0,eligible:false,available:null,permalink:''});}renderWarehousePlan();status.textContent=d.items?.length?'已载入 '+d.items.length+' 项当前账户草稿'+(d.updatedAt?' · '+new Date(d.updatedAt).toLocaleString('zh-CN'):'')+'；保存不会提交美客多。':'当前账户暂无送仓草稿；选好商品和数量后保存。';}
+  try{const d=await mlGet('/api/ml/warehouse-draft');warehousePlanState=new Map();warehousePlanDirty=false;for(const x of(d.items||[])){const key=warehousePlanKey(x.itemId,x),old=warehousePlanState.get(key);warehousePlanState.set(key,{...old,...x,key,selected:true,quantity:(Number(old?.quantity)||0)+(Number(x.quantity)||0),eligible:false,available:null,permalink:''});}renderWarehousePlan();status.textContent=d.items?.length?'已载入 '+d.items.length+' 项当前账户草稿'+(d.updatedAt?' · '+new Date(d.updatedAt).toLocaleString('zh-CN'):'')+'；保存不会提交美客多。':'当前账户暂无送仓草稿；选好商品和数量后保存。';}
   catch(e){status.textContent='读取送仓草稿失败：'+e.message;}
 }
 async function saveWarehousePlanDraft(){
