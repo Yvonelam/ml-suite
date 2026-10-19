@@ -1655,10 +1655,11 @@ function notifyNewItems(q, c) {
     toast('🔔 新来 ' + (q - mlLastQ) + ' 条商品问答，待回复');
     if (currentView === 'questions' && !document.hidden && !hasDirtyInput('#questionBody')) loadQuestions();
   }
-  if (mlLastC != null && c > mlLastC) {
+  // c 为 null 表示本轮没取到待处理数（接口异常），不能当成「降到 0」，否则恢复后会被误报成新售后
+  if (c != null && mlLastC != null && c > mlLastC) {
     toast('🔔 新来 ' + (c - mlLastC) + ' 条售后待处理');
   }
-  mlLastQ = q; mlLastC = c;
+  mlLastQ = q; mlLastC = (c == null) ? null : c;
 }
 function applySummary(d) {
   setStateEl($('#mlState'), 'ok', '实时');
@@ -1683,9 +1684,11 @@ function applySummary(d) {
   const hq = $('#hubQuestionCount'); if (hq) hq.textContent = fmt(d.questionUnanswered || 0);
   setBadge('nb-q', d.questionUnanswered); setBadge('tc-q', d.questionUnanswered);
   setBadge('nb-o', needShip); setBadge('tc-o', needShip);
-  const hc = $('#hubClaimCount'); if (hc) hc.textContent = fmt(d.claimTodo != null ? d.claimTodo : (d.claimOpen || 0));
-  setBadge('nb-c', d.claimTodo != null ? d.claimTodo : d.claimOpen); setBadge('tc-c', d.claimTodo != null ? d.claimTodo : d.claimOpen);
-  notifyNewItems(Number(d.questionUnanswered || 0), Number((d.claimTodo != null ? d.claimTodo : d.claimOpen) || 0));
+  // 取不到待处理数时显示「—」并隐藏角标，不再退回 claimOpen（那会把所有开启纠纷当待办，长期空提醒）
+  const claimTodo = (d.claimTodo != null) ? d.claimTodo : null;
+  const hc = $('#hubClaimCount'); if (hc) hc.textContent = (claimTodo == null) ? '—' : fmt(claimTodo);
+  setBadge('nb-c', claimTodo); setBadge('tc-c', claimTodo);
+  notifyNewItems(Number(d.questionUnanswered || 0), Number(claimTodo || 0));
 }
 
 /* ---- 概览：销售金额 · 实时流水（按巴西时区） ---- */

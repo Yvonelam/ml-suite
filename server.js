@@ -968,13 +968,28 @@ function classifyClaim(nc, thread = {}) {
   const stage = String(nc.stage || '').toLowerCase();
   // 1) 平台调解 —— 需要我方回复调解员
   if (type === 'mediations' || stage === 'dispute' || stage === 'mediations') return 'mediation';
-  // 2) 买家主动联系（有买家留言）—— 需要我方回复买家
-  if ((thread.buyerMessages || 0) > 0) return 'buyer';
+  // awaitingSeller 由线程计算；示例数据只给 lastSender 时按发送方兜底
+  const awaiting = thread.awaitingSeller != null
+    ? !!thread.awaitingSeller
+    : /complainant|buyer|mediator/i.test(String(thread.lastSender || ''));
+  // 2) 对方（买家/调解员）最后发言 —— 球在我方，才可能是「等你回复」
+  if (awaiting && ((thread.buyerMessages || 0) + (thread.mediatorMessages || 0)) > 0) return 'buyer';
   // 3) 买家自行处理（反悔退货 / 无理由退货），且买家没有留言 —— 无需操作
   if (CLAIM_AUTO_REASON_RE.test(nc.reasonName || '')) return 'auto';
-  // 4) 兜底：还有我方可选动作（可回复/可退款/可发起调解）→ 归入买家咨询待处理；否则无需操作
-  if (nc.canReply || nc.canRefund || nc.canDispute) return 'buyer';
+  // 4) 兜底：仅仅「还能回复/退款/发起调解」不再算待处理。
+  //    美客多几乎所有开启中的纠纷都带这些动作，按动作判定会把买家反悔退货等
+  //    平台自动流转的纠纷全算成「等你处理」，导致长期空提醒。必须先有对方留言。
   return 'auto';
+}
+
+// 球是否真的在我方：平台调解只要不是我方最后发言就提醒；买家类必须「对方最后发言 + 当前可回复」
+function claimAwaitingUs(cat, nc, t = {}) {
+  // 线程未给出 awaitingSeller（如示例数据）时，按最后发送方兜底
+  const awaiting = t.awaitingSeller != null
+    ? !!t.awaitingSeller
+    : /complainant|buyer|mediator/i.test(String(t.lastSender || ''));
+  if (cat === 'mediation') return String(t.lastSender || '') !== 'respondent';
+  return awaiting && !!nc.canSendNow;
 }
 
 // 拉取单条纠纷的消息线程（带短缓存），用于分类与判断谁在等回复
@@ -985,6 +1000,7 @@ async function mlClaimThread(id) {
   const hit = claimThreadCache.get(scopedKey);
   if (hit && Date.now() - hit.at < 60000) return hit.data;
   let list = [];
+  let fetchError = false;
   try {
     const m = await mlRequest(`/post-purchase/v1/claims/${encodeURIComponent(key)}/messages`);
     const arr = Array.isArray(m) ? m : ((m && (m.messages || m.data)) || []);
@@ -996,7 +1012,7 @@ async function mlClaimThread(id) {
       stage: x.stage || '',
       attachments: (x.attachments || []).map(a => a.original_filename || a.filename).filter(Boolean),
     }));
-  } catch { /* 没有线程也正常 */ }
+  } catch { fetchError = true; /* 拉取失败要标记：不能当成「没有新消息」，否则会误判成新动向反复推送 */ }
   // 按时间正序（接口多为倒序返回）
   list.sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
   const buyer = list.filter(m => /complainant|buyer/i.test(m.sender)).length;
@@ -1010,6 +1026,8 @@ async function mlClaimThread(id) {
     lastReceiver: last ? last.receiver : '',
     // 最后一条是对方（买家/调解员）发的 → 大概率在等我方回复
     awaitingSeller: !!last && /complainant|buyer|mediator/i.test(last.sender),
+    // 消息线程拉取失败：分类与推送都要跳过，避免把「没拉到」当成状态变化
+    fetchError,
   };
   claimThreadCache.set(scopedKey, { at: Date.now(), data });
   return data;
@@ -1024,6 +1042,24 @@ function mlClaimPaths(uid, { status, limit = 20, offset = 0 } = {}) {
     `/post-purchase/v1/claims/search?${st}${base}`,
     `/v1/claims/search?${st}${base}&seller_id=${uid}`,
   ];
+}
+
+/**
+ * 取「最新」的 opened 纠纷（与售后页同一口径）。
+ * 美客多 claims/search 默认按时间升序翻页（offset 0 = 最旧），
+ * 此前角标/推送直接用 offset 0，导致与售后页（反向分页，offset 0 = 最新）对不上：
+ * 开启纠纷较多时，角标数的可能是页面上翻不到的老纠纷。
+ */
+async function mlOpenClaimsNewest(limit = 50) {
+  const u = await mlUser();
+  const meta = await mlRequestFirst(mlClaimPaths(u.id, { status: 'opened', limit: 1, offset: 0 }));
+  const total = (meta && meta.paging && meta.paging.total) || 0;
+  if (!total) return { total: 0, list: [] };
+  const n = Math.min(limit, total);
+  const d = await mlRequestFirst(mlClaimPaths(u.id, { status: 'opened', limit: n, offset: Math.max(0, total - n) }));
+  const list = ((d && (d.data || d.results || d.claims)) || []).slice()
+    .sort((a, b) => String(b.date_created || '').localeCompare(String(a.date_created || '')));
+  return { total, list };
 }
 
 function sendMlError(res, e) {
@@ -1089,16 +1125,18 @@ app.get('/api/ml/orders/summary', async (req, res) => {
       safe(async () => (await mlRequest(`/questions/search?seller_id=${uid}&status=UNANSWERED&limit=1`)).total, null),
       safe(async () => { const d = await mlRequestFirst(mlClaimPaths(uid, { status: 'opened', limit: 1 })); return d && d.paging ? d.paging.total : null; }, null),
     ]);
-    // 需要我处理的售后数（平台调解 + 买家主动咨询；已忽略的不算）
+    // 需要我处理的售后数（平台调解 + 买家主动咨询；已忽略的不算；球不在我方的不算）
     const claimTodo = await safe(async () => {
-      const d = await mlRequestFirst(mlClaimPaths(uid, { status: 'opened', limit: 50 }));
-      const list = (d && (d.data || d.results || d.claims)) || [];
+      const { list } = await mlOpenClaimsNewest(50);
       const reasons = await mlClaimReasons(list.map(c => c.reason_id));
       const norm = list.map(c => normalizeClaim(c, reasons));
       const th = await Promise.all(norm.map(nc => mlClaimThread(nc.id)));
       return norm.filter((nc, i) => {
         if (isIgnored(nc.id)) return false;
-        return (CLAIM_CAT[classifyClaim(nc, th[i])] || CLAIM_CAT.auto).need;
+        if (th[i] && th[i].fetchError) return false; // 线程没拉到 → 不误报成待处理
+        const cat = classifyClaim(nc, th[i]);
+        if (!(CLAIM_CAT[cat] || CLAIM_CAT.auto).need) return false;
+        return claimAwaitingUs(cat, nc, th[i]);
       }).length;
     }, null);
     // 需要我动手发货的订单数（自发货/打面单；官方代发不算）
@@ -2694,8 +2732,9 @@ app.get('/api/ml/claims', async (req, res) => {
       return {
         ...nc,
         category, categoryLabel: meta.label, categoryDesc: meta.desc,
-        // 已忽略的不再计入「需要我处理」
-        needAction: !!meta.need && !ignored,
+        // 已忽略的不再计入「需要我处理」；球不在我方（最后一条是自己发的）同样不算
+        // ——与角标/推送同一口径，避免角标有数、页面列表却为空
+        needAction: !!meta.need && !ignored && claimAwaitingUs(category, nc, t),
         ignored,
         messageCount: t.total, buyerMessages: t.buyerMessages, mediatorMessages: t.mediatorMessages,
         lastSender: t.lastSender, lastReceiver: t.lastReceiver, awaitingSeller: t.awaitingSeller && nc.canSendNow,
@@ -3007,17 +3046,23 @@ async function checkNewClaims({ manual = false } = {}) {
   const u = await mlUser();
   const siteCode = String(mlEffectiveSite(cfg.mlSite) || u.site_id || 'MLB').toUpperCase();
   const site = mlSite(siteCode);
-  const d = await mlRequest('/post-purchase/v1/claims/search?status=opened&limit=50');
-  const list = (d && (d.data || d.results || d.claims)) || [];
+  // 与售后页同口径：取「最新」的 opened 纠纷，而不是接口默认的「最旧 50 条」
+  const { list } = await mlOpenClaimsNewest(50);
   const reasons = await mlClaimReasons(list.map(c => c.reason_id));
 
   // 逐条取线程（mlClaimThread 自带 60 秒缓存，正常只有个位数纠纷，串行足够）
   const rows = [];
+  const scanned = new Set();     // 本轮真正扫到的纠纷 id
+  let threadErr = 0;
   for (const c of list) {
     const nc = normalizeClaim(c, reasons);
     const t = await mlClaimThread(nc.id);
+    scanned.add(String(nc.id));
+    if (isIgnored(nc.id)) continue;        // 已忽略的不再提醒
+    if (t.fetchError) { threadErr++; continue; }  // 线程没拉到 → 本轮不做任何判定，也不淘汰已有记录
     const cat = classifyClaim(nc, t);
     if (!claimNeedsAttention(cat)) continue;
+    if (!claimAwaitingUs(cat, nc, t)) continue;   // 球不在我方（如平台自动退货流程）→ 不推
     rows.push({ nc, t, cat, signal: claimSignalOf(t, nc) });
   }
 
@@ -3043,14 +3088,18 @@ async function checkNewClaims({ manual = false } = {}) {
     return r.t.lastSender !== 'respondent';        // 变成「对方说话」才算新动向
   });
 
-  // 重算记录表：只保留仍在「待关注」名单里的，已关闭/已归档的自然淘汰，避免无限增长
-  const alive = {};
+  // 重算记录表：只淘汰「本轮确实扫到、且已不在待关注名单」的条目；
+  // 线程拉取失败的条目保留上轮信号，避免恢复后被当成新纠纷再推一次
+  const alive = { ...(pushState.claimSeen || {}) };
   for (const r of rows) alive[r.nc.id] = r.signal;
+  for (const id of Object.keys(alive)) {
+    if (scanned.has(String(id)) && !rows.some(r => String(r.nc.id) === String(id))) delete alive[id];
+  }
   pushState.claimSeen = alive;
 
   if (!fresh.length) {
     pushState.lastClaimFresh = 0;
-    pushState.lastClaimError = '';
+    pushState.lastClaimError = threadErr ? `本轮 ${threadErr} 条消息线程拉取失败，已跳过不判定` : '';
     pushState.lastClaimSummary = `无售后新动向（当前待关注 ${rows.length} 条）`;
     savePushState();
     return { ok: true, fresh: 0, total: rows.length, pushed: 0, summary: pushState.lastClaimSummary };
