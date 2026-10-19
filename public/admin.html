@@ -19,9 +19,12 @@ body{background:radial-gradient(60rem 40rem at 8% -10%,var(--g-v),transparent 60
 body:before,body:after{content:"";position:fixed;z-index:-1;width:34vw;height:34vw;min-width:260px;min-height:260px;border-radius:50%;filter:blur(110px);opacity:.26;pointer-events:none}
 body:before{top:-12%;left:3%;background:var(--g-v);animation:adminDrift1 26s ease-in-out infinite alternate}
 body:after{right:2%;bottom:-14%;background:var(--g-p);animation:adminDrift2 32s ease-in-out infinite alternate}
-@keyframes adminDrift1{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(7vw,5vh,0) scale(1.14)}}
-@keyframes adminDrift2{from{transform:translate3d(0,0,0) scale(1.06)}to{transform:translate3d(-6vw,-4vh,0) scale(1)}}
-@media(prefers-reduced-motion:reduce){body:before,body:after{animation:none}}
+@keyframes adminDrift1{from{transform:translate3d(-5vw,-4vh,0) scale(.9);opacity:.14}to{transform:translate3d(11vw,8vh,0) scale(1.3);opacity:.4}}
+@keyframes adminDrift2{from{transform:translate3d(6vw,5vh,0) scale(1.26);opacity:.38}to{transform:translate3d(-8vw,-6vh,0) scale(.92);opacity:.16}}
+/* 玻璃面板外发光呼吸：最直观的一层 */
+.glass{animation:adminGlow 7s ease-in-out infinite alternate}
+@keyframes adminGlow{from{box-shadow:inset 0 1px 0 var(--glass-hi),0 18px 46px -22px rgba(10,5,40,.7)}to{box-shadow:inset 0 1px 0 var(--glass-hi),0 26px 68px -18px rgba(124,58,237,.46)}}
+@media(prefers-reduced-motion:reduce){body:before,body:after,.glass{animation:none}}
 .top{background:rgba(26,16,64,.35);border-color:rgba(255,255,255,.12);backdrop-filter:blur(30px) saturate(170%)}
 .logo{background:linear-gradient(135deg,#ff8ad8,#8b7bff);color:#fff}
 .glass{background:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,.05));border-color:var(--glass-border);border-radius:22px;backdrop-filter:blur(24px) saturate(150%);box-shadow:inset 0 1px 0 var(--glass-hi),0 20px 50px -20px rgba(10,5,40,.6)}
