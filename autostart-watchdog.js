@@ -35,6 +35,9 @@ const STOP_FLAG = path.join(ROOT, '.stop-flag');
 const LOG = path.join(ROOT, '运行日志.txt');
 const LOCK = path.join(ROOT, '.watchdog.pid');
 const LAUNCHER_LOCK = path.join(ROOT, '.launcher.pid');
+const AUTOSYNC_PID = path.join(ROOT, '.autosync.pid');
+const SYNC_OFF = path.join(ROOT, '.sync-off');    // 「自动同步-关闭.bat」写的：人为关掉，别管
+const SYNC_SCRIPT = path.join(ROOT, 'git-autosync.js');
 
 const CHECK_MS = 60 * 1000;               // 每分钟探一次
 const RETRY_COOLDOWN_MS = 3 * 60 * 1000;  // 拉起后给 3 分钟冷启动窗口，避免端口还没起来就连着拉
@@ -105,9 +108,34 @@ function launch(reason) {
   log('已拉起 start-public（PID ' + child.pid + '）。');
 }
 
+// ---- 自动同步体检 ----
+// 自动同步进程一死，本地改动就再也推不上 GitHub，但表面完全看不出来（服务照跑、页面照开），
+// 只有等你发现「远端还是旧代码」才暴露 —— 所以必须跟启动器一样被盯着。
+function ensureAutosync() {
+  if (fs.existsSync(SYNC_OFF)) return;                 // 人为关掉了，尊重它
+  if (!fs.existsSync(SYNC_SCRIPT)) return;
+  const pid = readPid(AUTOSYNC_PID);
+  if (pid > 0 && pidAlive(pid)) return;
+  try { fs.unlinkSync(AUTOSYNC_PID); } catch (e) { }   // 清掉陈旧 pid，否则新进程会以为自己重复启动
+  try {
+    const child = spawn(process.execPath, [SYNC_SCRIPT], {
+      cwd: ROOT, env: process.env,
+      detached: true,
+      windowsHide: true,
+      stdio: ['ignore', 'ignore', 'ignore'],
+    });
+    child.unref();
+    log('自动同步进程不在了（原 PID ' + (pid || '无') + '），已重新拉起（新 PID ' + child.pid + '）。');
+  } catch (e) {
+    log('拉起自动同步失败：' + e.message);
+  }
+}
+
 async function check() {
   try {
     if (fs.existsSync(STOP_FLAG)) { deadStreak = 0; return; }   // 人为停止：不打扰
+
+    ensureAutosync();   // 放在 .stop-flag 之后：你主动「停止公网服务」时，同步也跟着一起停
 
     const busy = await portBusy(PORT);
     const launcherPid = readPid(LAUNCHER_LOCK);
@@ -145,6 +173,6 @@ async function check() {
   }
 }
 
-log('看门狗已启动（PID ' + process.pid + '），每 ' + (CHECK_MS / 1000) + ' 秒做一次「启动器进程 + 端口 ' + PORT + '」体检。');
+log('看门狗已启动（PID ' + process.pid + '），每 ' + (CHECK_MS / 1000) + ' 秒做一次「启动器进程 + 端口 ' + PORT + ' + 自动同步」体检。');
 check();
 setInterval(check, CHECK_MS);
