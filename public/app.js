@@ -159,6 +159,7 @@ function applyProfitHeaders() {
   set('poThRev', '订单收入（' + c + '）');
   set('poThFee', '销售费（' + c + '）');
   set('poThShip', '尾程运费（' + c + '）');
+  set('poThTax', '税费（' + c + '）');
   set('poThCost', '成本与头程（人民币）');
   set('poThProfit', '订单利润（人民币）');
 }
@@ -182,20 +183,23 @@ function renderProfitOrders(data){
     +'<div class="profit-order-stat" title="折合 '+money(profitSumLocal,lcur)+'"><small>订单利润合计（人民币）</small><b class="'+(profitSum<0?'negative':'')+'">'+money(profitSum,'CNY')+'</b><small class="sub">有效 '+fmt(totals.profitUnits||0)+' 件计入</small></div>'
     +'<div class="profit-order-stat"><small>整体利润率</small><b>'+(totals.margin==null?'—':Number(totals.margin).toFixed(2)+'%')+'</b><small class="sub">利润 ÷ 收入</small></div>';
   renderProfitProducts(data);
-  if(!items.length){rows.innerHTML='<tr><td colspan="8" class="empty">所选日期范围内没有订单</td></tr>';return;}
+  if(!items.length){rows.innerHTML='<tr><td colspan="9" class="empty">所选日期范围内没有订单</td></tr>';return;}
   rows.innerHTML=items.map(x=>{
     const date=x.date?new Date(x.date).toLocaleString('zh-CN',{timeZone:'America/Sao_Paulo',hour12:false}):'—',
           complete=x.profit!==null,miss=(x.missing||[]).join('、'),dead=!!x.cancelled;
-    // 前三列：平台原币（巴币）；成本与利润：人民币
+    // 前四列：平台原币（巴币）；成本与利润：人民币
     const rev=x.revenue,fee=x.saleFee,ship=x.shipping,tax=x.tax,
           cost=x.costCny,profit=x.profitCny;
-    const hasTax=tax!==null&&tax!==undefined&&Number(tax)!==0;
-    const shipCell=ship===null?'待核对':money(ship,lcur)+(hasTax?'<small title="平台代扣税，已计入利润">含税 '+money(tax,lcur)+'</small>':'');
+    // 税费独立成列：运费列只显示运费本身，税单独一格，列名与内容对得上
+    const taxAssumed=!!x.taxAssumed;
+    const shipCell=ship===null?'待核对':money(ship,lcur);
+    const taxCell=tax===null||tax===undefined?'待核对':money(tax,lcur);
     const cls=complete&&Number(profit)<0?'negative':'positive';
     // 每格挂 title 显示另一币种，币种不同也能互相核对
     const revT=x.revenueCny===null?'':'折合 '+money(x.revenueCny,'CNY');
     const feeT=x.saleFeeCny===null?'':'折合 '+money(x.saleFeeCny,'CNY');
     const shipT=x.shippingCny===null?'':'折合 '+money(x.shippingCny,'CNY');
+    const taxT=x.taxCny===null||x.taxCny===undefined?'':(taxAssumed?'平台未代扣，按订单收入 8% 估算 · ':'')+'折合 '+money(x.taxCny,'CNY');
     const costT=x.cost===null?'':'折合 '+money(x.cost,lcur);
     const profitT=x.profit===null?'':'折合 '+money(x.profit,lcur);
     // 取消 / 退款单：列出收入与销售费（让你看清这单丢了多少钱），运费/成本/利润一律不给假数
@@ -207,6 +211,7 @@ function renderProfitOrders(data){
       +'<td title="'+escHtml(revT)+'">'+money(rev,lcur)+'</td>'
       +'<td'+(feeT?' title="'+escHtml(feeT)+'"':'')+'>'+(fee===null?'—':money(fee,lcur))+'</td>'
       +'<td'+(shipT?' title="'+escHtml(shipT)+'"':'')+'>'+(dead?'—':shipCell)+'</td>'
+      +'<td'+(taxT?' title="'+escHtml(taxT)+'"':'')+'>'+(dead?'—':taxCell)+'</td>'
       +'<td'+(costT?' title="'+escHtml(costT)+'"':'')+'>'+(dead?'—':(cost===null?'待核对':money(cost,'CNY')))+'</td>'
       +'<td class="'+(dead?'pending':(complete?cls:'pending'))+'"'+(profitT?' title="'+escHtml(profitT)+'"':'')+'>'
         +(dead?'<span class="po-badge off">已取消</span>':(complete?money(profit,'CNY'):'待核对'))
@@ -264,7 +269,7 @@ async function loadProfitOrders(refresh=false){
       +' · 已计算 '+fmt(T.matched||0)+' / '+fmt(T.validLines||0)+' 行'
       +((T.unmatched||0)?' · '+fmt(T.unmatched)+' 行待核对，请查看各行原因':'')
       +(d.cached?' · 缓存数据':' · 已更新');}
-  catch(e){$('#profitOrderSummary').hidden=true;$('#profitOrderRows').innerHTML='<tr><td colspan="8" class="empty">'+escHtml(e.message)+'</td></tr>';status.textContent='订单读取失败：'+e.message;}
+  catch(e){$('#profitOrderSummary').hidden=true;$('#profitOrderRows').innerHTML='<tr><td colspan="9" class="empty">'+escHtml(e.message)+'</td></tr>';status.textContent='订单读取失败：'+e.message;}
   finally{$('#profitOrderApply').disabled=false;}
 }
 function bindProfitEvents(){

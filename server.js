@@ -34,6 +34,10 @@ process.on('unhandledRejection', (reason) => logCrash('unhandledRejection', reas
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// 利润页「税费」估算税率：平台没代扣税时（巴西站 order.taxes 恒为 null），
+// 按订单收入 × 这个比例估一笔税费计入利润，避免把利润算高了。想调整改这一个数即可。
+const DEFAULT_TAX_RATE = 0.08;
+
 // 所有 API 响应禁止浏览器缓存：否则忽略/回复后刷新页面可能拿到旧数据
 app.use((req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
@@ -1462,13 +1466,14 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     for(const order of rawOrders){
       const dead=isDeadOrder(order);
       const items=order.order_items||[];
+      const revenues=items.map(it=>(Number(it.unit_price)||0)*(Number(it.quantity)||1)),sumRevenue=revenues.reduce((a,b)=>a+b,0),shipmentId=String(order.shipping?.id||'');
       // 税额语义修正：美客多的 order.taxes 字段**一直存在**，但平台不代扣税时 amount 是 null
       // （实测巴西站 410/410 全是 null）。老代码把 null 当「未知」→ 每一行利润都算不出来，
-      // 整个利润页等于废掉。正确语义：null / 缺失 = 平台没代扣，按 0 计；拿到数字才用它。
+      // 整个利润页等于废掉。正确语义：拿到数字就用它；null / 缺失 = 平台没代扣，
+      // 按订单收入 × DEFAULT_TAX_RATE 估算（卖家实际仍有税费成本，按 0 会虚高利润）。
       const taxRaw=order.taxes&&typeof order.taxes==='object'?order.taxes.amount:order.taxes;
       const taxNum=Number(taxRaw),taxKnown=true,taxAssumed=taxRaw===undefined||taxRaw===null||!Number.isFinite(taxNum);
-      const taxAmount=taxAssumed?0:taxNum,currency=order.currency_id||(items[0]?.currency_id)||'';
-      const revenues=items.map(it=>(Number(it.unit_price)||0)*(Number(it.quantity)||1)),sumRevenue=revenues.reduce((a,b)=>a+b,0),shipmentId=String(order.shipping?.id||'');
+      const taxAmount=taxAssumed?sumRevenue*DEFAULT_TAX_RATE:taxNum,currency=order.currency_id||(items[0]?.currency_id)||'';
       const shipment=shipmentCosts[shipmentId],shipmentTotal=shipment?Number(shipment.amount):null;
       const shipmentGroup=shipmentId+'|'+currency;
       for(let i=0;i<items.length;i++)flattened.push({order,item:items[i],currency,cancelled:dead,qty:Number(items[i].quantity)||1,revenue:revenues[i],taxShare:sumRevenue?taxAmount*revenues[i]/sumRevenue:0,taxAssumed,shipmentId,shipmentGroup,orderRevenue:sumRevenue,shipmentTotal,shipmentCurrency:shipment?.currency||''});
