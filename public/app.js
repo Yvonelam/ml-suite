@@ -21,9 +21,77 @@ const CURRENCY_SYMBOLS = { ARS: '$', BRL: 'R$', MXN: '$', CNY: '¥' };
    1. 开屏 + 路由
    ========================================================= */
 let spT;
+let splashNetworkControl = null;
+function initSplashNetwork() {
+  const canvas = $('#splashNetwork');
+  if (!canvas) return null;
+  const ctx = canvas.getContext('2d', { alpha: true });
+  if (!ctx) return null;
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || false;
+  const sites = $$('#sites span');
+  let width = 0, height = 0, dpr = 1, frame = 0, running = false, nodes = [];
+  const readColor = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  const palette = [readColor('--sp-network-cyan', '#8adfff'), readColor('--sp-network-violet', '#c3a6ff'), readColor('--sp-network-pink', '#ff9bd8')];
+  const anchors = [[.17,.34],[.83,.34],[.56,.78]];
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    width = Math.max(1, rect.width || window.innerWidth); height = Math.max(1, rect.height || window.innerHeight);
+    dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const count = Math.min(68, Math.max(34, Math.round(width * height / 22000)));
+    nodes = Array.from({ length: count }, (_, i) => ({ x: Math.random()*width, y: Math.random()*height, vx:(Math.random()-.5)*.22, vy:(Math.random()-.5)*.22, r:Math.random()*1.15+.45, group:i%3 }));
+  }
+  function paint() {
+    if (!running) return;
+    ctx.clearRect(0, 0, width, height);
+    for (const node of nodes) {
+      if (!reducedMotion) {
+        node.x += node.vx; node.y += node.vy;
+        if (node.x < 0 || node.x > width) node.vx *= -1;
+        if (node.y < 0 || node.y > height) node.vy *= -1;
+      }
+    }
+    const maxDistance = Math.min(150, Math.max(105, width * .13));
+    const activeCount=sites.filter(s=>s.classList.contains('on')).length;
+    for (let i=0;i<nodes.length;i++) {
+      const a=nodes[i];
+      for (let j=i+1;j<nodes.length;j++) {
+        const b=nodes[j], dx=a.x-b.x, dy=a.y-b.y, distance=Math.hypot(dx,dy);
+        if (distance >= maxDistance) continue;
+        ctx.globalAlpha=(1-distance/maxDistance)*(.09+activeCount*.035);
+        ctx.strokeStyle=palette[(a.group+b.group)%palette.length]; ctx.lineWidth=.7;
+        ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+      }
+    }
+    for (const node of nodes) {
+      ctx.globalAlpha=.26;ctx.fillStyle=palette[node.group];ctx.beginPath();ctx.arc(node.x,node.y,node.r,0,Math.PI*2);ctx.fill();
+    }
+    sites.forEach((site,i)=>{
+      const [px,py]=anchors[i]||[.5,.5],x=width*px,y=height*py;
+      const ok=site.classList.contains('on'),bad=site.classList.contains('bad');
+      const color=bad?readColor('--sp-failure','#ff8291'):ok?readColor('--sp-success','#70e6c1'):palette[i%palette.length];
+      const pulse=reducedMotion?1:(Math.sin(performance.now()/620+i*1.7)+1)/2;
+      const radius=(ok||bad?62:36)+pulse*13;
+      const glow=ctx.createRadialGradient(x,y,1,x,y,radius);
+      glow.addColorStop(0,color);glow.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.globalAlpha=ok ? .16 : bad ? .12 : .055;ctx.fillStyle=glow;ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.fill();
+      if(ok||bad){ctx.globalAlpha=.28;ctx.strokeStyle=color;ctx.lineWidth=1;ctx.beginPath();ctx.arc(x,y,radius*.72,0,Math.PI*2);ctx.stroke();}
+    });
+    ctx.globalAlpha=1;
+    if (!reducedMotion) frame=requestAnimationFrame(paint);
+  }
+  window.addEventListener('resize', resize, { passive:true });
+  return {
+    start(){ if(running)return; running=true; resize(); paint(); },
+    stop(){ running=false; cancelAnimationFrame(frame); }
+  };
+}
 function splash() {
   const sp = $('#splash');
   sp.classList.remove('leave');
+  if (!splashNetworkControl) splashNetworkControl = initSplashNetwork();
+  splashNetworkControl?.start();
   const sites = $$('#sites span'), bar = $('#bar'), tx = $('#stxt');
   const defaults = ['墨西哥 MLM', '巴西 MLB', '阿根廷 MLA'];
   sites.forEach((s, i) => { s.classList.remove('on', 'bad'); s.textContent = defaults[i]; s.title = ''; });
@@ -87,6 +155,7 @@ function splash() {
 }
 function hideSplash() {
   clearTimeout(spT);
+  splashNetworkControl?.stop();
   $('#splash').classList.add('leave');
   document.body.classList.add('ready');
   setTimeout(() => { if (currentView === 'hub') drawChart(); }, 600);
