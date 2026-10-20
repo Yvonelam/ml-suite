@@ -2427,7 +2427,7 @@ function drawDayChart(d) {
     const yy = T + ph - (ph * j / 4);
     g += '<line class="hgl" x1="' + L + '" x2="' + (W - R) + '" y1="' + yy.toFixed(1) + '" y2="' + yy.toFixed(1) + '"/>';
     g += '<text class="hax-y" x="' + (L - 10) + '" y="' + (yy + 3.5).toFixed(1) + '">' + Math.round(omax * j / 4) + '</text>';
-    g += '<text class="htx" x="' + (W - R + 10) + '" y="' + (yy + 3.5).toFixed(1) + '" style="text-anchor:start;fill:#f59e0b">' + Math.round(cmax * j / 4).toLocaleString('en-US') + '</text>';
+    g += '<text class="htx" x="' + (W - R + 10) + '" y="' + (yy + 3.5).toFixed(1) + '" style="text-anchor:start;fill:#c9b8ff">' + Math.round(cmax * j / 4).toLocaleString('en-US') + '</text>';
   }
 
   // 每天同样拆「广告单（实色）+ 自然单（淡色）」。
@@ -2438,7 +2438,7 @@ function drawDayChart(d) {
     const v = orders[i];
     if (v <= 0) continue;
     const x = L + i * bw + bw * 0.19, w = bw * 0.62;
-    const adV = adPerDay[i], natV = Math.max(0, v - adV);
+    const adV = adPerDay[i];
     const totalH = (v / omax) * ph, adH = (adV / omax) * ph, yTotal = T + ph - totalH, yAd = T + ph - adH;
     const clipId = 'hbar-clip-' + i;
     clips += '<clipPath id="' + clipId + '"><rect x="' + x.toFixed(1) + '" y="' + yTotal.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + totalH.toFixed(1) + '" rx="3"/></clipPath>';
@@ -2560,25 +2560,25 @@ function drawHourChart(d) {
     const yy = T + ph - (ph * j / 4);
     g += '<line class="hgl" x1="' + L + '" x2="' + (W - R) + '" y1="' + yy.toFixed(1) + '" y2="' + yy.toFixed(1) + '"/>';
     g += '<text class="hax-y" x="' + (L - 10) + '" y="' + (yy + 3.5).toFixed(1) + '">' + leftLab(pmax * j / 4) + '</text>';
-    g += '<text class="htx" x="' + (W - R + 10) + '" y="' + (yy + 3.5).toFixed(1) + '" style="text-anchor:start;fill:#f59e0b">' + rightLab(smax * j / 4) + '</text>';
+    g += '<text class="htx" x="' + (W - R + 10) + '" y="' + (yy + 3.5).toFixed(1) + '" style="text-anchor:start;fill:#c9b8ff">' + rightLab(smax * j / 4) + '</text>';
   }
-  let bars = '';
+  let bars = '', clips = '';
   for (let i = 0; i < 24; i++) {
     const vb = P[i];
     const x = L + i * bw + bw * 0.19, w = bw * 0.62;
+    const totalH = Math.max(0, (vb / pmax) * ph), yTotal = T + ph - totalH;
     if (!split) {
-      const bh = Math.max(0, T + ph - yp(vb));
-      bars += '<rect class="hb" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yp(vb).toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="2.5"/>';
+      bars += '<rect class="hb" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yTotal.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + totalH.toFixed(1) + '" rx="3"/>';
       continue;
     }
-    // 下段 = 广告单（实色），上段 = 自然单（淡色）
-    const adV = Math.min(split[i], vb), natV = Math.max(0, vb - adV);
-    const adH = (adV / pmax) * ph, natH = (natV / pmax) * ph;
-    const yAd = T + ph - adH, yNat = yAd - natH;
-    if (adH > 0.4) bars += '<rect class="hb" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yAd.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + adH.toFixed(1) + '" rx="' + (natH > 0.4 ? 1.5 : 2.5) + '"/>';
-    if (natH > 0.4) bars += '<rect class="hb-nat" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yNat.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + natH.toFixed(1) + '" rx="2.5"/>';
+    // 用完整玻璃柱承载订单总量，再将广告单色层裁切进柱体；分段不留缝。
+    const adV = Math.min(split[i], vb), adH = (adV / pmax) * ph, yAd = T + ph - adH, clipId = 'hbar-clip-' + i;
+    clips += '<clipPath id="' + clipId + '"><rect x="' + x.toFixed(1) + '" y="' + yTotal.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + totalH.toFixed(1) + '" rx="3"/></clipPath>';
+    bars += '<rect class="hb" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yTotal.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + totalH.toFixed(1) + '" rx="3"/>';
+    if (adH > 0.4) bars += '<rect class="hb-ad" data-i="' + i + '" clip-path="url(#' + clipId + ')" x="' + x.toFixed(1) + '" y="' + yAd.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + adH.toFixed(1) + '"/>';
   }
   const pts = S.map((v, i) => xc(i).toFixed(1) + ',' + ys(v).toFixed(1)).join(' ');
+  const lineArea = 'M ' + xc(0).toFixed(1) + ' ' + (T + ph) + ' L ' + pts.replace(/ /g, ' L ') + ' L ' + xc(23).toFixed(1) + ' ' + (T + ph) + ' Z';
   let dots = '';
   for (let i = 0; i < 24; i++) dots += '<circle class="hdot" data-i="' + i + '" cx="' + xc(i).toFixed(1) + '" cy="' + ys(S[i]).toFixed(1) + '" r="2.4"/>';
   let xlab = '';
@@ -2589,7 +2589,7 @@ function drawHourChart(d) {
   const sLabel = m === 'cost' ? '出单数量' : '花费';
 
   const leg = split
-    ? '<span class="k-ad"><i></i>广告单（柱 · 实色）</span><span class="k-nat"><i></i>自然单（柱 · 淡色）</span><span class="k-cost"><i></i>花费（线 · 右轴）</span>'
+    ? '<span class="k-ad"><i></i>广告单（玻璃柱内深色段）</span><span class="k-nat"><i></i>自然单（玻璃柱余量）</span><span class="k-cost"><i></i>花费</span>'
     : '<span class="k-ord"><i></i>' + mLabel + '（柱）</span><span class="k-cost"><i></i>' + sLabel + '（线 · 右轴）</span>';
   const legNote = split
     ? '<div class="leg-note">美客多广告单量只提供<b>按天</b>口径，已按当天出单时间分布拆到各小时（<b>整数</b>，加总恒等于当天广告单量，且不超过该小时订单数）；<b>自然单 = 出单 − 广告单</b>。切到「花费」即不分色。</div>'
@@ -2597,9 +2597,10 @@ function drawHourChart(d) {
 
   body.innerHTML = '<div class="hchart">'
     + '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-label="分时图">'
-    + '<defs><linearGradient id="hbg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#60a5fa"/><stop offset="1" stop-color="#2563eb"/></linearGradient>'
-    + '<linearGradient id="hbg-nat" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#60a5fa" stop-opacity=".44"/><stop offset="1" stop-color="#2563eb" stop-opacity=".30"/></linearGradient></defs>'
-    + g + bars + '<polyline class="hline" points="' + pts + '"/>' + dots + xlab
+    + '<defs><linearGradient id="hbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9ecbff" stop-opacity=".60"/><stop offset=".24" stop-color="#d9dcff" stop-opacity=".48"/><stop offset=".54" stop-color="#cbbaff" stop-opacity=".36"/><stop offset=".82" stop-color="#ffc1e8" stop-opacity=".46"/><stop offset="1" stop-color="#9678df" stop-opacity=".38"/></linearGradient>'
+    + '<linearGradient id="hbg-ad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#6b62c8" stop-opacity=".53"/><stop offset=".52" stop-color="#9182e3" stop-opacity=".48"/><stop offset="1" stop-color="#e0a6dc" stop-opacity=".48"/></linearGradient>'
+    + '<linearGradient id="harea" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#cbb8ff" stop-opacity=".22"/><stop offset="1" stop-color="#cbb8ff" stop-opacity="0"/></linearGradient>' + clips + '</defs>'
+    + g + '<path class="harea" d="' + lineArea + '"/>' + bars + '<polyline class="hline" points="' + pts + '"/>' + dots + xlab
     + '<line class="hgl" id="hhl" x1="0" x2="0" y1="' + T + '" y2="' + (T + ph) + '" style="stroke:#7dd3fc66;stroke-dasharray:3 3;opacity:0"/>'
     + '</svg><div class="htip" id="hhTip"></div></div>'
     + '<div class="leg-h">' + leg + '</div>' + legNote;
@@ -2615,7 +2616,7 @@ function drawHourChart(d) {
       // split 已经是整数（最大余数法分配），这里再兜一次底，防止越界
       const adV = Math.max(0, Math.min(Math.round(split[i]), h.orders));
       const natV = Math.max(0, h.orders - adV);
-      splitLine = '<br><span style="color:#93c5fd">▪ 广告单 ' + adV + ' 单（按天总量估算）</span>'
+      splitLine = '<br><span style="color:#cbb8ff">▪ 广告单 ' + adV + ' 单（按天总量估算）</span>'
         + '<br><span>▪ 自然单 ' + natV + ' 单</span>';
     }
     hl.setAttribute('x1', xc(i)); hl.setAttribute('x2', xc(i)); hl.style.opacity = 1;
