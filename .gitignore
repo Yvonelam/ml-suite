@@ -6,6 +6,7 @@ tools/cloudflared.exe
 
 # ---- 运行产出 / 截图 / 日志 ----
 shots/
+probe-out/
 *.log
 运行日志.txt
 public-run.log
