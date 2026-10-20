@@ -1762,24 +1762,21 @@ async function loadSales(force) {
 
 function renderHubTrend() {
   const root = $('#hubTrend'); if (!root) return;
-  const rows = salesView.data?.rows || [], currency = salesView.data?.currency || 'BRL';
-  if (!rows.length) { root.innerHTML = '<div class="empty">所选期间暂无销售数据</div>'; const note=$('#hubTrendNote'); if(note)note.textContent='销售数据暂不可用或所选期间没有订单。'; return; }
+  const rows = salesView.data?.rows || [];
+  if (!rows.length) { root.innerHTML = '<div class="empty">所选期间暂无订单数据</div>'; const note=$('#hubTrendNote'); if(note)note.textContent='订单数据暂不可用或所选期间没有订单。'; return; }
   const valid = rows.filter(r => r.status !== 'cancelled' && r.status !== 'invalid');
   const singleDay = salesView.from === salesView.to;
   const keys = singleDay ? Array.from({length:24},(_,i)=>String(i).padStart(2,'0')) : [...new Set(valid.map(r=>r.date).filter(Boolean))].sort();
-  const sales = Object.fromEntries(keys.map(k=>[k,0]));
-  for (const r of valid) { const k=singleDay?String(r.hour==null?0:r.hour).padStart(2,'0'):r.date; if (k in sales) sales[k]+=Number(r.amount)||0; }
-  const adDaily = adsView.data?.daily || [], ads = Object.fromEntries(keys.map(k=>[k,0]));
-  if (!singleDay) for (const r of adDaily) if (r.date in ads) ads[r.date]+=Number(r.cost)||0;
-  const sv=keys.map(k=>sales[k]||0), av=keys.map(k=>ads[k]||0), max=Math.max(1,...sv,...av)*1.18;
+  const orderCounts = Object.fromEntries(keys.map(k=>[k,0]));
+  for (const r of valid) { const k=singleDay?String(r.hour==null?0:r.hour).padStart(2,'0'):r.date; if (k in orderCounts) orderCounts[k]++; }
+  const values=keys.map(k=>orderCounts[k]||0), max=Math.max(1,...values)*1.18;
   const W=760,H=210,L=46,R=12,T=12,B=27,x=i=>L+(keys.length<2?0:i*(W-L-R)/(keys.length-1)),y=v=>H-B-(v/max)*(H-T-B);
   const path=a=>a.map((v,i)=>(i?'L':'M')+x(i).toFixed(1)+' '+y(v).toFixed(1)).join(' ');
-  const area=path(sv)+' L '+x(keys.length-1).toFixed(1)+' '+(H-B)+' L '+x(0).toFixed(1)+' '+(H-B)+' Z';
-  let grid=''; for(let j=0;j<4;j++){const val=max*j/3, yy=y(val);grid+='<line class="hub-gridline" x1="'+L+'" x2="'+(W-R)+'" y1="'+yy.toFixed(1)+'" y2="'+yy.toFixed(1)+'"/><text class="hub-axis" x="'+(L-7)+'" y="'+(yy+3)+'" text-anchor="end">'+escHtml(money(val,currency))+'</text>'; }
+  const area=path(values)+' L '+x(keys.length-1).toFixed(1)+' '+(H-B)+' L '+x(0).toFixed(1)+' '+(H-B)+' Z';
+  let grid=''; for(let j=0;j<4;j++){const val=max*j/3, yy=y(val);grid+='<line class="hub-gridline" x1="'+L+'" x2="'+(W-R)+'" y1="'+yy.toFixed(1)+'" y2="'+yy.toFixed(1)+'"/><text class="hub-axis" x="'+(L-7)+'" y="'+(yy+3)+'" text-anchor="end">'+escHtml(fmt(Math.round(val)))+'</text>'; }
   const ticks=keys.length<=5?keys.map((_,i)=>i):[0,Math.round((keys.length-1)/3),Math.round((keys.length-1)*2/3),keys.length-1];let labels='';for(const i of [...new Set(ticks)]){const label=singleDay?(keys[i]+':00'):String(keys[i]).slice(5);labels+='<text class="hub-axis" x="'+x(i)+'" y="'+(H-5)+'" text-anchor="middle">'+escHtml(label)+'</text>'; }
-  root.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img" aria-label="销售额与广告花费趋势"><defs><linearGradient id="hubSalesGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--cyan)" stop-opacity=".28"/><stop offset="1" stop-color="var(--cyan)" stop-opacity="0"/></linearGradient></defs>'+grid+labels+'<path class="hub-sales-area" d="'+area+'"/><path class="hub-sales-line" d="'+path(sv)+'"/>'+(!singleDay&&adDaily.length?'<path class="hub-ads-line" d="'+path(av)+'"/>':'')+'</svg>';
-  const adLegend=document.querySelector('.hub-legend span:nth-child(2)');if(adLegend)adLegend.hidden=singleDay||!adDaily.length;
-  const note=$('#hubTrendNote');if(note)note.textContent=(singleDay?'单日销售按小时汇总；广告为按日口径，详见右侧。':'销售与广告按日期汇总 · '+(salesView.data?.range?.from||salesView.from)+' 至 '+(salesView.data?.range?.to||salesView.to))+(salesView.data?.truncated?' · 订单较多，销售接口返回部分记录':'');
+  root.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img" aria-label="订单数趋势"><defs><linearGradient id="hubSalesGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--cyan)" stop-opacity=".28"/><stop offset="1" stop-color="var(--cyan)" stop-opacity="0"/></linearGradient></defs>'+grid+labels+'<path class="hub-sales-area" d="'+area+'"/><path class="hub-sales-line" d="'+path(values)+'"/></svg>';
+  const note=$('#hubTrendNote');if(note)note.textContent=(singleDay?'单日订单按小时汇总':'订单数按日期汇总 · '+(salesView.data?.range?.from||salesView.from)+' 至 '+(salesView.data?.range?.to||salesView.to))+' · 不含已取消及无效订单'+(salesView.data?.truncated?' · 订单较多，销售接口返回部分记录':'');
 }
 
 function renderHubListings(d) {
