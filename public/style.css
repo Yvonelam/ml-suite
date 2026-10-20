@@ -28,7 +28,7 @@ a{color:inherit;text-decoration:none}
 #splash.leave .sp{transform:translateY(-10px);transition:opacity .35s ease,transform .5s ease}
 .sp{text-align:center;color:#fff;width:min(360px,86vw)}
 .sp svg{width:min(280px,72vw);height:auto;overflow:visible}
-.sp .rg{fill:none;stroke:url(#hg);stroke-width:1.5;stroke-dasharray:1;stroke-dashoffset:1;animation:draw 1.1s .1s ease forwards}
+.sp .rg{fill:none;stroke:url(#hg);stroke-width:1.5;stroke-linecap:round;stroke-dasharray:1.02;stroke-dashoffset:1;animation:draw 1.1s .1s ease forwards}
 .sp .hs{fill:none;stroke:url(#hg);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .sp .hs path{stroke-dasharray:1;stroke-dashoffset:1;animation:draw .8s ease forwards}
 .sp .hs path:nth-child(1){animation-delay:1s}.sp .hs path:nth-child(2){animation-delay:.6s;animation-duration:1.1s}.sp .hs path:nth-child(3){animation-delay:.9s}.sp .hs path:nth-child(4){animation-delay:.5s;animation-duration:1.1s}.sp .hs path:nth-child(5){animation-delay:.8s}
