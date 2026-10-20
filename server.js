@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { randomBytes } = require('crypto');
@@ -6,6 +6,7 @@ const createAuth = require('./auth');
 const { ProxyAgent, setGlobalDispatcher } = require('undici');
 const nodemailer = require('nodemailer');
 const reportSchedule = require('./report-schedule');
+const questionAutoReply = require('./question-auto-reply');
 
 // node:sqlite（广告账本用）加载时会打一条 "SQLite is an experimental feature" 警告。
 // 功能是好的、稳定的，但这条噪音会让人以为启动报错了 —— 精准挡掉它，其它警告照常放行。
@@ -2515,6 +2516,189 @@ app.get('/api/ml/orders', async (req, res) => {
 });
 
 // ---- 商品问答 ----
+// ---- 关键词自动回复（配置与运行状态严格按 ML Suite 账号隔离） ----
+const QUESTION_AUTO_REPLY_FILE = 'question-auto-reply.json';
+const QUESTION_AUTO_REPLY_INTERVAL_MS = 60000;
+const QUESTION_AUTO_REPLY_MAX_SENDS_PER_TICK = 5;
+const questionAutoReplyTimers = new Map();
+function defaultQuestionAutoReplyState() {
+  return { enabled: false, rules: [], processedIds: [], lastCheckAt: 0, lastReplyAt: 0, lastReplyQuestionId: '', lastReplyRuleId: '', totalReplies: 0, lastError: '', lastSummary: '尚未运行' };
+}
+function readQuestionAutoReplyState() {
+  const fallback = defaultQuestionAutoReplyState();
+  try {
+    const raw = JSON.parse(fs.readFileSync(privateDataFile(QUESTION_AUTO_REPLY_FILE), 'utf8')) || {};
+    fallback.enabled = raw.enabled === true;
+    fallback.rules = questionAutoReply.sanitizeRules(raw.rules || [], () => 'rule-' + randomBytes(8).toString('hex'));
+    fallback.processedIds = questionAutoReply.keepRecentIds(raw.processedIds);
+    fallback.lastCheckAt = Number(raw.lastCheckAt) || 0;
+    fallback.lastReplyAt = Number(raw.lastReplyAt) || 0;
+    fallback.lastReplyQuestionId = String(raw.lastReplyQuestionId || '');
+    fallback.lastReplyRuleId = String(raw.lastReplyRuleId || '');
+    fallback.totalReplies = Math.max(0, Number(raw.totalReplies) || 0);
+    fallback.lastError = String(raw.lastError || '').slice(0, 500);
+    fallback.lastSummary = String(raw.lastSummary || '尚未运行').slice(0, 500);
+  } catch { /* 首次使用时返回空配置 */ }
+  return fallback;
+}
+function writeQuestionAutoReplyState(state) {
+  const next = {
+    ...defaultQuestionAutoReplyState(),
+    ...state,
+    rules: questionAutoReply.sanitizeRules(state.rules || [], () => 'rule-' + randomBytes(8).toString('hex')),
+    processedIds: questionAutoReply.keepRecentIds(state.processedIds),
+  };
+  fs.writeFileSync(privateDataFile(QUESTION_AUTO_REPLY_FILE), JSON.stringify(next, null, 2), 'utf8');
+  return next;
+}
+function stopQuestionAutoReplyMonitor(uid) {
+  const slot = questionAutoReplyTimers.get(String(uid));
+  if (!slot) return;
+  if (slot.tick) clearInterval(slot.tick);
+  if (slot.boot) clearTimeout(slot.boot);
+  questionAutoReplyTimers.delete(String(uid));
+}
+function scheduleQuestionAutoReplyMonitor(uid) {
+  const targetId = String(uid || auth.currentUserId());
+  stopQuestionAutoReplyMonitor(targetId);
+  const state = auth.runAsUser(targetId, () => readQuestionAutoReplyState());
+  if (!state.enabled || !state.rules.some(rule => rule.enabled)) return;
+  const slot = { busy: false, tick: null, boot: null };
+  const run = () => {
+    if (slot.busy) return;
+    slot.busy = true;
+    auth.runAsUser(targetId, () => runQuestionAutoReplyCheck())
+      .catch(err => auth.runAsUser(targetId, () => {
+        const state = readQuestionAutoReplyState();
+        state.lastCheckAt = Date.now();
+        state.lastError = String(err.message || '检查失败').slice(0, 500);
+        state.lastSummary = '自动回复检查失败；请检查美客多 API 连接。';
+        writeQuestionAutoReplyState(state);
+        console.warn('[自动回复] 账号 ' + targetId + ' 检查失败：' + err.message);
+      }))
+      .finally(() => { slot.busy = false; });
+  };
+  slot.tick = setInterval(run, QUESTION_AUTO_REPLY_INTERVAL_MS);
+  if (slot.tick.unref) slot.tick.unref();
+  slot.boot = setTimeout(run, 8000);
+  if (slot.boot.unref) slot.boot.unref();
+  questionAutoReplyTimers.set(targetId, slot);
+  console.log('[自动回复] 账号 ' + targetId + ' 关键词监控已启动，每分钟检查一次');
+}
+function scheduleAllQuestionAutoReplyMonitors() {
+  let count = 0;
+  for (const user of auth.users()) {
+    if (user.status !== 'approved') continue;
+    try {
+      const state = auth.runAsUser(user.id, () => readQuestionAutoReplyState());
+      if (state.enabled && state.rules.some(rule => rule.enabled)) {
+        scheduleQuestionAutoReplyMonitor(user.id);
+        count++;
+      }
+    } catch (err) { console.warn('[自动回复] 账号 ' + user.id + ' 排期失败：' + err.message); }
+  }
+  return count;
+}
+async function runQuestionAutoReplyCheck() {
+  const state = readQuestionAutoReplyState();
+  if (!state.enabled) return { checked: 0, sent: 0 };
+  const cfg = loadConfig();
+  if (!mlConfigured(cfg)) throw Object.assign(new Error('尚未配置美客多 API 凭证'), { needConfig: true });
+  if (!mlAuthorized(cfg)) throw Object.assign(new Error('美客多账号尚未授权'), { needAuth: true });
+  const user = await mlUser();
+  const query = 'seller_id=' + encodeURIComponent(user.id) + '&status=UNANSWERED&limit=50&sort_fields=date_created&sort_types=DESC';
+  const response = await mlRequest('/questions/search?' + query);
+  const questions = ((response && (response.questions || response.results)) || []).slice();
+  questions.sort((a, b) => String(a.date_created || '').localeCompare(String(b.date_created || '')));
+  const processed = new Set(state.processedIds);
+  let matched = 0, sent = 0, attempts = 0, failure = "";
+  for (const question of questions) {
+    const questionId = String(question.id || question.question_id || '').trim();
+    if (!questionId || processed.has(questionId)) continue;
+    const rule = questionAutoReply.matchRule(question.text || '', state.rules);
+    if (!rule) continue;
+    matched++;
+    if (attempts >= QUESTION_AUTO_REPLY_MAX_SENDS_PER_TICK) break;
+    attempts++;
+    try {
+      const qid = /^[0-9]+$/.test(questionId) ? Number(questionId) : questionId;
+      await mlRequest('/answers', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question_id: qid, text: rule.reply }),
+      });
+      state.processedIds = questionAutoReply.keepRecentIds(state.processedIds.concat(questionId));
+      state.totalReplies++;
+      state.lastReplyAt = Date.now();
+      state.lastReplyQuestionId = questionId;
+      state.lastReplyRuleId = rule.id;
+      state.lastError = '';
+      processed.add(questionId);
+      sent++;
+      console.log('[自动回复] 账号 ' + auth.currentUserId() + ' 已回复提问 #' + questionId + '（规则 ' + rule.id + '）');
+      writeQuestionAutoReplyState(state);
+    } catch (err) {
+      const message = String(err.message || '自动回复失败');
+      if (/already.{0,30}answer|answered|question.{0,20}not found|not_found|forbidden|HTTP 400|HTTP 403|HTTP 404/i.test(message)) {
+        state.processedIds = questionAutoReply.keepRecentIds(state.processedIds.concat(questionId));
+        processed.add(questionId);
+      }
+      failure = message.slice(0, 500);
+      state.lastError = failure;
+      state.lastSummary = '提问 #' + questionId + ' 自动回复失败；请检查规则或美客多状态。';
+      writeQuestionAutoReplyState(state);
+      console.warn('[自动回复] 账号 ' + auth.currentUserId() + ' 回复提问 #' + questionId + ' 失败：' + message);
+      break;
+    }
+  }
+  state.lastCheckAt = Date.now();
+  state.lastError = failure;
+  state.lastSummary = failure
+    ? '检查未回复提问 ' + questions.length + ' 条；本轮发送 ' + sent + ' 条后遇到错误。'
+    : '检查未回复提问 ' + questions.length + ' 条；命中规则 ' + matched + ' 条；本轮发送 ' + sent + ' 条。';
+  writeQuestionAutoReplyState(state);
+  return { checked: questions.length, matched, sent };
+}
+
+app.get('/api/ml/questions/auto-reply', (req, res) => {
+  try {
+    const state = readQuestionAutoReplyState();
+    res.json({
+      ok: true,
+      enabled: state.enabled,
+      rules: state.rules,
+      status: {
+        running: questionAutoReplyTimers.has(auth.currentUserId()),
+        lastCheckAt: state.lastCheckAt,
+        lastReplyAt: state.lastReplyAt,
+        lastReplyQuestionId: state.lastReplyQuestionId,
+        totalReplies: state.totalReplies,
+        lastError: state.lastError,
+        lastSummary: state.lastSummary,
+      },
+    });
+  } catch (err) { res.status(500).json({ ok: false, error: '读取自动回复规则失败：' + err.message }); }
+});
+app.put('/api/ml/questions/auto-reply', (req, res) => {
+  try {
+    const body = req.body || {};
+    const enabled = body.enabled === true;
+    const rules = questionAutoReply.sanitizeRules(body.rules, () => 'rule-' + randomBytes(8).toString('hex'));
+    if (enabled && !rules.some(rule => rule.enabled)) return res.status(400).json({ ok: false, error: '请至少启用一条回复规则后再开启自动回复' });
+    if (enabled) {
+      const cfg = loadConfig();
+      if (!mlConfigured(cfg)) return res.status(400).json({ ok: false, error: '请先配置美客多 API 凭证' });
+      if (!mlAuthorized(cfg)) return res.status(400).json({ ok: false, error: '请先完成美客多账号授权' });
+    }
+    const state = readQuestionAutoReplyState();
+    state.enabled = enabled;
+    state.rules = rules;
+    state.lastError = '';
+    state.lastSummary = enabled ? '自动回复已开启，等待下一轮检查。' : '自动回复已关闭。';
+    writeQuestionAutoReplyState(state);
+    scheduleQuestionAutoReplyMonitor(auth.currentUserId());
+    res.json({ ok: true, enabled: state.enabled, rules: state.rules, status: { running: questionAutoReplyTimers.has(auth.currentUserId()), lastCheckAt: state.lastCheckAt, lastReplyAt: state.lastReplyAt, totalReplies: state.totalReplies, lastError: state.lastError, lastSummary: state.lastSummary } });
+  } catch (err) { res.status(400).json({ ok: false, error: err.message || '保存自动回复规则失败' }); }
+});
 // 示例数据（仅在 ?demo=1 时返回，用于在没有真实提问时预览界面效果）
 function demoQuestions() {
   const now = Date.now();
@@ -3835,6 +4019,7 @@ const server = app.listen(PORT, () => {
   startAdsSampler();
   // 启动微信提醒监控：给所有已审批账号各排一份（各自只在自己配置开启时才真正排期）
   scheduleAllPushMonitors();
+  scheduleAllQuestionAutoReplyMonitors();
   // 大麦热搜词：只在缓存过期时后台刷新（不阻塞启动，也不重复扣积分）
   scheduleDmHot();
   const config = loadConfig();
