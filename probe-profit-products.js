@@ -76,19 +76,44 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     await sleep(1200);
     await ev("(function(){var a=document.querySelector('nav a[data-go=\"profit\"]');if(a)a.click();})()");
     await sleep(1800);
-    await ev(`(function(){
-      var f=document.getElementById('profitOrderFrom'),t=document.getElementById('profitOrderTo');
-      f.value='${FROM}'; t.value='${TO}';
-      f.dispatchEvent(new Event('change',{bubbles:true}));
-      t.dispatchEvent(new Event('change',{bubbles:true}));
-      document.getElementById('profitOrderRange').querySelectorAll('button').forEach(function(b){b.classList.toggle('on',b.dataset.range==='custom');});
-      document.getElementById('profitOrderApply').click();
-    })()`);
+    // 页面的异步初始化（汇率 / Listing 加载）会在进入视图后把日期重置成「今天」，
+    // 所以不能「设完就点」——必须校验日期确实生效了再点，必要时重试。
+    let rangeOk = false;
+    for (let attempt = 0; attempt < 8 && !rangeOk; attempt++) {
+      await ev(`(function(){
+        var f=document.getElementById('profitOrderFrom'),t=document.getElementById('profitOrderTo');
+        f.value='${FROM}'; t.value='${TO}';
+        f.dispatchEvent(new Event('change',{bubbles:true}));
+        t.dispatchEvent(new Event('change',{bubbles:true}));
+        document.getElementById('profitOrderRange').querySelectorAll('button').forEach(function(b){b.classList.toggle('on',b.dataset.range==='custom');});
+      })()`);
+      await sleep(700);
+      const cur = await ev("(function(){var f=document.getElementById('profitOrderFrom'),t=document.getElementById('profitOrderTo');return f.value+'|'+t.value})()");
+      if (cur === FROM + '|' + TO) { rangeOk = true; break; }
+    }
+    if (!rangeOk) console.log('  ! 日期设置未生效（页面持续重置），继续会得到错误区间');
+    await ev("document.getElementById('profitOrderApply').click()");
     console.log('已触发查询 ' + FROM + ' ~ ' + TO + '，等待渲染…');
     for (let i = 0; i < 90; i++) {
       const st = await ev("document.getElementById('profitOrderStatus').textContent");
       if (/平台共/.test(st) || /失败/.test(st)) break;
       await sleep(1000);
+    }
+    // 再确认一次查询的真的是目标区间（防止渲染完又被重置）
+    const st0 = await ev("document.getElementById('profitOrderStatus').textContent");
+    if (st0.indexOf(FROM) < 0) {
+      console.log('  ! 实际查询区间与目标不符，重试一次：' + st0.slice(0, 60));
+      await ev(`(function(){
+        var f=document.getElementById('profitOrderFrom'),t=document.getElementById('profitOrderTo');
+        f.value='${FROM}'; t.value='${TO}';
+        f.dispatchEvent(new Event('change',{bubbles:true}));t.dispatchEvent(new Event('change',{bubbles:true}));
+        document.getElementById('profitOrderApply').click();
+      })()`);
+      for (let i = 0; i < 90; i++) {
+        const st = await ev("document.getElementById('profitOrderStatus').textContent");
+        if (/平台共/.test(st) || /失败/.test(st)) break;
+        await sleep(1000);
+      }
     }
     await sleep(2500);
     console.log('状态行：' + await ev("document.getElementById('profitOrderStatus').textContent"));

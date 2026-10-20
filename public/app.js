@@ -185,7 +185,6 @@ function go(v, push = true) {
   scrollTo(0, 0);
 }
 
-function profitMoney(v, cur) { return v == null || !Number.isFinite(Number(v)) ? '—' : money(v, cur); }
 function profitCalc(x) {
   const rate=Number(x.fxRate)||0, cost=(Number(x.cost?.costCny)||0)*rate, freight=(Number(x.cost?.freightCny)||0)*rate;
   if (!rate || x.fee==null || x.shipping==null || x.cost?.costCny==='' || x.cost?.costCny==null || x.cost?.freightCny==='' || x.cost?.freightCny==null) return null;

@@ -65,15 +65,24 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     await ev("(function(){var a=document.querySelector('nav a[data-go=\"profit\"]');if(a)a.click();})()");
     await sleep(2000);
 
-    await ev(`(function(){
-      var f=document.getElementById('profitOrderFrom'),t=document.getElementById('profitOrderTo');
-      f.value='2026-10-01'; t.value='2026-10-17';
-      f.dispatchEvent(new Event('change',{bubbles:true}));
-      t.dispatchEvent(new Event('change',{bubbles:true}));
-      document.getElementById('profitOrderRange').querySelectorAll('button').forEach(function(b){b.classList.toggle('on',b.dataset.range==='custom');});
-      document.getElementById('profitOrderApply').click();
-    })()`);
-    console.log('已触发查询 2026-10-01 ~ 2026-10-17，等待接口返回…');
+    // 页面异步初始化会把日期重置成「今天」，所以要校验生效后再点，必要时重试
+    const PFROM = '2026-10-01', PTO = '2026-10-17';
+    let rangeOk = false;
+    for (let attempt = 0; attempt < 8 && !rangeOk; attempt++) {
+      await ev(`(function(){
+        var f=document.getElementById('profitOrderFrom'),t=document.getElementById('profitOrderTo');
+        f.value='${PFROM}'; t.value='${PTO}';
+        f.dispatchEvent(new Event('change',{bubbles:true}));
+        t.dispatchEvent(new Event('change',{bubbles:true}));
+        document.getElementById('profitOrderRange').querySelectorAll('button').forEach(function(b){b.classList.toggle('on',b.dataset.range==='custom');});
+      })()`);
+      await sleep(700);
+      const cur = await ev("(function(){var f=document.getElementById('profitOrderFrom'),t=document.getElementById('profitOrderTo');return f.value+'|'+t.value})()");
+      if (cur === PFROM + '|' + PTO) { rangeOk = true; break; }
+    }
+    if (!rangeOk) console.log('  ! 日期设置未生效，结果可能落在错误区间');
+    await ev("document.getElementById('profitOrderApply').click()");
+    console.log('已触发查询 ' + PFROM + ' ~ ' + PTO + '，等待接口返回…');
     for (let i = 0; i < 90; i++) {
       const st = await ev("document.getElementById('profitOrderStatus').textContent");
       if (/平台共/.test(st) || /失败/.test(st)) break;
@@ -107,20 +116,26 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     ok(A.rows >= 700, '表格渲染行数 >= 700', A.rows);
 
     console.log('\n[2] 列币种搭配');
-    console.log('    表头：' + A.ths.slice(3).join(' | '));
-    console.log('    样例行：' + A.tds.slice(3).map(c => c.text).join(' | '));
-    ok(A.ths[3].includes('巴币'), '订单收入 = 巴币', A.ths[3]);
-    ok(A.ths[4].includes('巴币'), '销售费 = 巴币', A.ths[4]);
-    ok(A.ths[5].includes('巴币'), '尾程运费 = 巴币', A.ths[5]);
-    ok(A.ths[6].includes('人民币'), '成本与头程 = 人民币', A.ths[6]);
-    ok(A.ths[7].includes('人民币'), '订单利润 = 人民币', A.ths[7]);
+    // 按表头文字定位，不写死列号：页面后来加过「税费（巴币）」这一列，硬编码会整体错位。
+    const colOf = (kw) => A.ths.findIndex((t) => t.indexOf(kw) >= 0);
+    const colText = (kw) => { const i = colOf(kw); return i < 0 ? '(找不到)' : A.ths[i]; };
+    const colCell = (kw) => { const i = colOf(kw); return i < 0 ? '' : (A.tds[i] || {}).text || ''; };
+    console.log('    表头（' + A.ths.length + ' 列）：' + A.ths.join(' | '));
+    console.log('    样例行：' + A.tds.map(c => c.text).join(' | '));
+    ok(/巴币/.test(colText('订单收入')), '订单收入 = 巴币', colText('订单收入'));
+    ok(/巴币/.test(colText('佣金')), '平台佣金 = 巴币', colText('佣金'));
+    ok(/巴币/.test(colText('尾程运费')), '尾程运费 = 巴币', colText('尾程运费'));
+    ok(/巴币/.test(colText('税费')), '税费 = 巴币', colText('税费'));
+    ok(/人民币/.test(colText('成本与头程')), '成本与头程 = 人民币', colText('成本与头程'));
+    ok(/人民币/.test(colText('订单利润')), '订单利润 = 人民币', colText('订单利润'));
     ok(!A.hasCurSwitch, '币种切换按钮已移除（改为固定搭配）');
 
-    ok(/R\$/.test(A.tds[3].text), '收入显示 R$', A.tds[3].text);
-    ok(/R\$/.test(A.tds[4].text), '销售费显示 R$', A.tds[4].text);
-    ok(/R\$/.test(A.tds[5].text), '尾程运费显示 R$', A.tds[5].text);
-    ok(/¥/.test(A.tds[6].text), '成本与头程显示 ¥', A.tds[6].text);
-    ok(/¥/.test(A.tds[7].text), '订单利润显示 ¥', A.tds[7].text);
+    ok(/R\$/.test(colCell('订单收入')), '收入显示 R$', colCell('订单收入'));
+    ok(/R\$/.test(colCell('佣金')), '平台佣金显示 R$', colCell('佣金'));
+    ok(/R\$/.test(colCell('尾程运费')), '尾程运费显示 R$', colCell('尾程运费'));
+    ok(/R\$/.test(colCell('税费')), '税费显示 R$', colCell('税费'));
+    ok(/¥/.test(colCell('成本与头程')), '成本与头程显示 ¥', colCell('成本与头程'));
+    ok(/¥/.test(colCell('订单利润')), '订单利润显示 ¥', colCell('订单利润'));
 
     console.log('\n[3] 汇总');
     for (const s of A.sum) console.log('    ' + s.k + ' = ' + s.v + (s.title ? '   [' + s.title + ']' : ''));
@@ -130,12 +145,19 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     ok(!!profitCard && /R\$/.test(profitCard.title || ''), '合计的悬停提示给出巴币折算值', profitCard && profitCard.title);
 
     console.log('\n[4] 每格悬停提示（另一币种）');
-    console.log('    收入 title：' + A.tds[3].title);
-    console.log('    成本 title：' + A.tds[6].title);
-    console.log('    利润 title：' + A.tds[7].title);
-    ok(/¥/.test(A.tds[3].title), '收入格提示人民币折算值', A.tds[3].title);
-    ok(/R\$/.test(A.tds[6].title), '成本格提示巴币折算值', A.tds[6].title);
-    ok(/R\$/.test(A.tds[7].title), '利润格提示巴币折算值', A.tds[7].title);
+    // 按**表头文字**定位，不写死列号 —— 页面后来加过「税费」等新列，硬编码 tds[6]/tds[7] 会错位。
+    const col = (kw) => A.ths.findIndex((t) => t.indexOf(kw) >= 0);
+    const iRev = col('订单收入'), iCost = col('成本与头程'), iProfit = col('订单利润');
+    console.log('    列定位：收入 #' + iRev + ' / 成本 #' + iCost + ' / 利润 #' + iProfit + '（共 ' + A.ths.length + ' 列）');
+    ok(iRev >= 0 && iCost >= 0 && iProfit >= 0, '三列表头都能定位到');
+    const td = (i) => A.tds[i] || { text: '', title: '' };
+    console.log('    收入 title：' + td(iRev).title);
+    console.log('    成本 title：' + td(iCost).title);
+    console.log('    利润 title：' + td(iProfit).title);
+    ok(/¥/.test(td(iRev).title), '收入格提示人民币折算值', td(iRev).title);
+    // 成本格可能带「平台未代扣，按收入 x% 估算」的前缀，只要求含某个折算值即可
+    ok(/折合/.test(td(iCost).title) && /(R\$|¥)/.test(td(iCost).title), '成本格给出另一币种折算值', td(iCost).title);
+    ok(/折合/.test(td(iProfit).title), '利润格给出另一币种折算值', td(iProfit).title);
 
     const shot = await send('Page.captureScreenshot', { format: 'png' });
     const out = path.join(__dirname, 'shots', 'profit-brl.png');

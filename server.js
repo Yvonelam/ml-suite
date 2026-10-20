@@ -2024,9 +2024,8 @@ const BR_OFFSET_MIN = (() => {
 function loadJsonSafe(p, dflt) { try { const d = JSON.parse(fs.readFileSync(p, 'utf8')); return (d && typeof d === 'object') ? d : dflt; } catch { return dflt; } }
 function saveJsonSafe(p, o) { try { fs.writeFileSync(p, JSON.stringify(o), 'utf8'); } catch { } }
 
-// 以下三个函数名沿用 acct*（为减少改动），内部全部以 BR_OFFSET_MIN 算出"巴西时间"下的 date/hour/hourStart
+// 以下两个函数名沿用 acct*（为减少改动），内部全部以 BR_OFFSET_MIN 算出"巴西时间"下的 date/hourStart
 function acctDateStr(ts) { return new Date(ts + BR_OFFSET_MIN * 60000).toISOString().slice(0, 10); }
-function acctHour(ts) { return new Date(ts + BR_OFFSET_MIN * 60000).getUTCHours(); }
 // 「巴西时间 date 的 hour 点」对应的 epoch 毫秒
 function acctHourStart(dateStr, hour) { return Date.parse(dateStr + 'T00:00:00Z') + hour * 3600000 - BR_OFFSET_MIN * 60000; }
 
@@ -2086,10 +2085,6 @@ function mapLedgerRow(r) {
 function adsLedgerGet(date) {
   const db = adsDb(); if (!db || !date) return null;
   try { return mapLedgerRow(db.prepare('SELECT * FROM daily WHERE date=?').get(date)); } catch { return null; }
-}
-function adsLedgerRange(from, to) {
-  const db = adsDb(); if (!db) return [];
-  try { return db.prepare('SELECT * FROM daily WHERE date>=? AND date<=? ORDER BY date').all(from, to).map(mapLedgerRow); } catch { return []; }
 }
 // 采样器专用：只写「广告三项」，不碰订单/小时数据（那些由查看接口写）
 function adsLedgerUpsertAd(date, cost, adAmount, adUnits) {
@@ -3294,7 +3289,6 @@ const DM_HOT_FORCE_MIN_MS = 5 * 60 * 1000;   // 手动刷新的最小间隔，�
 const dmHotMemByUser=new Map();
 const dmHotBusyByUser=new Set();
 function dmBusy(){return dmHotBusyByUser.has(auth.currentUserId());}
-function dmMem(){return dmHotMemByUser.get(auth.currentUserId())||null;}
 let dmHotTimer = null;
 
 function loadDmHot() {
