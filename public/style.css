@@ -655,3 +655,6 @@ html,body{background:#1a1040}
    1) 关闭页面级回弹；2) body 铺同一份固定渐变兜底，即使回弹发生露出的区域也与背景层无缝 */
 html,body{overscroll-behavior:none}
 body{background:radial-gradient(60rem 40rem at 8% -10%,var(--g-v),transparent 60%),radial-gradient(50rem 40rem at 100% 10%,var(--g-p),transparent 55%),radial-gradient(55rem 45rem at 70% 110%,var(--g-b),transparent 60%),radial-gradient(40rem 30rem at 0% 90%,var(--g-o),transparent 60%),#1a1040;background-attachment:fixed}
+
+/* 账户菜单：加深玻璃填充并增强背景模糊，避免底层界面穿透影响文字辨识 */
+.account-menu{background:linear-gradient(140deg,rgba(52,39,91,.92),rgba(39,28,73,.88));backdrop-filter:blur(32px) saturate(185%);-webkit-backdrop-filter:blur(32px) saturate(185%);border-color:rgba(255,255,255,.22);box-shadow:0 22px 54px rgba(7,3,22,.48),inset 0 1px rgba(255,255,255,.20)}
