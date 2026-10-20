@@ -640,6 +640,38 @@ function switchProfitTab(p) {
   if (c) c.hidden = p !== 'costs';
 }
 $$('#profitSubTabs button').forEach(b => b.onclick = () => switchProfitTab(b.dataset.p));
+/* ---- 美术风格切换：点侧边栏 Logo 弹菜单，选择后立即生效并记住 ----
+   主题层是两张可选样式表：theme-mist（柔雾玻璃）/ theme-color（彩色毛玻璃，建立在前者之上）。
+   关掉两张 = 经典深色；只开 mist = 柔雾玻璃；两张都开 = 彩色毛玻璃。 */
+const THEMES = { classic: '经典深色', mist: '柔雾玻璃', glass: '彩色毛玻璃' };
+function applyTheme(t) {
+  if (!THEMES[t]) t = 'glass';
+  const mist = $('#themeMist'), color = $('#themeColor');
+  if (mist) mist.disabled = (t === 'classic');
+  if (color) color.disabled = (t !== 'glass');
+  document.documentElement.dataset.theme = t;
+  $$('.theme-item').forEach(b => {
+    const on = b.dataset.t === t;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+  try { localStorage.setItem('mlsuiteTheme', t); } catch (e) { }
+  if (typeof toast === 'function') toast('已切换到「' + THEMES[t] + '」');
+}
+function bindThemeMenu() {
+  let t = 'glass';
+  try { const s = localStorage.getItem('mlsuiteTheme'); if (THEMES[s]) t = s; } catch (e) { }
+  applyTheme(t);
+  const brand = $('#brandLogo'), menu = $('#themeMenu');
+  if (!brand || !menu) return;
+  const toggle = () => { menu.hidden = !menu.hidden; brand.setAttribute('aria-expanded', menu.hidden ? 'false' : 'true'); };
+  brand.addEventListener('click', e => { e.stopPropagation(); toggle(); });
+  brand.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+  document.addEventListener('click', e => { if (!menu.hidden && !e.target.closest('#themeMenu')) { menu.hidden = true; brand.setAttribute('aria-expanded', 'false'); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !menu.hidden) { menu.hidden = true; brand.setAttribute('aria-expanded', 'false'); } });
+  $$('.theme-item').forEach(b => b.addEventListener('click', () => { applyTheme(b.dataset.t); menu.hidden = true; brand.setAttribute('aria-expanded', 'false'); }));
+}
+bindThemeMenu();
 
 function showProg(pct) {
   const pr = $('#prog');
