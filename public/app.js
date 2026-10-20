@@ -233,7 +233,7 @@ function setProfitOrderRange(range,run=true){
   if(run&&range!=='custom')loadProfitOrders();
 }
 // 订单利润表的币种是**固定搭配**，不做切换 —— 跟着实际核对习惯走：
-//   订单收入 / 销售费 / 尾程运费 → 平台原币（巴西站 = 巴币 R$），跟美客多后台一一对得上
+//   订单收入 / 平台佣金 / 尾程运费 → 平台原币（巴西站 = 巴币 R$），跟美客多后台一一对得上
 //   成本与头程 / 订单利润        → 人民币，因为成本是按人民币采购价填的，利润也想直接看赚了多少人民币
 // 两者不能直接相减（币种不同），所以每格都挂了 title：鼠标一停就能看到另一币种的数值。
 let lastProfitOrderData = null;
@@ -298,7 +298,7 @@ function renderProfitOrders(data){
     const taxT=x.taxCny===null||x.taxCny===undefined?'':(taxAssumed?'平台未代扣，按订单收入 8% 估算 · ':'')+'折合 '+money(x.taxCny,'CNY');
     const costT=x.cost===null?'':'折合 '+money(x.cost,lcur);
     const profitT=x.profit===null?'':'折合 '+money(x.profit,lcur);
-    // 取消 / 退款单：列出收入与销售费（让你看清这单丢了多少钱），运费/成本/利润一律不给假数
+    // 取消 / 退款单：列出收入与平台佣金（让你看清这单丢了多少钱），运费/成本/利润一律不给假数
     const badge=dead?'<span class="po-badge off">已取消</span>':'';
     const detail=!dead&&x.statusDetail&&/cancel|refund/i.test(x.statusDetail)?'<span class="po-badge off">'+escHtml(x.statusDetail)+'</span>':'';
     return '<tr'+(dead?' class="dead"':'')+'><td>'+escHtml(date)+badge+detail+'<small>订单 '+escHtml(x.orderId)+'</small></td>'
