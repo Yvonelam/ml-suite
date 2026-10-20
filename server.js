@@ -1454,7 +1454,17 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     const u=await mlUser(),today=tzToday();let from=isDateStr(req.query.from)?String(req.query.from):today,to=isDateStr(req.query.to)?String(req.query.to):today;
     if(from>to){const t=from;from=to;to=t;}
     const cacheKey=`ads-v2-total|${auth.currentUserId()}|${u.id}|${from}|${to}`,cached=profitOrderCache.get(cacheKey);
-    if(!req.query.refresh&&cached&&Date.now()-cached.at<30000)return res.json({...cached.data,cached:true});
+    const summaryOnly=req.query.summary==='1';
+    const toSummary=(data,cachedValue)=>({
+      ok:true,range:data.range,updatedAt:data.updatedAt,cached:!!cachedValue,ads:data.ads,
+      totals:{profitCny:data.totals?.profitCny,profitAfterAdsCny:data.totals?.profitAfterAdsCny,
+        matched:data.totals?.matched,validLines:data.totals?.validLines,unmatched:data.totals?.unmatched,
+        orders:data.totals?.orders,validUnits:data.totals?.validUnits,profitUnits:data.totals?.profitUnits},
+    });
+    if(!req.query.refresh&&cached&&Date.now()-cached.at<30000){
+      const data={...cached.data,cached:true};
+      return res.json(summaryOnly?toSummary(data,true):data);
+    }
     const pulled=await fetchAllOrders(u.id,from,to);
     const rawOrders=pulled.orders,apiTotal=pulled.apiTotal;
     // 取消 / 退款单**不再从列表里剔除** —— 后台看到的「已卖出 841 件」是含取消单的口径，
@@ -1622,7 +1632,7 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
         cancelledRevenueCny:r2(deadLines.reduce((s,x)=>s+(x.revenueCny||0),0)),
         profitCny:r2(totalProfitCny),profitAfterAdsCny:adStatus.available?r2(totalProfitCny-(adStatus.costCny||0)):null,margin:totalRevenueCny?Math.round(totalProfitCny/totalRevenueCny*10000)/100:null},
       updatedAt:Date.now()};
-    profitOrderCache.set(cacheKey,{at:Date.now(),data});res.json(data);
+    profitOrderCache.set(cacheKey,{at:Date.now(),data});res.json(summaryOnly?toSummary(data,false):data);
   }catch(e){sendMlError(res,e);}
 });
 app.get('/api/ml/profit/listings', async (req, res) => {

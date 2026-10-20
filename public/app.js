@@ -171,7 +171,7 @@ let warehouseLoading = false;
 
 function go(v, push = true) {
   currentView = v;
-  if (v === 'hub') setTimeout(() => { drawChart(); loadOrderSummary(); loadSales(); loadListings(); loadAds(); }, 60);
+  if (v === 'hub') setTimeout(() => { drawChart(); loadOrderSummary(); loadSales(); loadListings(); loadAds(); loadHubProfitEstimate(); }, 60);
   if (v === 'ads') { loadAds(); loadAdsHourly(); }
   if (v === 'orders') loadOrders();
   if (v === 'questions') { loadQuestions(); loadQuestionAutoReply(); }
@@ -1689,6 +1689,7 @@ function applySummary(d) {
 
 /* ---- 概览：销售金额 · 实时流水（按巴西时区） ---- */
 const salesView = { from: '', to: '', range: 'today', gran: 'order', auto: true, data: null, timer: null, at: 0 };
+const hubProfitView = { key: '', at: 0, pendingKey: '', pending: null };
 
 // 指定时区的「今天」（YYYY-MM-DD）
 function brToday() {
@@ -1915,8 +1916,46 @@ function bindSalesEvents() {
 
 /* 经营看板：三块（Listing 出单 / 实时订单 / 销售流水）吃的是同一份订单数据，
    所以共用一个刷新按钮、一次全刷 —— 并行发请求，比原来点三次快。 */
+async function loadHubProfitEstimate(force=false) {
+  const value=$('#hubProfitEstimate'),note=$('#hubProfitNote');
+  if(!value||!note||!salesView.from||!salesView.to)return;
+  const from=salesView.from,to=salesView.to,key=from+'|'+to;
+  if(hubProfitView.pending&&hubProfitView.pendingKey===key)return hubProfitView.pending;
+  if(!force&&hubProfitView.key===key&&Date.now()-hubProfitView.at<300000)return;
+  value.classList.remove('negative','pending');
+  value.textContent='…';note.textContent='正在核算所选期间订单利润与广告费';
+  const task=(async()=>{
+    try{
+      const query='?summary=1&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+(force?'&refresh=1':'');
+      const data=await mlGet('/api/ml/profit/orders'+query);
+      if(key!==salesView.from+'|'+salesView.to)return;
+      const totals=data.totals||{},ads=data.ads||{},net=totals.profitAfterAdsCny;
+      hubProfitView.key=key;hubProfitView.at=Date.now();
+      if(!ads.available||net==null||!Number.isFinite(Number(net))){
+        value.textContent='待核对';value.classList.add('pending');
+        note.textContent=ads.error||'广告费用或订单利润数据暂不可用';
+        return;
+      }
+      const amount=Number(net),matched=Number(totals.matched)||0,valid=Number(totals.validLines)||0,unmatched=Number(totals.unmatched)||0;
+      value.textContent=money(amount,'CNY');
+      if(amount<0)value.classList.add('negative');
+      note.textContent=unmatched
+        ?'已扣广告费 · '+matched+'/'+valid+' 行已核算，'+unmatched+' 行待核对'
+        :'已扣平台费用、成本、头程、税费与广告费 · 人民币';
+    }catch(err){
+      if(key!==salesView.from+'|'+salesView.to)return;
+      hubProfitView.key=key;hubProfitView.at=Date.now();
+      value.textContent='待核对';value.classList.add('pending');
+      const payload=err.payload||{};
+      note.textContent=payload.needAuth?'请先完成美客多账号授权':payload.needConfig?'请先配置美客多 API':'利润暂不可用 · '+err.message;
+    }
+  })();
+  hubProfitView.pendingKey=key;hubProfitView.pending=task;
+  try{return await task;}finally{if(hubProfitView.pending===task){hubProfitView.pending=null;hubProfitView.pendingKey='';}}
+}
+
 async function refreshOverview() {
-  await Promise.all([loadOrderSummary(true), loadSales(true), loadListings(true), loadAds(true)]);
+  await Promise.all([loadOrderSummary(true), loadSales(true), loadListings(true), loadAds(true), loadHubProfitEstimate(true)]);
 }
 
 function startSalesTimer() {
@@ -1924,7 +1963,7 @@ function startSalesTimer() {
   salesView.timer = setInterval(() => {
     if (!salesView.auto || currentView !== 'hub' || document.hidden) return;
     // 三个各自带节流（订单 60s、销售/Listing 各 15s），所以 30s 一轮不会造成重复请求
-    loadOrderSummary(); loadSales(); loadListings();
+    loadOrderSummary(); loadSales(); loadListings(); loadHubProfitEstimate();
   }, 30000);
 }
 
@@ -2139,8 +2178,8 @@ async function loadAds(force) {
 }
 
 function renderHubAds(d) {
-  const note=$('#hubAdsNote');if(!d){const ids=['hubAdsCost','hubAdCostDetail','hubAdSales','hubAdAcos','hubAdRoas','hubAdUnits'];for(const id of ids){const e=$('#'+id);if(e)e.textContent='—';}const fx=$('#hubAdsFx');if(fx)fx.textContent='广告数据暂不可用';if(note)note.textContent='请检查 API 授权或刷新重试';return;}
-  const t=d.totals||{},cur=d.currency||'BRL',set=(id,v)=>{const e=$('#'+id);if(e)e.textContent=v;};set('hubAdsCost',money(t.cost,cur));set('hubAdCostDetail',money(t.cost,cur));set('hubAdSales',money(t.totalAmount,cur));set('hubAdAcos',t.totalAmount>0?pct(t.acos):'—');set('hubAdRoas',t.cost>0?ratioStr(t.roas):'—');set('hubAdUnits',fmt(t.units||0)+' 件');const fx=$('#hubAdsFx');if(fx)fx.textContent=cur+' · 美客多广告原币';if(note)note.textContent='范围 '+(d.range?.from||adsView.from)+' 至 '+(d.range?.to||adsView.to)+(d.cached?' · 缓存':'');renderHubTrend();
+  const note=$('#hubAdsNote');if(!d){const ids=['hubAdCostDetail','hubAdSales','hubAdAcos','hubAdRoas','hubAdUnits'];for(const id of ids){const e=$('#'+id);if(e)e.textContent='—';}if(note)note.textContent='请检查 API 授权或刷新重试';return;}
+  const t=d.totals||{},cur=d.currency||'BRL',set=(id,v)=>{const e=$('#'+id);if(e)e.textContent=v;};set('hubAdCostDetail',money(t.cost,cur));set('hubAdSales',money(t.totalAmount,cur));set('hubAdAcos',t.totalAmount>0?pct(t.acos):'—');set('hubAdRoas',t.cost>0?ratioStr(t.roas):'—');set('hubAdUnits',fmt(t.units||0)+' 件');if(note)note.textContent='范围 '+(d.range?.from||adsView.from)+' 至 '+(d.range?.to||adsView.to)+(d.cached?' · 缓存':'');renderHubTrend();
 }
 function renderAds(d) {
   renderHubAds(d);
@@ -3634,6 +3673,7 @@ function init() {
   loadOrderSummary();
   loadSales();
   loadListings();
+  loadHubProfitEstimate();
   startSalesTimer();
   startAdsTimer();
   startSummaryTimer();

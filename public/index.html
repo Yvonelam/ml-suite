@@ -81,7 +81,7 @@
       <section class="hub-metrics">
         <article class="card hub-metric"><span>销售额</span><b id="sk-amount">—</b><small id="sk-amount-sub">—</small></article>
         <article class="card hub-metric"><span>订单与件数</span><b><i id="sk-orders">—</i> <em>单</em></b><small>售出 <strong id="sk-items">—</strong> 件 <span id="sk-orders-sub"></span></small></article>
-        <article class="card hub-metric"><span>广告花费</span><b id="hubAdsCost">—</b><small id="hubAdsFx">本地币 · 美客多 Product Ads</small></article>
+        <article class="card hub-metric hub-profit-metric"><span>利润预估</span><b id="hubProfitEstimate">—</b><small id="hubProfitNote">订单利润扣除当前期间广告费 · 人民币</small></article>
         <article class="card hub-metric"><span>Listing 出单表现</span><b><i id="hubListingCount">—</i> <em>个商品</em></b><small>售出 <strong id="hubListingQty">—</strong> 件 · <span id="hubListingPeriod">当前区间</span></small></article>
       </section>
       <section class="hub-tasks">
@@ -92,7 +92,7 @@
       </section>
       <section class="hub-main-grid">
         <article class="card hub-panel hub-trend-panel"><div class="hub-panel-head"><div><h3>订单数趋势</h3><p>所选日期内的有效订单数 · 按巴西时区统计</p></div><div class="hub-legend"><span><i></i>订单数</span></div></div><div class="hub-trend" id="hubTrend"><div class="empty">正在加载订单数据…</div></div><div class="hub-trend-note" id="hubTrendNote">订单数据按巴西时区统计。</div></article>
-        <article class="card hub-panel hub-ads-panel"><div class="hub-panel-head"><div><h3>广告表现</h3><p id="hubAdsNote">与所选日期范围同步</p></div><button class="ghost" type="button" data-go="ads">广告详情 ↗</button></div><div class="hub-ads-grid"><div><small>广告花费</small><b id="hubAdCostDetail">—</b></div><div><small>广告销售额</small><b id="hubAdSales">—</b></div><div><small>ACOS</small><b id="hubAdAcos">—</b></div><div><small>ROAS</small><b id="hubAdRoas">—</b></div></div><div class="hub-ads-foot"><span>广告商品件数 <b id="hubAdUnits">—</b></span></div><p class="hub-hint">广告总额按所选期间展示。人民币净利润与广告扣减，请在产品利润中核算。</p></article>
+        <article class="card hub-panel hub-ads-panel"><div class="hub-panel-head"><div><h3>广告表现</h3><p id="hubAdsNote">与所选日期范围同步</p></div><button class="ghost" type="button" data-go="ads">广告详情 ↗</button></div><div class="hub-ads-grid"><div><small>广告花费</small><b id="hubAdCostDetail">—</b></div><div><small>广告销售额</small><b id="hubAdSales">—</b></div><div><small>ACOS</small><b id="hubAdAcos">—</b></div><div><small>ROAS</small><b id="hubAdRoas">—</b></div></div><div class="hub-ads-foot"><span>广告商品件数 <b id="hubAdUnits">—</b></span></div><p class="hub-hint">广告花费明细保留在此处；净利润预估见上方指标。</p></article>
       </section>
       <section class="hub-bottom-grid">
         <article class="card hub-panel"><div class="hub-panel-head"><div><h3>Listing 销售表现</h3><p>当前区间出单最多的商品 · 点利润核算查看成本和利润</p></div><button class="ghost" type="button" data-go="profit">利润核算 ↗</button></div><div id="hubListingSummary"><div class="empty">正在加载 Listing 数据…</div></div></article>
