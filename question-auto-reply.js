@@ -61,7 +61,15 @@ function matchRule(questionText, rules) {
 
 function keepRecentIds(value, max = 2000) {
   const list = Array.isArray(value) ? value : [];
-  return [...new Set(list.map(v => String(v || '')).filter(Boolean))].slice(-max);
+  const ids = new Set();
+  for (const value of list) {
+    const id = String(value || '');
+    if (!id) continue;
+    ids.delete(id);
+    ids.add(id);
+  }
+  const limit = Math.max(0, Math.floor(Number(max) || 0));
+  return limit ? [...ids].slice(-limit) : [];
 }
 
 module.exports = { MAX_RULES, MAX_KEYWORDS_PER_RULE, MAX_KEYWORD_LENGTH, MAX_REPLY_LENGTH, normalizeMatchText, sanitizeRules, matchRule, keepRecentIds };

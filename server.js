@@ -2521,6 +2521,7 @@ const QUESTION_AUTO_REPLY_FILE = 'question-auto-reply.json';
 const QUESTION_AUTO_REPLY_INTERVAL_MS = 60000;
 const QUESTION_AUTO_REPLY_MAX_SENDS_PER_TICK = 5;
 const questionAutoReplyTimers = new Map();
+const questionAutoReplyInFlight = new Set();
 function defaultQuestionAutoReplyState() {
   return { enabled: false, rules: [], processedIds: [], lastCheckAt: 0, lastReplyAt: 0, lastReplyQuestionId: '', lastReplyRuleId: '', totalReplies: 0, lastError: '', lastSummary: '尚未运行' };
 }
@@ -2565,8 +2566,9 @@ function scheduleQuestionAutoReplyMonitor(uid) {
   if (!state.enabled || !state.rules.some(rule => rule.enabled)) return;
   const slot = { busy: false, tick: null, boot: null };
   const run = () => {
-    if (slot.busy) return;
+    if (slot.busy || questionAutoReplyInFlight.has(targetId)) return;
     slot.busy = true;
+    questionAutoReplyInFlight.add(targetId);
     auth.runAsUser(targetId, () => runQuestionAutoReplyCheck())
       .catch(err => auth.runAsUser(targetId, () => {
         const state = readQuestionAutoReplyState();
@@ -2576,7 +2578,7 @@ function scheduleQuestionAutoReplyMonitor(uid) {
         writeQuestionAutoReplyState(state);
         console.warn('[自动回复] 账号 ' + targetId + ' 检查失败：' + err.message);
       }))
-      .finally(() => { slot.busy = false; });
+      .finally(() => { slot.busy = false; questionAutoReplyInFlight.delete(targetId); });
   };
   slot.tick = setInterval(run, QUESTION_AUTO_REPLY_INTERVAL_MS);
   if (slot.tick.unref) slot.tick.unref();
@@ -2600,7 +2602,7 @@ function scheduleAllQuestionAutoReplyMonitors() {
   return count;
 }
 async function runQuestionAutoReplyCheck() {
-  const state = readQuestionAutoReplyState();
+  let state = readQuestionAutoReplyState();
   if (!state.enabled) return { checked: 0, sent: 0 };
   const cfg = loadConfig();
   if (!mlConfigured(cfg)) throw Object.assign(new Error('尚未配置美客多 API 凭证'), { needConfig: true });
@@ -2610,11 +2612,17 @@ async function runQuestionAutoReplyCheck() {
   const response = await mlRequest('/questions/search?' + query);
   const questions = ((response && (response.questions || response.results)) || []).slice();
   questions.sort((a, b) => String(a.date_created || '').localeCompare(String(b.date_created || '')));
-  const processed = new Set(state.processedIds);
-  let matched = 0, sent = 0, attempts = 0, failure = "";
+  let processed = new Set(state.processedIds);
+  let matched = 0, sent = 0, attempts = 0, failure = '';
   for (const question of questions) {
     const questionId = String(question.id || question.question_id || '').trim();
     if (!questionId || processed.has(questionId)) continue;
+    // 在每次发送前重新读本账号配置。用户关闭开关或编辑规则时，
+    // 不让正在进行中的旧轮询继续使用过期配置发送。
+    state = readQuestionAutoReplyState();
+    if (!state.enabled) return { checked: questions.length, matched, sent, disabled: true };
+    processed = new Set(state.processedIds);
+    if (processed.has(questionId)) continue;
     const rule = questionAutoReply.matchRule(question.text || '', state.rules);
     if (!rule) continue;
     matched++;
@@ -2626,21 +2634,23 @@ async function runQuestionAutoReplyCheck() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question_id: qid, text: rule.reply }),
       });
+      state = readQuestionAutoReplyState();
       state.processedIds = questionAutoReply.keepRecentIds(state.processedIds.concat(questionId));
       state.totalReplies++;
       state.lastReplyAt = Date.now();
       state.lastReplyQuestionId = questionId;
       state.lastReplyRuleId = rule.id;
       state.lastError = '';
-      processed.add(questionId);
+      processed = new Set(state.processedIds);
       sent++;
       console.log('[自动回复] 账号 ' + auth.currentUserId() + ' 已回复提问 #' + questionId + '（规则 ' + rule.id + '）');
       writeQuestionAutoReplyState(state);
     } catch (err) {
       const message = String(err.message || '自动回复失败');
-      if (/already.{0,30}answer|answered|question.{0,20}not found|not_found|forbidden|HTTP 400|HTTP 403|HTTP 404/i.test(message)) {
+      state = readQuestionAutoReplyState();
+      if (/already.{0,30}(answer|repl)|question.{0,30}(not found|does not exist)|not_found/i.test(message)) {
         state.processedIds = questionAutoReply.keepRecentIds(state.processedIds.concat(questionId));
-        processed.add(questionId);
+        processed = new Set(state.processedIds);
       }
       failure = message.slice(0, 500);
       state.lastError = failure;
@@ -2650,6 +2660,8 @@ async function runQuestionAutoReplyCheck() {
       break;
     }
   }
+  state = readQuestionAutoReplyState();
+  if (!state.enabled) return { checked: questions.length, matched, sent, disabled: true };
   state.lastCheckAt = Date.now();
   state.lastError = failure;
   state.lastSummary = failure
