@@ -2433,18 +2433,20 @@ function drawDayChart(d) {
   // 每天同样拆「广告单（实色）+ 自然单（淡色）」。
   // 注意：adUnits 是「件数」、orders 是「订单条数」，口径不同不能直接相减，所以钳到不超过当天总单。
   const adPerDay = days.map(x => Math.min(Number(x.adUnits) || 0, Number(x.orders) || 0));
-  let bars = '';
+  let bars = '', clips = '';
   for (let i = 0; i < n; i++) {
     const v = orders[i];
     if (v <= 0) continue;
     const x = L + i * bw + bw * 0.19, w = bw * 0.62;
     const adV = adPerDay[i], natV = Math.max(0, v - adV);
-    const adH = (adV / omax) * ph, natH = (natV / omax) * ph;
-    const yAd = T + ph - adH, yNat = yAd - natH;
-    if (adH > 0.4) bars += '<rect class="hb" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yAd.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + adH.toFixed(1) + '" rx="' + (natH > 0.4 ? 1.5 : 2.5) + '"/>';
-    if (natH > 0.4) bars += '<rect class="hb-nat" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yNat.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + natH.toFixed(1) + '" rx="2.5"/>';
+    const totalH = (v / omax) * ph, adH = (adV / omax) * ph, yTotal = T + ph - totalH, yAd = T + ph - adH;
+    const clipId = 'hbar-clip-' + i;
+    clips += '<clipPath id="' + clipId + '"><rect x="' + x.toFixed(1) + '" y="' + yTotal.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + totalH.toFixed(1) + '" rx="3"/></clipPath>';
+    bars += '<rect class="hb" data-i="' + i + '" x="' + x.toFixed(1) + '" y="' + yTotal.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + totalH.toFixed(1) + '" rx="3"/>';
+    if (adH > 0.4) bars += '<rect class="hb-ad" data-i="' + i + '" clip-path="url(#' + clipId + ')" x="' + x.toFixed(1) + '" y="' + yAd.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + adH.toFixed(1) + '"/>';
   }
   const pts = costs.map((v, i) => xc(i).toFixed(1) + ',' + yc(v).toFixed(1)).join(' ');
+  const lineArea = 'M ' + xc(0).toFixed(1) + ' ' + (T + ph) + ' L ' + pts.replace(/ /g, ' L ') + ' L ' + xc(n - 1).toFixed(1) + ' ' + (T + ph) + ' Z';
   let dots = '';
   for (let i = 0; i < n; i++) dots += '<circle class="hdot" data-i="' + i + '" cx="' + xc(i).toFixed(1) + '" cy="' + yc(costs[i]).toFixed(1) + '" r="2.4"/>';
 
@@ -2456,11 +2458,11 @@ function drawDayChart(d) {
 
   body.innerHTML = '<div class="hchart">'
     + '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-label="按天图">'
-    + '<defs><linearGradient id="hbg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#60a5fa"/><stop offset="1" stop-color="#2563eb"/></linearGradient></defs>'
-    + g + bars + '<polyline class="hline" points="' + pts + '"/>' + dots + xlab
+    + '<defs><linearGradient id="hbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9ecbff" stop-opacity=".60"/><stop offset=".24" stop-color="#d9dcff" stop-opacity=".48"/><stop offset=".54" stop-color="#cbbaff" stop-opacity=".36"/><stop offset=".82" stop-color="#ffc1e8" stop-opacity=".46"/><stop offset="1" stop-color="#9678df" stop-opacity=".38"/></linearGradient><linearGradient id="hbg-ad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#6b62c8" stop-opacity=".53"/><stop offset=".52" stop-color="#9182e3" stop-opacity=".48"/><stop offset="1" stop-color="#e0a6dc" stop-opacity=".48"/></linearGradient><linearGradient id="harea" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#cbb8ff" stop-opacity=".22"/><stop offset="1" stop-color="#cbb8ff" stop-opacity="0"/></linearGradient>' + clips + '</defs>'
+    + g + '<path class="harea" d="' + lineArea + '"/>' + bars + '<polyline class="hline" points="' + pts + '"/>' + dots + xlab
     + '<line class="hgl" id="hhl" x1="0" x2="0" y1="' + T + '" y2="' + (T + ph) + '" style="stroke:#7dd3fc66;stroke-dasharray:3 3;opacity:0"/>'
     + '</svg><div class="htip" id="hhTip"></div></div>'
-    + '<div class="leg-h"><span class="k-ad"><i></i>广告单（柱 · 实色）</span><span class="k-nat"><i></i>自然单（柱 · 淡色）</span><span class="k-cost"><i></i>当天花费总额（线 · 右轴）</span></div>'
+    + '<div class="leg-h"><span class="k-ad"><i></i>广告单（玻璃柱内深色段）</span><span class="k-nat"><i></i>自然单（玻璃柱余量）</span><span class="k-cost"><i></i>当天花费总额</span></div>'
     + '<div class="leg-note">每天的花费为<b>美客多官方按天值</b>，已写入本地账本、冻结后不再变化；<b>自然单 = 当天总出单 − 广告单</b>（广告单量官方只提供按天口径）。想看每个小时的明细，把范围切到<b>单天</b>。</div>';
 
   const svg = body.querySelector('svg'), tipEl = $('#hhTip'), hl = $('#hhl');
@@ -2472,7 +2474,7 @@ function drawDayChart(d) {
     hl.setAttribute('x1', xc(i)); hl.setAttribute('x2', xc(i)); hl.style.opacity = 1;
     tipEl.innerHTML = '<b>' + day.date + '</b>'
       + '<span>出单 ' + fmt(day.orders) + ' 单 · 件数 ' + fmt(day.units) + '</span><br>'
-      + '<span style="color:#93c5fd">▪ 广告单 ' + fmt(adPerDay[i]) + ' 单</span>'
+      + '<span style="color:#cbb8ff">▪ 广告单 ' + fmt(adPerDay[i]) + ' 单</span>'
       + '<span>　▪ 自然单 ' + fmt(Math.max(0, (Number(day.orders) || 0) - adPerDay[i])) + ' 单</span><br>'
       + '<span>花费 ' + money(day.adCost, cur) + (day.final ? '（已存账本 · 不再变化）' : '（进行中）') + '</span><br>'
       + '<span>广告销售额 ' + money(day.adAmount, cur) + '</span>';
