@@ -1,4 +1,4 @@
-﻿<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ML Suite · 登录</title></head><body><div id="mlsuite-auth-preview">
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ML Suite · 登录</title></head><body><div id="mlsuite-auth-preview">
   <style>
     #mlsuite-auth-preview { --bg:#09090b; --s1:#0e0e11; --s2:#131316; --s3:#1a1a1f; --bd:#242429; --bd2:#31313a; --ink:#ededf0; --tx2:#a1a1aa; --mut:#71717a; --ac:#3b82f6; --ok:#22c55e; --cyan:#38bdf8; --violet:#818cf8; --glass:rgba(255,255,255,.045); --glass-border:rgba(255,255,255,.10); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter','PingFang SC','Microsoft YaHei',sans-serif; width:min(1160px,100%); min-height:min(680px,calc(100vh - 40px)); padding:30px clamp(20px,4vw,54px); position:relative; isolation:isolate; overflow:hidden; border:1px solid rgba(255,255,255,.14); border-radius:24px; background:linear-gradient(135deg,rgba(255,255,255,.065),rgba(255,255,255,.018)); box-shadow:0 28px 100px rgba(0,0,0,.58),inset 0 1px 0 rgba(255,255,255,.09); backdrop-filter:blur(24px); }
     body { min-height:100vh; display:grid; place-items:center; padding:20px; background:radial-gradient(ellipse at 15% 12%,rgba(56,189,248,.22),transparent 38%),radial-gradient(ellipse at 85% 88%,rgba(129,140,248,.20),transparent 40%),#08090d; }
@@ -143,4 +143,39 @@ body:after{animation:authDrift2 16s ease-in-out infinite alternate}
 #mlsuite-auth-preview .feature-mark{background:linear-gradient(135deg,rgba(255,138,216,.22),rgba(139,123,255,.22));color:var(--violet)}
 </style>
 
+<style>
+/* 登录页：细化说明文字与低频玻璃动态，保持现有登录/注册结构和交互 */
+body { background-size:110% 110%; animation:mlLoginBackground 32s ease-in-out infinite alternate; }
+body:before { animation:mlLoginOrbLeft 24s ease-in-out infinite alternate; }
+body:after { animation:mlLoginOrbRight 29s ease-in-out infinite alternate; }
+#mlsuite-auth-preview { animation:mlLoginPanelBreath 9s ease-in-out infinite alternate; }
+#mlsuite-auth-preview:after { content:""; position:absolute; inset:-25% -30%; z-index:0; pointer-events:none; background:linear-gradient(112deg,transparent 40%,rgba(255,255,255,.055) 51%,transparent 62%); transform:translateX(-28%); animation:mlLoginGlassSweep 18s ease-in-out infinite; }
+#mlsuite-auth-preview .shell { z-index:1; }
+#mlsuite-auth-preview .intro { animation:mlLoginIntroIn .75s cubic-bezier(.2,.75,.25,1) both; }
+#mlsuite-auth-preview .auth-card { position:relative; overflow:hidden; animation:mlLoginCardIn .8s .1s cubic-bezier(.2,.75,.25,1) both; }
+#mlsuite-auth-preview .auth-card:before { content:""; position:absolute; z-index:0; inset:-55% -30% auto; height:88%; pointer-events:none; background:radial-gradient(ellipse,rgba(255,255,255,.12),transparent 70%); animation:mlLoginCardGlow 11s ease-in-out infinite alternate; }
+#mlsuite-auth-preview .auth-card > * { position:relative; z-index:1; }
+#mlsuite-auth-preview .feature-list { gap:8px; margin-top:23px; }
+#mlsuite-auth-preview .feature { min-height:37px; padding:6px 10px; border:1px solid rgba(239,235,255,.14); border-radius:11px; color:rgba(247,245,255,.93); font-size:12.5px; font-weight:500; letter-spacing:.015em; line-height:1.45; background:linear-gradient(110deg,rgba(255,255,255,.12),rgba(255,255,255,.055)); box-shadow:inset 0 1px 0 rgba(255,255,255,.12); transition:transform .24s ease,border-color .24s ease,background .24s ease; animation:mlLoginFeatureIn .65s cubic-bezier(.2,.75,.25,1) both; }
+#mlsuite-auth-preview .feature:nth-child(1) { animation-delay:.22s; }
+#mlsuite-auth-preview .feature:nth-child(2) { animation-delay:.34s; }
+#mlsuite-auth-preview .feature:nth-child(3) { animation-delay:.46s; }
+#mlsuite-auth-preview .feature:hover { transform:translateX(3px); border-color:rgba(239,225,255,.25); background:linear-gradient(110deg,rgba(255,255,255,.17),rgba(255,255,255,.075)); }
+#mlsuite-auth-preview .feature-mark { width:25px; height:25px; border:1px solid rgba(255,255,255,.12); border-radius:8px; color:#f4d8ff; background:linear-gradient(135deg,rgba(255,138,216,.24),rgba(139,123,255,.24)); box-shadow:inset 0 1px 0 rgba(255,255,255,.18); }
+@keyframes mlLoginBackground { from { background-position:0% 0%; } to { background-position:8% 5%; } }
+@keyframes mlLoginOrbLeft { from { transform:translate3d(-1vw,0,0) scale(.96); opacity:.19; } to { transform:translate3d(3vw,2vh,0) scale(1.08); opacity:.31; } }
+@keyframes mlLoginOrbRight { from { transform:translate3d(1vw,0,0) scale(1); opacity:.18; } to { transform:translate3d(-3vw,-2vh,0) scale(1.1); opacity:.30; } }
+@keyframes mlLoginPanelBreath { from { box-shadow:inset 0 1px 0 var(--glass-hi),0 24px 66px -26px rgba(10,5,40,.68); } to { box-shadow:inset 0 1px 0 var(--glass-hi),0 29px 74px -24px rgba(124,58,237,.37); } }
+@keyframes mlLoginGlassSweep { 0%,20% { transform:translateX(-30%); opacity:0; } 36% { opacity:.68; } 66%,100% { transform:translateX(30%); opacity:0; } }
+@keyframes mlLoginIntroIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+@keyframes mlLoginCardIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+@keyframes mlLoginFeatureIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+@keyframes mlLoginCardGlow { from { transform:translate3d(-4%,0,0); opacity:.42; } to { transform:translate3d(4%,6%,0); opacity:.9; } }
+@media(prefers-reduced-motion:reduce) {
+  body,body:before,body:after,#mlsuite-auth-preview,#mlsuite-auth-preview:after,#mlsuite-auth-preview .intro,#mlsuite-auth-preview .auth-card,#mlsuite-auth-preview .auth-card:before,#mlsuite-auth-preview .feature { animation:none !important; }
+  #mlsuite-auth-preview .feature { opacity:1; transform:none; }
+  #mlsuite-auth-preview .feature,#mlsuite-auth-preview .auth-card { transition:none; }
+}
+</style>
 </body></html>
+
