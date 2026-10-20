@@ -8,18 +8,44 @@
 ## 0. 先搞清楚：真正在用的界面只有一个
 
 **所有在用的界面都在「主工作台」里** —— `public/index.html` + `public/style.css` + `public/app.js`，
-**一套皮肤**，7 个视图：`#hub`（概览）`#rank`（关键词排名）`#orders`（订单）`#questions`（问答）
+**一套结构 + 三层可选主题**（见 0.1），7 个视图：`#hub`（概览）`#rank`（关键词排名）`#orders`（订单）`#questions`（问答）
 `#claims`（售后）`#ads`（广告）`#box`（箱唛）。
 
 **改版 90% 的情况下只需要动 `public/style.css` 一个文件。**
 
 | 位置 | 状态 | 说明 |
 |---|---|---|
-| `public/index.html`<br>`public/style.css`（约 500 行）<br>`public/app.js` | ✅ **在用** | 主工作台。7 个视图共用这一套皮肤 |
+| `public/index.html`<br>`public/style.css`（约 500 行）<br>`public/app.js` | ✅ **在用** | 主工作台。7 个视图共用这一套结构，配色由三层主题表叠加 |
 | `public/search/*`（独立的 1500 行 CSS + app.js） | ⚠️ **已退役** | 打开 `/search/` 会立刻执行 `location.replace('../index.html#rank')` 跳回工作台的「关键词排名」视图 |
 | `public/boxmark/*`（独立的 300 行 CSS + app.js） | ⚠️ **已退役** | 同理，`/boxmark/` 会跳到 `#box` |
 
 也就是说：**那两个独立页的 CSS，目前在任何一个真实页面上都不会生效**。
+
+### 0.1 三套美术风格 + 三版 Logo（改版别漏）
+
+界面有 **3 套可切换的美术风格**，点侧边栏左上角 Logo 弹出菜单选择，选择记在 `localStorage.mlsuiteTheme`：
+
+| key | 名称 | 由什么决定 |
+|---|---|---|
+| `classic` | 经典深色 | `style.css` 的 `:root`（两张主题表都 `disabled`） |
+| `mist` | 柔雾玻璃 | `theme-mist.css` 开、`theme-color.css` 关 |
+| `glass` | 彩色毛玻璃 | 两张都开（`theme-color.css` 建立在 `theme-mist.css` 之上） |
+
+**Logo 跟着主题一起换**，三版成品并列挂在 `.brand-logo` 里，靠 `html[data-theme=…]` 切透明度，不切 `src`（所以不闪白、不会 404）：
+
+| 主题 | 文件 | 观感 |
+|---|---|---|
+| `classic` | `public/ml-suite-mark-classic.svg` | 近黑芯片底 + 青紫渐变描边 + 青紫渐变 ML |
+| `mist` | `public/ml-suite-mark-mist.svg` | 淡雾白磨砂底 + 石板蓝灰 ML + 顶部高光 |
+| `glass` | `public/ml-suite-mark-glass.svg` | 紫→粉渐变底 + 白 ML + 玻璃高光 |
+
+⚠️ 三版必须保持**同一构图**（都是 `256×256`、圆角 `rx=66`、居中 `ML` 字标、字号 `104`／`letter-spacing -6`／基线 `y≈132`），只换材质和颜色 —— 否则切风格时会像换了家公司。
+
+改主题色板时**记得同步改 Logo**，否则会出现「界面变蓝、Logo 还是紫的」。改完必须跑：
+
+```bash
+node probe-theme-logo.js     # 33 项：三张是否都加载成功、每套主题下是否只有对应那张可见、刷新是否记得、有无 404
+```
 `public/index.html` 里既没有 `<iframe>`，也没有 `<link>` 指向它们 —— 它们只是还留在仓库里的历史文件。
 
 所以：
@@ -182,7 +208,8 @@
    - 你判断的风险点
 2. **等我确认方案后再给 patch。**
 3. **一次只改一个层级**（比如先只调颜色变量，再动布局）—— 别一次性全上，出问题不好回退。
-   好消息是：在用的界面只有一套皮肤，所以「改一处就全站生效」这次是成立的。
+   好消息是：在用的界面只有一套结构，所以「改一处就全站生效」这次是成立的；
+   但**配色分布在 `style.css` 的 `:root` + 两层主题表里**，动颜色要三处一起看（见 0.1），Logo 也要跟着改。
 4. **改完存快照**：`node version.js save "改版：xxx"`。我这边不满意可以一键回滚，回滚前还会自动备份。
 
 ---
