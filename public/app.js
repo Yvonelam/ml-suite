@@ -1,4 +1,4 @@
-/* =========================================================
+﻿/* =========================================================
    ML Suite
    单页应用：概览 + 关键词排名 + 箱唛裁切
    ========================================================= */
@@ -174,7 +174,7 @@ function go(v, push = true) {
   if (v === 'hub') setTimeout(() => { drawChart(); loadOrderSummary(); loadSales(); loadListings(); loadAds(); }, 60);
   if (v === 'ads') { loadAds(); loadAdsHourly(); }
   if (v === 'orders') loadOrders();
-  if (v === 'questions') loadQuestions();
+  if (v === 'questions') { loadQuestions(); loadQuestionAutoReply(); }
   if (v === 'claims') loadClaims();
   if (v === 'profit') { loadProfitListings(); loadProfitOrders(); }
   if (v === 'warehouse') loadWarehouseStock();
@@ -2749,6 +2749,7 @@ function renderOrders(d) {
 
 /* ---- 商品问答（售前） ---- */
 const questionView = { state: 'UNANSWERED', limit: 20, offset: 0, total: 0, demo: false, timer: null };
+const questionAutoReplyView = { enabled: false, rules: [], status: {}, dirty: false, editingId: null };
 async function loadQuestions() {
   const body = $('#questionBody');
   setStateEl($('#questionState'), 'warn', '加载中');
@@ -2839,6 +2840,182 @@ async function sendAnswer(btn, root) {
   }
 }
 
+function renderQuestionAutoReplySummary() {
+  const enabled = questionAutoReplyView.enabled;
+  const rules = questionAutoReplyView.rules || [];
+  const activeCount = rules.filter(rule => rule.enabled).length;
+  const badge = $('#questionAutoReplyBadge');
+  if (badge) badge.textContent = enabled ? ('运行中 · ' + activeCount + '/' + rules.length) : (rules.length ? ('已关闭 · ' + rules.length + ' 条') : '未设置');
+  const enabledText = $('#questionAutoReplyEnabledText');
+  if (enabledText) { enabledText.textContent = enabled ? '已开启' : '已关闭'; enabledText.style.color = enabled ? 'var(--ok)' : 'var(--mut)'; }
+  const enabledInput = $('#questionAutoReplyEnabled');
+  if (enabledInput) enabledInput.checked = enabled;
+  const count = $('#questionAutoReplyRuleCount');
+  if (count) count.textContent = rules.length + ' 条规则 · ' + activeCount + ' 条启用';
+  const status = $('#questionAutoReplyState');
+  if (status) {
+    const state = questionAutoReplyView.status || {};
+    status.className = 'qauto-status' + (state.lastError ? ' error' : (state.lastReplyAt ? ' success' : ''));
+    if (questionAutoReplyView.dirty) status.textContent = '有未保存的修改，保存并应用后才会生效。';
+    else if (state.lastError) status.textContent = state.lastError;
+    else if (state.lastSummary) status.textContent = state.lastSummary;
+    else status.textContent = enabled ? '规则已保存，等待自动检查。' : '规则已保存，自动回复当前关闭。';
+  }
+}
+function renderQuestionAutoReplyRules() {
+  const box = $('#questionAutoReplyRules');
+  if (!box) return;
+  const rules = questionAutoReplyView.rules || [];
+  if (!rules.length) { box.innerHTML = '<div class="qauto-empty">还没有规则。添加关键词和对应回复文本后保存即可。</div>'; renderQuestionAutoReplySummary(); return; }
+  box.innerHTML = rules.map((rule, index) => {
+    const id = escHtml(rule.id);
+    const words = (rule.keywords || []).map(word => '<span class="qauto-key">' + escHtml(word) + '</span>').join('');
+    return '<div class="qauto-rule">'
+      + '<div class="qauto-keywords" aria-label="规则关键词">' + words + '</div>'
+      + '<div class="qauto-reply">' + escHtml(rule.reply) + '</div>'
+      + '<div class="qauto-actions">'
+      + '<button class="ghost" type="button" data-qauto-move="up" data-id="' + id + '" aria-label="上移规则"' + (index === 0 ? ' disabled' : '') + '>↑</button>'
+      + '<button class="ghost" type="button" data-qauto-move="down" data-id="' + id + '" aria-label="下移规则"' + (index === rules.length - 1 ? ' disabled' : '') + '>↓</button>'
+      + '<label class="qauto-toggle"><input type="checkbox" data-qauto-toggle="' + id + '"' + (rule.enabled ? ' checked' : '') + '>启用</label>'
+      + '<button class="ghost" type="button" data-qauto-edit="' + id + '">编辑</button>'
+      + '<button class="ghost" type="button" data-qauto-delete="' + id + '">删除</button>'
+      + '</div></div>';
+  }).join('');
+  renderQuestionAutoReplySummary();
+}
+async function loadQuestionAutoReply() {
+  try {
+    const data = await mlGet('/api/ml/questions/auto-reply');
+    questionAutoReplyView.enabled = data.enabled === true;
+    questionAutoReplyView.rules = Array.isArray(data.rules) ? data.rules : [];
+    questionAutoReplyView.status = data.status || {};
+    questionAutoReplyView.dirty = false;
+    renderQuestionAutoReplyRules();
+  } catch (err) {
+    const status = $('#questionAutoReplyState');
+    if (status) { status.className = 'qauto-status error'; status.textContent = '读取自动回复配置失败：' + err.message; }
+    const badge = $('#questionAutoReplyBadge');
+    if (badge) badge.textContent = '加载失败';
+  }
+}
+function openQuestionAutoReply() {
+  const modal = $('#questionAutoReplyModal');
+  if (!modal) return;
+  modal.hidden = false;
+  loadQuestionAutoReply();
+  $('#questionAutoReplyAdd')?.focus();
+}
+function closeQuestionAutoReply() {
+  const modal = $('#questionAutoReplyModal');
+  if (!modal) return;
+  if (questionAutoReplyView.dirty && !window.confirm('有尚未保存的自动回复修改，确定关闭吗？')) return;
+  modal.hidden = true;
+  cancelQuestionAutoReplyEdit();
+}
+function markQuestionAutoReplyDirty() {
+  questionAutoReplyView.dirty = true;
+  renderQuestionAutoReplySummary();
+}
+function cancelQuestionAutoReplyEdit() {
+  const editor = $('#questionAutoReplyEditor');
+  if (editor) editor.hidden = true;
+  questionAutoReplyView.editingId = null;
+  const keys = $('#questionAutoReplyKeywords'), reply = $('#questionAutoReplyText');
+  if (keys) keys.value = '';
+  if (reply) reply.value = '';
+}
+function editQuestionAutoReplyRule(id) {
+  const rule = id ? questionAutoReplyView.rules.find(item => item.id === id) : null;
+  questionAutoReplyView.editingId = rule ? rule.id : null;
+  $('#questionAutoReplyEditorTitle').textContent = rule ? '编辑回复规则' : '新增回复规则';
+  $('#questionAutoReplyKeywords').value = rule ? rule.keywords.join('，') : '';
+  $('#questionAutoReplyText').value = rule ? rule.reply : '';
+  $('#questionAutoReplyEditor').hidden = false;
+  $('#questionAutoReplyKeywords').focus();
+}
+function saveQuestionAutoReplyRuleDraft() {
+  const keywords = [...new Set($('#questionAutoReplyKeywords').value.split(/[,，;；]/).map(word => word.trim()).filter(Boolean))];
+  const reply = $('#questionAutoReplyText').value.trim();
+  if (!keywords.length) { toast('请填写至少一个关键词', 'err'); $('#questionAutoReplyKeywords').focus(); return; }
+  if (keywords.some(word => word.length > 80)) { toast('单个关键词不能超过 80 个字符', 'err'); return; }
+  if (!reply) { toast('请填写自动回复文本', 'err'); $('#questionAutoReplyText').focus(); return; }
+  if (reply.length > 2000) { toast('回复文本不能超过 2000 个字符', 'err'); return; }
+  if (questionAutoReplyView.editingId) {
+    const index = questionAutoReplyView.rules.findIndex(item => item.id === questionAutoReplyView.editingId);
+    if (index >= 0) questionAutoReplyView.rules[index] = { ...questionAutoReplyView.rules[index], keywords, reply };
+  } else {
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    questionAutoReplyView.rules.push({ id, keywords, reply, enabled: true });
+  }
+  cancelQuestionAutoReplyEdit();
+  markQuestionAutoReplyDirty();
+  renderQuestionAutoReplyRules();
+}
+function bindQuestionAutoReplyEvents() {
+  const modal = $('#questionAutoReplyModal');
+  const rules = $('#questionAutoReplyRules');
+  if (!modal || !rules || modal.dataset.bound === '1') return;
+  modal.dataset.bound = '1';
+  $('#questionAutoReplyOpen').onclick = openQuestionAutoReply;
+  $('#questionAutoReplyClose').onclick = closeQuestionAutoReply;
+  $('#questionAutoReplyCancel').onclick = closeQuestionAutoReply;
+  $('#questionAutoReplyAdd').onclick = () => editQuestionAutoReplyRule(null);
+  $('#questionAutoReplyCancelEdit').onclick = cancelQuestionAutoReplyEdit;
+  $('#questionAutoReplySaveRule').onclick = saveQuestionAutoReplyRuleDraft;
+  $('#questionAutoReplyEnabled').onchange = event => {
+    questionAutoReplyView.enabled = event.target.checked;
+    markQuestionAutoReplyDirty();
+  };
+  rules.addEventListener('change', event => {
+    const input = event.target.closest('[data-qauto-toggle]');
+    if (!input) return;
+    const rule = questionAutoReplyView.rules.find(item => item.id === input.dataset.qautoToggle);
+    if (rule) { rule.enabled = input.checked; markQuestionAutoReplyDirty(); renderQuestionAutoReplyRules(); }
+  });
+  rules.addEventListener('click', event => {
+    const button = event.target.closest('button[data-id]');
+    if (!button) return;
+    const id = button.dataset.id;
+    if (button.dataset.qautoEdit) { editQuestionAutoReplyRule(id); return; }
+    if (button.dataset.qautoDelete) {
+      if (!window.confirm('确定删除这条关键词回复规则吗？')) return;
+      questionAutoReplyView.rules = questionAutoReplyView.rules.filter(item => item.id !== id);
+      markQuestionAutoReplyDirty(); renderQuestionAutoReplyRules(); return;
+    }
+    const move = button.dataset.qautoMove;
+    if (move) {
+      const index = questionAutoReplyView.rules.findIndex(item => item.id === id);
+      const target = index + (move === 'up' ? -1 : 1);
+      if (index < 0 || target < 0 || target >= questionAutoReplyView.rules.length) return;
+      const list = questionAutoReplyView.rules; [list[index], list[target]] = [list[target], list[index]];
+      markQuestionAutoReplyDirty(); renderQuestionAutoReplyRules();
+    }
+  });
+  $('#questionAutoReplySave').onclick = async () => {
+    const button = $('#questionAutoReplySave');
+    if (button.disabled) return;
+    if (questionAutoReplyView.enabled && !questionAutoReplyView.rules.some(rule => rule.enabled)) { toast('开启自动回复前，至少启用一条规则', 'err'); return; }
+    button.disabled = true; button.textContent = '正在保存…';
+    try {
+      const data = await mlGet('/api/ml/questions/auto-reply', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: questionAutoReplyView.enabled, rules: questionAutoReplyView.rules }),
+      });
+      questionAutoReplyView.enabled = data.enabled === true;
+      questionAutoReplyView.rules = Array.isArray(data.rules) ? data.rules : [];
+      questionAutoReplyView.status = data.status || {};
+      questionAutoReplyView.dirty = false;
+      renderQuestionAutoReplyRules();
+      toast(questionAutoReplyView.enabled ? '自动回复规则已保存并启用' : '自动回复规则已保存，功能当前关闭');
+    } catch (err) {
+      const status = $('#questionAutoReplyState');
+      if (status) { status.className = 'qauto-status error'; status.textContent = '保存失败：' + err.message; }
+      toast('自动回复配置保存失败：' + err.message, 'err');
+    } finally { button.disabled = false; button.textContent = '保存并应用'; }
+  };
+  modal.addEventListener('click', event => { if (event.target === modal) closeQuestionAutoReply(); });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && !modal.hidden) closeQuestionAutoReply(); });
+}
 /* ---- 退货与投诉（售后） ---- */
 const claimView = { cat: 'todo', limit: 50, offset: 0, total: 0, demo: false, counts: {}, all: [], timer: null };
 const CLAIM_STAGE = { claim: '纠纷协商', dispute: '平台调解', mediations: '平台调解', recontact: '结案后再联系', none: '-' };
@@ -3387,6 +3564,7 @@ function bindMlEvents() {
   if (pi) pi.onchange = () => savePushConfig(false);
   on('orderRefresh', () => { orderView.offset = 0; loadOrders(); });
   on('questionRefresh', () => { questionView.offset = 0; loadQuestions(); });
+  bindQuestionAutoReplyEvents();
   on('claimRefresh', () => { claimView.offset = 0; loadClaims(); });
   const mask = $('#mlModal');
   if (mask) mask.addEventListener('click', e => { if (e.target === mask) closeMlModal(); });

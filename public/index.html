@@ -339,9 +339,38 @@
           <div class="tool-actions">
             <span class="st" id="questionState"><i class="off"></i>未连接</span>
             <button class="btn" id="questionRefresh">刷新</button>
+            <button class="btn" id="questionAutoReplyOpen" type="button">关键词自动回复 <span class="qauto-badge" id="questionAutoReplyBadge">读取中</span></button>
           </div>
         </div>
         <div id="questionBody"><div class="empty">正在加载…</div></div>
+      </div>
+      <div class="modal-mask qauto-mask" id="questionAutoReplyModal" hidden>
+        <section class="modal qauto-modal" role="dialog" aria-modal="true" aria-labelledby="questionAutoReplyTitle">
+          <div class="modal-head">
+            <div><h3 id="questionAutoReplyTitle">关键词自动回复</h3><span>关键词与回复文本由你手动设定，按规则顺序匹配。</span></div>
+            <button class="ghost qauto-close" id="questionAutoReplyClose" type="button" aria-label="关闭">✕</button>
+          </div>
+          <div class="modal-body qauto-body">
+            <div class="qauto-master">
+              <div><b>自动回复总开关</b><small>只有总开关和单条规则都开启时，才会自动发送。</small></div>
+              <label class="qauto-switch"><input type="checkbox" id="questionAutoReplyEnabled"><span></span><em id="questionAutoReplyEnabledText">已关闭</em></label>
+            </div>
+            <div class="qauto-rule-head">
+              <div><b>回复规则</b><small id="questionAutoReplyRuleCount">0 条规则</small></div>
+              <button class="btn" id="questionAutoReplyAdd" type="button">＋ 添加规则</button>
+            </div>
+            <div class="qauto-rules" id="questionAutoReplyRules"></div>
+            <div class="qauto-editor" id="questionAutoReplyEditor" hidden>
+              <b id="questionAutoReplyEditorTitle">新增回复规则</b>
+              <label>关键词 <input id="questionAutoReplyKeywords" maxlength="1600" placeholder="例如：颜色，红色，黑色"><small>多个关键词用逗号分隔，提问中包含任意一个即命中。</small></label>
+              <label>回复文本 <textarea id="questionAutoReplyText" maxlength="2000" rows="3" placeholder="填写要自动发送给买家的内容"></textarea><small>最多 2000 字；请确认商品信息准确后再开启自动回复。</small></label>
+              <div class="qauto-editor-actions"><button class="ghost" id="questionAutoReplyCancelEdit" type="button">取消</button><button class="btn" id="questionAutoReplySaveRule" type="button">保存规则</button></div>
+            </div>
+            <div class="qauto-note"><b>运行说明</b><span>开启后每分钟检查未回复提问；命中多条规则时优先使用列表靠前的第一条，同一提问最多自动回复一次。每轮最多发送 5 条，降低误发和接口频率风险。</span></div>
+            <div class="qauto-status" id="questionAutoReplyState" aria-live="polite">正在读取当前账号的规则…</div>
+            <div class="qauto-footer"><span>规则保存在当前 ML Suite 账号内</span><div><button class="ghost" id="questionAutoReplyCancel" type="button">取消</button><button class="btn y" id="questionAutoReplySave" type="button">保存并应用</button></div></div>
+          </div>
+        </section>
       </div>
     </section>
 
