@@ -51,6 +51,14 @@ a{color:inherit;text-decoration:none}
 .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 18px;cursor:pointer}
 .brand b{width:30px;height:30px;flex:0 0 30px;aspect-ratio:1;padding:0;margin:0;border-radius:8px;background:linear-gradient(140deg,var(--cyan),var(--violet));color:#fff;display:grid;place-items:center;font-size:12px;font-weight:800;line-height:1;letter-spacing:-.03em;text-align:center;white-space:nowrap}
 .brand b img{display:block;width:100%;height:100%;object-fit:contain;border-radius:inherit}
+/* Logo 随美术风格一起换：三版成品常驻 DOM（浏览器首屏就预载好），只切透明度，
+   不换 src 所以不会闪白、也不会因为文件缺失出 404；transform 让切换有个轻微归位动效 */
+.brand b{position:relative;overflow:hidden}
+.brand b img{position:absolute;inset:0;opacity:0;transform:scale(.88) rotate(-9deg);transition:opacity .38s ease,transform .55s cubic-bezier(.2,.8,.2,1)}
+html[data-theme=classic] .brand b img[data-t=classic],
+html[data-theme=mist] .brand b img[data-t=mist],
+html[data-theme=glass] .brand b img[data-t=glass],
+html:not([data-theme]) .brand b img[data-t=glass]{opacity:1;transform:none}
 .brand span{font-weight:600;font-size:14.5px;line-height:1.2}.brand small{display:block;font-weight:400;color:var(--mut);font-size:11.5px;margin-top:1px}
 .grp{font-size:11.5px;color:var(--mut);padding:14px 10px 6px}
 #nav{display:flex;flex-direction:column;gap:2px}

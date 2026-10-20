@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="mt md">
+  <title id="mt">ML Suite · 经典深色</title>
+  <desc id="md">深黑芯片底，青紫渐变描边与青紫渐变 ML 字标，四角留一圈冷光晕。</desc>
+  <defs>
+    <linearGradient id="ct" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c1c24"/>
+      <stop offset=".55" stop-color="#111116"/>
+      <stop offset="1" stop-color="#08080c"/>
+    </linearGradient>
+    <linearGradient id="ce" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset=".5" stop-color="#6366f1" stop-opacity=".7"/>
+      <stop offset="1" stop-color="#818cf8"/>
+    </linearGradient>
+    <linearGradient id="ck" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7dd3fc"/>
+      <stop offset=".55" stop-color="#93b8ff"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <radialGradient id="cg" cx=".5" cy=".52" r=".52">
+      <stop offset="0" stop-color="#38bdf8" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" rx="66" fill="url(#ct)"/>
+  <ellipse cx="128" cy="132" rx="98" ry="72" fill="url(#cg)"/>
+  <rect x="7.5" y="7.5" width="241" height="241" rx="59" fill="none" stroke="url(#ce)" stroke-width="3" stroke-opacity=".5"/>
+  <text x="131" y="132" text-anchor="middle" dominant-baseline="central" fill="url(#ck)" font-family="Arial, Helvetica, sans-serif" font-size="104" font-weight="800" letter-spacing="-6">ML</text>
+</svg>

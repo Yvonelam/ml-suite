@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="mt md">
+  <title id="mt">ML Suite · 柔雾玻璃</title>
+  <desc id="md">奶油感淡雾白底，石板蓝灰 ML 字标，顶部一道高光营造磨砂玻璃反光。</desc>
+  <defs>
+    <linearGradient id="st" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eef1fd"/>
+      <stop offset=".52" stop-color="#d9dff5"/>
+      <stop offset="1" stop-color="#bfc7e6"/>
+    </linearGradient>
+    <linearGradient id="sk" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6b7196"/>
+      <stop offset=".6" stop-color="#565c80"/>
+      <stop offset="1" stop-color="#454a6b"/>
+    </linearGradient>
+    <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".85"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="sb" cx=".5" cy=".18" r=".72">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" rx="66" fill="url(#st)"/>
+  <rect width="256" height="256" rx="66" fill="url(#sb)"/>
+  <rect y="0" width="256" height="112" rx="66" fill="url(#sg)" opacity=".36"/>
+  <rect x="7.5" y="7.5" width="241" height="241" rx="59" fill="none" stroke="#ffffff" stroke-width="3" stroke-opacity=".9"/>
+  <rect x="5" y="5" width="246" height="246" rx="61" fill="none" stroke="#9aa3c6" stroke-width="1.5" stroke-opacity=".45"/>
+  <text x="131" y="133" text-anchor="middle" dominant-baseline="central" fill="url(#sk)" font-family="Arial, Helvetica, sans-serif" font-size="104" font-weight="800" letter-spacing="-6">ML</text>
+</svg>
