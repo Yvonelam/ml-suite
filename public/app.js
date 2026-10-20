@@ -194,17 +194,14 @@ function profitCalc(x) {
 function renderProfitListings() {
   const q=($('#profitSearch')?.value||'').trim().toLowerCase(), rows=$('#profitRows'); if(!rows)return;
   const list=profitItems.filter(x=>!q||x.title.toLowerCase().includes(q)||x.id.toLowerCase().includes(q));
-  rows.innerHTML=list.length?list.map(x=>{const p=profitCalc(x), fx=Number(x.fxRate)||0, profitCny=p==null||!fx?null:p/fx, margin=profitCny==null||!x.price||!fx?null:profitCny/(Number(x.price)/fx)*100, cur=escHtml(x.currency);
-    const missingCost=x.cost?.costCny===''||x.cost?.costCny==null||x.cost?.freightCny===''||x.cost?.freightCny==null;
-    return '<tr><td><div class="profit-product">'+(x.thumbnail?'<img src="'+escHtml(x.thumbnail)+'" alt="">':'<span class="profit-thumb">ML</span>')+'<div><a target="_blank" rel="noopener" href="'+escHtml(x.permalink)+'">'+escHtml(x.title)+'</a><small>'+escHtml(x.id)+' · '+escHtml(x.site)+'</small></div></div></td><td>'+profitMoney(x.price,x.currency)+'</td><td>'+profitMoney(x.fee,x.currency)+(x.fee==null?'<small class="profit-sub">费率暂不可用</small>':'')+'</td><td>'+profitMoney(x.shipping,x.currency)+(x.shipping==null?'<small class="profit-sub">暂不可用</small>':'')+'</td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="costCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.costCny??'')+'" placeholder="0.00"></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="freightCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.freightCny??'')+'" placeholder="0.00"></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="otherFee" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.otherFee??'')+'" placeholder="0.00"><small class="profit-sub">'+cur+'</small></td><td class="profit-value '+(profitCny!=null&&profitCny<0?'negative':'')+'">'+(profitCny==null?(x.shipping==null?'等待运费估算':(missingCost?'填写产品成本和头程':'等待中国银行牌价或平台费用')):profitMoney(profitCny,'CNY'))+'</td><td>'+(margin==null?'—':margin.toFixed(1)+'%')+'</td></tr>';
-  }).join(''):'<tr><td colspan="9" class="empty">'+(profitItems.length?'没有匹配的商品':'当前账户没有读取到在售 Listing')+'</td></tr>';
+  rows.innerHTML=list.length?list.map(x=>'<tr><td><div class="profit-product">'+(x.thumbnail?'<img src="'+escHtml(x.thumbnail)+'" alt="">':'<span class="profit-thumb">ML</span>')+'<div><a target="_blank" rel="noopener" href="'+escHtml(x.permalink)+'">'+escHtml(x.title)+'</a><small>'+escHtml(x.id)+' · '+escHtml(x.site)+'</small></div></div></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="costCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.costCny??'')+'" placeholder="0.00"></td><td><input class="profit-input" type="number" min="0" step="0.01" data-field="freightCny" data-id="'+escHtml(x.id)+'" value="'+escHtml(x.cost?.freightCny??'')+'" placeholder="0.00"></td></tr>').join(''):'<tr><td colspan="3" class="empty">'+(profitItems.length?'没有匹配的商品':'当前账户没有读取到在售 Listing')+'</td></tr>';
   const costCnt=$('#profitCostCnt');if(costCnt){costCnt.textContent=String(profitItems.length);costCnt.hidden=!profitItems.length;}
-  const shippingCount=profitItems.filter(x=>x.shipping!==null&&x.shipping!==undefined).length;$('#profitStatus').textContent=profitItems.length?'已加载 '+profitItems.length+' 个在售 Listing；平台尾程费用 API 已匹配 '+shippingCount+' 个。人工成本和头程可保存到当前账户。':'暂时没有可显示的 Listing。';
+  $('#profitStatus').textContent=profitItems.length?'已加载 '+profitItems.length+' 个在售 Listing。请填写人民币产品成本与头程，并保存到当前账户。':'暂时没有可显示的 Listing。';
 }
 async function loadProfitListings(refresh=false) {
   const status=$('#profitStatus');if(!status)return;status.textContent='正在同步当前账户的在售 Listing…';
   try { const d=await mlGet('/api/ml/profit/listings'+(refresh?'?refresh=1':''));profitItems=d.items||[];const rates=profitItems.filter(x=>x.fxCnyPer100),quote=rates.map(x=>x.fxPublishedAt).filter(Boolean).sort().at(-1);$('#profitFxNote').textContent=rates.length?'汇率：中国银行现汇卖出价（无现汇牌价时用中行折算价，人民币/100当地币）'+(quote?' · 牌价 '+quote:''):'中国银行暂无在售币种牌价，相关利润待核对。';renderProfitListings(); }
-  catch(e){profitItems=[];status.textContent=e.message;$('#profitRows').innerHTML='<tr><td colspan="9" class="empty">'+escHtml(e.message)+'</td></tr>';}
+  catch(e){profitItems=[];status.textContent=e.message;$('#profitRows').innerHTML='<tr><td colspan="3" class="empty">'+escHtml(e.message)+'</td></tr>';}
 }
 function renderWarehouseStock(){
   const q=($('#warehouseSearch')?.value||'').trim().toLowerCase(),tbody=$('#warehouseRows');if(!tbody)return;
@@ -253,7 +250,7 @@ function applyProfitHeaders() {
   const c = profitLocalLabel();
   const set = (id, text) => { const el = $('#' + id); if (el) el.textContent = text; };
   set('poThRev', '订单收入（' + c + '）');
-  set('poThFee', '销售费（' + c + '）');
+  set('poThFee', '平台佣金（' + c + '）');
   set('poThShip', '尾程运费（' + c + '）');
   set('poThTax', '税费（' + c + '）');
   set('poThCost', '成本与头程（人民币）');
@@ -420,10 +417,10 @@ function bindProfitEvents(){
       $('#profitRows')?.querySelectorAll('.profit-input').forEach(input=>{const x=profitItems.find(v=>v.id===input.dataset.id);if(!x)return;x.cost=x.cost||{};x.cost[input.dataset.field]=input.value===''?'':Number(input.value);});
       const payload={items:profitItems.map(x=>({id:x.id,costCny:x.cost?.costCny??'',freightCny:x.cost?.freightCny??'',otherFee:x.cost?.otherFee??''}))};
       const r=await fetch('/api/ml/profit/items',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw Error(d.error||'保存失败');
-      $('#profitStatus').textContent='已保存 '+d.saved+' 个 Listing 的人工成本、头程和其他费用到当前账户。';
+      $('#profitStatus').textContent='已保存 '+d.saved+' 个 Listing 的产品成本与头程到当前账户。';
       if(typeof toast==='function')toast('费用数据已保存');
     }catch(err){$('#profitStatus').textContent='保存失败：'+err.message;}
-    finally{button.disabled=false;button.textContent='保存 Listing 成本/运费';}
+    finally{button.disabled=false;button.textContent='保存成本与头程';}
   });
   $('#profitCalculate')?.addEventListener('click',async(e)=>{
     const button=e.currentTarget;button.disabled=true;button.textContent='正在计算…';
@@ -439,7 +436,7 @@ function bindProfitEvents(){
   });
   $('#profitRows')?.addEventListener('change',async e=>{const input=e.target.closest('.profit-input');if(!input)return;const x=profitItems.find(v=>v.id===input.dataset.id);if(!x)return;const field=input.dataset.field,val=input.value===''?'':Number(input.value);if(val!==''&&(!Number.isFinite(val)||val<0)){input.value='';return;}
     x.cost=x.cost||{costCny:'',freightCny:'',otherFee:''};x.cost[field]=val;renderProfitListings();
-    try{const r=await fetch('/api/ml/profit/items/'+encodeURIComponent(x.id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(x.cost)});const d=await r.json();if(!r.ok)throw Error(d.error||'保存失败');$('#profitStatus').textContent='该 Listing 的人工成本、头程和其他费用已保存到当前账户。';}
+    try{const r=await fetch('/api/ml/profit/items/'+encodeURIComponent(x.id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(x.cost)});const d=await r.json();if(!r.ok)throw Error(d.error||'保存失败');$('#profitStatus').textContent='该 Listing 的产品成本与头程已保存到当前账户。';}
     catch(err){$('#profitStatus').textContent=err.message;}
   });
 }
