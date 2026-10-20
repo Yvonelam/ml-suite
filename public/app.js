@@ -1766,10 +1766,10 @@ function renderHubTrend() {
   if (!rows.length) { root.innerHTML = '<div class="empty">所选期间暂无订单数据</div>'; const note=$('#hubTrendNote'); if(note)note.textContent='订单数据暂不可用或所选期间没有订单。'; return; }
   const valid = rows.filter(r => r.status !== 'cancelled' && r.status !== 'invalid');
   const singleDay = salesView.from === salesView.to;
-  const keys = singleDay ? Array.from({length:24},(_,i)=>String(i).padStart(2,'0')) : [...new Set(valid.map(r=>r.date).filter(Boolean))].sort();
+  const keys = singleDay ? Array.from({length:24},(_,i)=>String(i).padStart(2,'0')) : (()=>{const out=[];for(let d=salesView.from;d<=salesView.to&&out.length<366;d=addDays(d,1))out.push(d);return out;})();
   const orderCounts = Object.fromEntries(keys.map(k=>[k,0]));
   for (const r of valid) { const k=singleDay?String(r.hour==null?0:r.hour).padStart(2,'0'):r.date; if (k in orderCounts) orderCounts[k]++; }
-  const values=keys.map(k=>orderCounts[k]||0), max=Math.max(1,...values)*1.18;
+  const values=keys.map(k=>orderCounts[k]||0), max=Math.max(3,Math.ceil(Math.max(0,...values)/3)*3);
   const W=760,H=210,L=46,R=12,T=12,B=27,x=i=>L+(keys.length<2?0:i*(W-L-R)/(keys.length-1)),y=v=>H-B-(v/max)*(H-T-B);
   const path=a=>a.map((v,i)=>(i?'L':'M')+x(i).toFixed(1)+' '+y(v).toFixed(1)).join(' ');
   const area=path(values)+' L '+x(keys.length-1).toFixed(1)+' '+(H-B)+' L '+x(0).toFixed(1)+' '+(H-B)+' Z';
