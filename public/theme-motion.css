@@ -7,8 +7,8 @@
   --mv-base:#150a33;
 }
 
-/* ---- 视频层：默认不占位、不下载；只有 data-theme=motion 时才显示 ---- */
-.bg-video,.bg-veil{display:none}
+/* ---- 视频层 ----
+   注意「默认隐藏」那条在 style.css 里（主题表被 disabled 时它的规则会失效），这里只管显示。 */
 html[data-theme=motion] .liquid-bg{background:var(--mv-base)}
 html[data-theme=motion] .liquid-grid,
 html[data-theme=motion] .orb-1,

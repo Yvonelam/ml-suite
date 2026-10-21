@@ -19,6 +19,11 @@ a{color:inherit;text-decoration:none}
 @keyframes breathe1{from{transform:scale(.96);opacity:.24}to{transform:scale(1.05);opacity:.36}}
 @keyframes breathe2{from{transform:scale(1.04);opacity:.23}to{transform:scale(.95);opacity:.35}}
 @keyframes breathe3{from{transform:scale(.96);opacity:.22}to{transform:scale(1.05);opacity:.34}}
+/* 背景视频层：默认整层隐藏。
+   注意这条必须写在基础表里，不能只写在 theme-motion.css ——
+   换主题时 theme-motion.css 会被 disabled，规则一起失效，视频就会以行内元素
+   露在背景左上角（探针实测抓到过）。 */
+.bg-video,.bg-veil{display:none}
 .liquid-grid{position:fixed;inset:0;z-index:-1;pointer-events:none;background-image:linear-gradient(rgba(148,163,184,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(148,163,184,.04) 1px,transparent 1px);background-size:56px 56px;mask-image:radial-gradient(ellipse 90% 70% at 50% 0%,#000 30%,transparent 100%);-webkit-mask-image:radial-gradient(ellipse 90% 70% at 50% 0%,#000 30%,transparent 100%)}
 
 /* 开屏 */
