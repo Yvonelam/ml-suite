@@ -2,8 +2,8 @@
    （素材来自 macOS Monterey 动态渐变，已压到 1280×672 / 20 秒 / 812KB）。
    配色与材质继续沿用 G，这里只做三件事：架视频层、压暗视频、把玻璃面板做得更暗更糊。 */
 :root{
-  --mv-glass-1:rgba(28,14,62,.52);
-  --mv-glass-2:rgba(15,7,40,.46);
+  --mv-glass-1:rgba(28,14,62,.60);
+  --mv-glass-2:rgba(15,7,40,.54);
   --mv-base:#150a33;
 }
 
@@ -24,8 +24,9 @@ html[data-theme=motion] .bg-video{
 html[data-theme=motion] .bg-veil{
   display:block;position:absolute;inset:0;pointer-events:none;
   background:
-    radial-gradient(ellipse 94% 78% at 50% 42%,transparent 32%,rgba(6,2,22,.64) 100%),
-    linear-gradient(180deg,rgba(12,5,38,.44) 0%,rgba(12,5,38,.14) 36%,rgba(8,3,26,.52) 100%)
+    radial-gradient(ellipse 94% 78% at 50% 42%,transparent 28%,rgba(6,2,22,.66) 100%),
+    linear-gradient(180deg,rgba(12,5,38,.46) 0%,rgba(12,5,38,.26) 36%,rgba(8,3,26,.54) 100%),
+    rgba(10,4,32,.16)
 }
 
 /* ---- 面板：比彩色毛玻璃更暗、更糊 ----
