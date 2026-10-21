@@ -88,14 +88,25 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
       const opened = await ev("!document.getElementById('themeMenu').hidden");
       if (th === 'classic') ok(opened, '点侧边栏 Logo 能弹出风格菜单', opened);
       await ev("(function(){var b=document.querySelector('.theme-item[data-t=\"" + th + "\"]');if(b)b.click();})()");
-      // 等过渡真正落定（.55s 的 transform 过渡在机器忙时可能差最后几毫秒，
-      // 直接读会拿到 matrix(0.9999…) 这种「几乎归位」，会被误判成失败）
-      for (let k = 0; k < 20; k++) {
-        const settled = await ev("(function(){var ok=true;[].forEach.call(document.querySelectorAll('.brand-logo img'),function(i){if(+getComputedStyle(i).opacity<=0.95)return;var t=getComputedStyle(i).transform;if(t==='none')return;var m=t.match(/matrix\\(([^)]+)\\)/);if(!m){ok=false;return;}var n=m[1].split(',').map(Number);if(Math.abs(n[0]-1)>1e-3||Math.abs(n[1])>1e-3||Math.abs(n[2])>1e-3||Math.abs(n[3]-1)>1e-3||Math.abs(n[4])>0.5||Math.abs(n[5])>0.5)ok=false;});return ok})()");
-        if (settled) break;
-        await sleep(100);
-      }
-      await sleep(60);
+      // 等过渡真正落定：必须「恰好一张 op≈1、其余 op≈0、可见那张 transform≈单位矩阵」。
+      // 只睡固定毫秒不可靠（机器忙时差最后几毫秒），只判断「没有正在动的图」又会在
+      // 交叉淡入过程中提前放行 —— 两头都会造成误判。
+      const settledExpr = `(function(){
+        var arr=[].map.call(document.querySelectorAll('.brand-logo img'),function(i){
+          var cs=getComputedStyle(i);
+          return {o:parseFloat(cs.opacity),t:cs.transform};
+        });
+        var hi=arr.filter(function(a){return a.o>=.995});
+        var lo=arr.filter(function(a){return a.o<=.005});
+        if(hi.length!==1||lo.length!==arr.length-1)return false;
+        var t=hi[0].t;
+        if(t==='none')return true;
+        var m=t.match(/matrix\\(([^)]+)\\)/); if(!m)return false;
+        var n=m[1].split(',').map(Number);
+        return Math.abs(n[0]-1)<1e-3&&Math.abs(n[1])<1e-3&&Math.abs(n[2])<1e-3&&Math.abs(n[3]-1)<1e-3&&Math.abs(n[4])<.5&&Math.abs(n[5])<.5;
+      })()`;
+      for (let k = 0; k < 40; k++) { if (await ev(settledExpr)) break; await sleep(100); }
+      await sleep(80);
 
       const st = JSON.parse(await ev(`JSON.stringify((function(){
         var d=document.documentElement.dataset.theme;
