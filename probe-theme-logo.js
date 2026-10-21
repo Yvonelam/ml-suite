@@ -68,7 +68,10 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     await send('Page.navigate', { url: HOST + '/index.html' });
     for (let i = 0; i < 60; i++) { await sleep(300); if (await ev('document.title||""')) break; }
     for (let i = 0; i < 40; i++) { const g = await ev("(function(){var s=document.getElementById('splash');if(!s)return true;if(s.classList.contains('leave'))return true;try{s.style.setProperty('display','none','important')}catch(e){}return false})()"); if (g) break; await sleep(250); }
-    await sleep(1500);
+    // 关掉所有过渡/动画：探针要验的是「最终哪一张 Logo 可见」，不是动画过程。
+    // 无头环境里 .55s 的 transform 过渡会因调度抖动差最后几毫秒，一直按「差不多归位」误判。
+    await ev("(function(){var st=document.createElement('style');st.id='probe-noanim';st.textContent='*,*::before,*::after{transition:none!important;animation:none!important}';document.head.appendChild(st);return !!document.getElementById('probe-noanim')})()");
+    await sleep(400);
 
     console.log('\n— 结构 —');
     const imgs = await ev("JSON.stringify([].map.call(document.querySelectorAll('.brand-logo img'),function(i){return {t:i.getAttribute('data-t'),src:i.getAttribute('src')}}))");
@@ -88,26 +91,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
       const opened = await ev("!document.getElementById('themeMenu').hidden");
       if (th === 'classic') ok(opened, '点侧边栏 Logo 能弹出风格菜单', opened);
       await ev("(function(){var b=document.querySelector('.theme-item[data-t=\"" + th + "\"]');if(b)b.click();})()");
-      // 等过渡真正落定：必须「恰好一张 op≈1、其余 op≈0、可见那张 transform≈单位矩阵」。
-      // 只睡固定毫秒不可靠（机器忙时差最后几毫秒），只判断「没有正在动的图」又会在
-      // 交叉淡入过程中提前放行 —— 两头都会造成误判。
-      const settledExpr = `(function(){
-        var arr=[].map.call(document.querySelectorAll('.brand-logo img'),function(i){
-          var cs=getComputedStyle(i);
-          return {o:parseFloat(cs.opacity),t:cs.transform};
-        });
-        var hi=arr.filter(function(a){return a.o>=.995});
-        var lo=arr.filter(function(a){return a.o<=.005});
-        if(hi.length!==1||lo.length!==arr.length-1)return false;
-        var t=hi[0].t;
-        if(t==='none')return true;
-        var m=t.match(/matrix\\(([^)]+)\\)/); if(!m)return false;
-        var n=m[1].split(',').map(Number);
-        return Math.abs(n[0]-1)<1e-3&&Math.abs(n[1])<1e-3&&Math.abs(n[2])<1e-3&&Math.abs(n[3]-1)<1e-3&&Math.abs(n[4])<.5&&Math.abs(n[5])<.5;
-      })()`;
-      for (let k = 0; k < 40; k++) { if (await ev(settledExpr)) break; await sleep(100); }
-      await sleep(80);
-
+      await sleep(320);   // 动画已禁用，样式切换即时生效，这里只留一点余量给事件派发
       const st = JSON.parse(await ev(`JSON.stringify((function(){
         var d=document.documentElement.dataset.theme;
         var arr=[].map.call(document.querySelectorAll('.brand-logo img'),function(i){
