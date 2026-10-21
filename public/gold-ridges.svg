@@ -34,8 +34,8 @@
 
     <!-- 湖面：水面越近越暗，天光只留在水天交界处 -->
     <linearGradient id="wtr" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2e2115"/>
-      <stop offset=".12" stop-color="#1c130c"/>
+      <stop offset="0" stop-color="#3d2c1b"/>
+      <stop offset=".1" stop-color="#221710"/>
       <stop offset=".55" stop-color="#0c0805"/>
       <stop offset="1" stop-color="#050402"/>
     </linearGradient>
@@ -57,6 +57,14 @@
       <stop offset="0" stop-color="#ffdcae" stop-opacity=".14"/>
       <stop offset="1" stop-color="#ffdcae" stop-opacity="0"/>
     </radialGradient>
+    <!-- 水面范围，用来裁剪倒影 -->
+    <clipPath id="wc"><rect x="0" y="438" width="1600" height="122"/></clipPath>
+    <!-- 盖在倒影上，让倒影越往下越沉 -->
+    <linearGradient id="sink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#050402" stop-opacity="0"/>
+      <stop offset=".45" stop-color="#050402" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#050402" stop-opacity=".85"/>
+    </linearGradient>
   </defs>
 
   <!-- 远山：主峰偏右，是整幅画面的视觉落点 -->
@@ -87,10 +95,16 @@
 
   <!-- 湖面 -->
   <rect x="0" y="438" width="1600" height="122" fill="url(#wtr)"/>
+  <!-- 山峦倒影：把远山/次远山沿水天交界上下翻折，裁进水面里；没有倒影的水面永远是块黑板 -->
+  <g clip-path="url(#wc)">
+    <path d="M0 268 C110 232 196 176 300 198 C404 220 452 268 560 258 C668 248 742 152 862 168 C982 184 1030 262 1146 250 C1262 238 1330 186 1436 202 C1520 214 1560 246 1600 240 L1600 440 L0 440 Z" transform="translate(0,876) scale(1,-1)" fill="#100b07" opacity=".62"/>
+    <path d="M0 322 C130 300 244 336 360 318 C476 300 540 264 640 282 C740 300 812 344 928 330 C1044 316 1108 282 1220 298 C1332 314 1470 340 1600 326 L1600 440 L0 440 Z" transform="translate(0,876) scale(1,-1)" fill="#0a0705" opacity=".55"/>
+  </g>
+  <rect x="0" y="438" width="1600" height="122" fill="url(#sink)"/>
   <!-- 倒影：一叠由窄到宽、由亮到暗的软光斑 -->
-  <ellipse cx="806" cy="446" rx="118" ry="7" fill="url(#glow)"/>
-  <ellipse cx="806" cy="462" rx="176" ry="13" fill="url(#glow)" opacity=".92"/>
-  <ellipse cx="806" cy="484" rx="252" ry="20" fill="url(#glow)" opacity=".78"/>
+  <ellipse cx="806" cy="446" rx="118" ry="7" fill="url(#glow)" opacity="1.25"/>
+  <ellipse cx="806" cy="462" rx="176" ry="13" fill="url(#glow)" opacity="1.05"/>
+  <ellipse cx="806" cy="484" rx="252" ry="20" fill="url(#glow)" opacity=".9"/>
   <ellipse cx="806" cy="512" rx="336" ry="28" fill="url(#glow)" opacity=".58"/>
   <ellipse cx="806" cy="546" rx="430" ry="34" fill="url(#glow)" opacity=".38"/>
   <!-- 水天交界亮线 -->
