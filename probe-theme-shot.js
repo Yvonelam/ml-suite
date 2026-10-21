@@ -116,6 +116,18 @@ const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = 
       await ev("(function(){var v=document.getElementById('bgVideo');v.play().catch(function(){});})()");
     }
 
+    // 性能采样：数 2 秒内 rAF 的帧数，并统计有多少元素挂了 backdrop-filter。
+    // 注意无头 Chrome 是 --disable-gpu 的软件合成，绝对值没意义，只看同条件下不同主题的相对差。
+    if (process.env.PERF) {
+      const fps = await ev(`new Promise(function(res){
+        var n=0, t0=performance.now();
+        function tick(){ n++; if(performance.now()-t0<2000) requestAnimationFrame(tick); else res(Math.round(n/((performance.now()-t0)/1000))); }
+        requestAnimationFrame(tick);
+      })`);
+      const blurCount = await ev("(function(){var n=0;document.querySelectorAll('*').forEach(function(e){var cs=getComputedStyle(e);if((cs.backdropFilter&&cs.backdropFilter!=='none')||(cs.webkitBackdropFilter&&cs.webkitBackdropFilter!=='none'))n++;});return n})()");
+      console.log('  性能：约 ' + fps + ' fps · ' + blurCount + ' 个元素带 backdrop-filter');
+    }
+
     // 任意选择器放大裁拍（看某块卡片有没有被背景渗色 / 有没有糊掉）
     const sel = process.env.CLIP_SEL;
     if (sel) {
