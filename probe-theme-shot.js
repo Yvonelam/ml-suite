@@ -102,6 +102,20 @@ const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = 
       console.log('  → probe-out/' + PREFIX + '-title.png');
     }
 
+    // 动态玻璃：把视频定格在几个时刻，专门看「亮帧」下面板文字还读不读得清
+    if (await ev("!!document.getElementById('bgVideo')") && process.env.VIDEO_T) {
+      for (const tt of process.env.VIDEO_T.split(',')) {
+        const sec = parseFloat(tt);
+        await ev("(function(){var v=document.getElementById('bgVideo');v.pause();v.currentTime=" + sec + ";})()");
+        await sleep(700);
+        const sh = await send('Page.captureScreenshot', { format: 'png' });
+        const fn = path.join(outDir, PREFIX + '-t' + sec + '.png');
+        fs.writeFileSync(fn, Buffer.from(sh.data, 'base64'));
+        console.log('  定格 t=' + sec + 's → ' + path.relative(__dirname, fn));
+      }
+      await ev("(function(){var v=document.getElementById('bgVideo');v.play().catch(function(){});})()");
+    }
+
     // 任意选择器放大裁拍（看某块卡片有没有被背景渗色 / 有没有糊掉）
     const sel = process.env.CLIP_SEL;
     if (sel) {
