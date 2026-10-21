@@ -650,7 +650,7 @@ const THEMES = { classic: '经典深色', mist: '柔雾玻璃', glass: '彩色�
 /* 背景视频只在「动态玻璃」下播放：
    - data-src 而不是 src，没选这套皮肤就一个字节都不下载
    - 系统开了「减少动态效果」就只停在首帧
-   - 切到别的皮肤立刻暂停，别让它在背后空转解码 20 秒的 1280×672 */
+   - 切到别的皮肤立刻暂停，别让它在背后空转解码 13 秒的 1280×672 */
 function syncBgVideo(t) {
   const v = document.getElementById('bgVideo');
   if (!v) return;

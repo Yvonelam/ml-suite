@@ -61,29 +61,44 @@
 
 **动态玻璃的素材与取舍**（`theme-motion.css`）：
 
-- 背景视频 `public/bg-dynamic.mp4`（1280×672 / 20 秒 / 812KB），是从一段 4K、8 分钟、233MB 的 macOS Monterey 动态壁纸里截的。
-  **做法是「正放 + 倒放」拼接**：正放 10 秒后再倒放同一段，首尾天然相接，不需要调交叉淡化。
-  重新生成（换片段只要改 `-ss` 的秒数）：
+- 背景视频 `public/bg-dynamic.mp4`（1280×672 / 13.3 秒 / 849KB），是从一段 4K、8 分钟、233MB 的 macOS Monterey 动态壁纸里截的。
+  **做法是「正放 + 倒放」拼接**：正放 6.65 秒后再倒放同一段，首尾天然相接，不需要调交叉淡化。
+  重新生成（换片段只要改 `-ss` 的秒数，改快慢只要改 `setpts` 的分母）：
 
   ```bash
-  # 1) 截 10 秒并压到网页尺寸
-  ffmpeg -ss 330 -t 10 -i 源视频.mp4 -vf "scale=1280:672,fps=24" -an \
-    -c:v libx264 -preset medium -crf 27 -pix_fmt yuv420p -movflags +faststart tmp.mp4
+  # 1) 截 12 秒 → 加速 1.8 倍（setpts 分母越大越快）→ 压到网页尺寸 + 30fps
+  #    -ss 118 这段是量出来的「运动最强」区间，别随手换
+  ffmpeg -ss 118 -t 12 -i 源视频.mp4 -vf "scale=1280:672,setpts=PTS/1.8,fps=30" -an \
+    -c:v libx264 -preset slow -crf 26 -pix_fmt yuv420p -movflags +faststart tmp.mp4
   # 2) 正放 + 倒放，做成无缝循环
   ffmpeg -i tmp.mp4 -filter_complex \
     "[0:v]split[a][b];[b]reverse,trim=start_frame=1,setpts=PTS-STARTPTS[r];[a][r]concat=n=2:v=1[v]" \
-    -map "[v]" -an -c:v libx264 -preset medium -crf 27 -pix_fmt yuv420p -movflags +faststart public/bg-dynamic.mp4
+    -map "[v]" -an -c:v libx264 -preset slow -crf 26 -pix_fmt yuv420p -movflags +faststart public/bg-dynamic.mp4
   # 3) 首帧当 poster
-  ffmpeg -i public/bg-dynamic.mp4 -frames:v 1 -q:v 5 public/bg-dynamic-poster.jpg
+  ffmpeg -i public/bg-dynamic.mp4 -frames:v 1 -vf "scale=1280:-1" -q:v 5 public/bg-dynamic-poster.jpg
   ```
 
-  验证接缝别用眼睛看：抽第 0 帧和最后一帧比 PSNR，**接缝的 PSNR 应该高于普通相邻帧**（实测接缝 45.3dB vs 相邻 33dB）才是无缝。
+  验证接缝别用眼睛看：抽第 0 帧和最后一帧比 PSNR，**接缝的 PSNR 应该高于普通相邻帧**（实测接缝 46.25dB vs 相邻 41.05/41.50dB）才是无缝。
+
+- **「动感」要量化，不能凭感觉调**。用法是把画面缩成 320×168、`tblend=difference` 取相邻帧差、`signalstats` 输出 `YAVG`，
+  这个均值就是运动强度：
+
+  ```bash
+  ffmpeg -ss 5 -t 3 -i 源视频.mp4 -vf \
+    "fps=2,scale=320:168,tblend=all_mode=difference,signalstats,metadata=mode=print:file=-" \
+    -f null - 2>&1 | grep YAVG
+  ```
+
+  实测原片各时段差异很大（t=5s→1.26 / t=60s→0.94 / t=120s→**2.22** / t=240s→1.22 / t=420s→1.54），
+  第一次随手取的 t=330 只有 1.68，成品 1.43。换成 t=118 起 + 加速 1.8× 后，成品运动强度升到 **3.51**（2.45 倍）。
+- **模糊半径会直接毁掉动感**。9px 时波浪边缘的细节全被抹平，而人眼就是靠这些边缘判断快慢——片子的实际运动强度只涨了 30%，
+  观感却像慢了一倍。现在用 `blur(5px)`（手机 `4px`）。**调模糊前先想清楚：这是背景，不是前景文字，不需要那么糊。**
 
 - **视频用 `data-src` 而不是 `src`**，只有第一次切到这套皮肤才下载，其它四套皮肤一个字节都不下。
   播放控制全在 `app.js` 的 `syncBgVideo()`：切走暂停、切回续播、`prefers-reduced-motion` 下不自动播、标签页隐藏时暂停。
 - **「默认隐藏」写在 `style.css`，不能只写在 `theme-motion.css`** ——主题表被 `disabled` 时它的规则一起失效，
   视频会以行内元素露在背景左上角（探针抓到过这个 bug）。
-- **性能上最重要的一条**：不在面板上用 `backdrop-filter`，改成**把视频整层模糊一次**（`filter:blur(9px)`）。
+- **性能上最重要的一条**：不在面板上用 `backdrop-filter`，改成**把视频整层模糊一次**（`filter:blur(5px)`）。
   背景是逐帧变化的视频，85 个元素挂 `backdrop-filter` 等于每帧重算 85 次模糊；模糊一层视频只需一次。
   实测把 `backdrop-filter` 从 85 个降到 5 个（只留 `.modal/.account-menu/.account-dialog/.theme-menu` 这几个浮层）。
   必须用 `html[data-theme=motion] *{backdrop-filter:none!important}` 全域压——这些规则散落在三张表里，逐个列选择器一定漏。
