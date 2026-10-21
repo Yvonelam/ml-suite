@@ -34,23 +34,27 @@ html[data-theme=motion] .bg-veil{
 }
 
 /* ---- 面板：背景已经糊过一层，这里不再各自 backdrop-filter ----
-   半透明填充 + 内高光就足够读作玻璃；把 85 个 backdrop-filter 全摘掉，
-   换来的帧率远比那点差别值钱。 */
+   半透明填充 + 内高光就足够读作玻璃。
+   注意必须用 * 全域压掉：backdrop-filter 散落在 style.css / theme-mist.css /
+   theme-color.css 三张表里（.card .btn .seg .tool-card .hub-period …），
+   逐个列选择器一定漏（实测漏到还剩 48 个），而背景是逐帧变化的视频，
+   每一个都是一次每帧重算的模糊。 */
+html[data-theme=motion] *{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
 .side,.card,.dock,.tool-card{
   background:linear-gradient(135deg,var(--mv-glass-1),var(--mv-glass-2));
   border-color:rgba(255,255,255,.22);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 20px 50px -20px rgba(4,2,20,.62)
 }
-.side,.card,.dock,.tool-card,.tb,.modal,.account-menu,.account-dialog{
-  backdrop-filter:none;-webkit-backdrop-filter:none
-}
 .card,.tool-card{border-radius:22px}.side{border-radius:26px}
 .card::before{background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent)}
 .tb{background:rgba(16,8,42,.52);border-color:rgba(255,255,255,.20)}
-/* 浮在内容之上的小面板（菜单 / 弹窗）保留模糊：它们面积小、数量少，
-   而且下面压着的是清晰的文字，糊一下才读得清 */
-.modal,.account-menu,.account-dialog{
-  backdrop-filter:blur(26px) saturate(160%);-webkit-backdrop-filter:blur(26px) saturate(160%)
+/* 只给「浮在清晰内容之上」的小浮层放行模糊：面积小、数量固定（个位数），
+   下面压着的是文字，糊一下才读得清 */
+html[data-theme=motion] .modal,
+html[data-theme=motion] .account-menu,
+html[data-theme=motion] .account-dialog,
+html[data-theme=motion] .theme-menu{
+  backdrop-filter:blur(26px) saturate(160%)!important;-webkit-backdrop-filter:blur(26px) saturate(160%)!important
 }
 #nav a.on{background:rgba(255,255,255,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.34)}
 .theme-menu{background:linear-gradient(145deg,rgba(30,14,62,.94),rgba(18,8,44,.92));border-color:rgba(255,255,255,.20)}
