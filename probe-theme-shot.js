@@ -76,6 +76,18 @@ const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = 
     await sleep(1400);
     await shot('box');
 
+    // 主题菜单（四套都在时的高度与色块）
+    await ev("document.getElementById('brandLogo').click()");
+    await sleep(500);
+    const mr = JSON.parse(await ev("(function(){var m=document.getElementById('themeMenu');if(!m||m.hidden)return '{}';var r=m.getBoundingClientRect();return JSON.stringify({x:r.x,y:r.y,w:r.width,h:r.height})})()"));
+    if (mr.w) {
+      const ms = await send('Page.captureScreenshot', { format: 'png', clip: { x: mr.x - 4, y: mr.y - 4, width: mr.w + 8, height: mr.h + 8, scale: 3 } });
+      fs.writeFileSync(path.join(outDir, PREFIX + '-menu.png'), Buffer.from(ms.data, 'base64'));
+      console.log('  菜单 ' + mr.w + '×' + mr.h + ' → probe-out/' + PREFIX + '-menu.png');
+    } else { console.log('  ! 菜单没弹出来'); }
+    await ev("document.getElementById('brandLogo').click()");
+    await sleep(400);
+
     // 放大裁拍页标题，用来看烫金渐变是否真的出效果
     await ev("(function(){var a=document.querySelector('nav a[data-go=\"hub\"]');if(a)a.click();window.scrollTo(0,0);})()");
     await sleep(1200);
