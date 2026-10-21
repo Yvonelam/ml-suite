@@ -1,35 +1,100 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 460" width="1600" height="460" preserveAspectRatio="none" role="img" aria-label="层叠山脊剪影">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 560" width="1600" height="560" preserveAspectRatio="none" role="img" aria-label="层叠山峦与湖面倒影">
   <defs>
-    <linearGradient id="ga" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2b2013"/>
-      <stop offset="1" stop-color="#140e08"/>
+    <!-- 五层山：越远越亮，越近越黑，靠明度差做纵深 -->
+    <linearGradient id="f5" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#443320"/>
+      <stop offset=".55" stop-color="#2b2013"/>
+      <stop offset="1" stop-color="#1d150d"/>
     </linearGradient>
-    <linearGradient id="gb" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1a130c"/>
-      <stop offset="1" stop-color="#0c0805"/>
+    <linearGradient id="f4" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#302315"/>
+      <stop offset="1" stop-color="#180f09"/>
     </linearGradient>
-    <linearGradient id="gc" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#0f0a06"/>
-      <stop offset="1" stop-color="#040302"/>
+    <linearGradient id="f3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f160e"/>
+      <stop offset="1" stop-color="#100b06"/>
     </linearGradient>
-    <linearGradient id="grim" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#e8b874" stop-opacity="0"/>
-      <stop offset=".26" stop-color="#f0c886" stop-opacity=".78"/>
-      <stop offset=".58" stop-color="#ffe6b8" stop-opacity=".52"/>
-      <stop offset=".83" stop-color="#f0c886" stop-opacity=".3"/>
-      <stop offset="1" stop-color="#e8b874" stop-opacity="0"/>
+    <linearGradient id="f2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#150f08"/>
+      <stop offset="1" stop-color="#0b0805"/>
     </linearGradient>
+    <linearGradient id="f1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d0906"/>
+      <stop offset="1" stop-color="#070504"/>
+    </linearGradient>
+
+    <!-- 山脊金边：两头淡、中间亮 -->
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f0c886" stop-opacity="0"/>
+      <stop offset=".22" stop-color="#f0c886" stop-opacity=".55"/>
+      <stop offset=".5" stop-color="#ffe6b8" stop-opacity=".85"/>
+      <stop offset=".78" stop-color="#f0c886" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#f0c886" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- 水面 -->
+    <linearGradient id="wtr" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#241a11"/>
+      <stop offset=".18" stop-color="#150f09"/>
+      <stop offset="1" stop-color="#060403"/>
+    </linearGradient>
+    <!-- 水天交界那条亮线 -->
+    <linearGradient id="hzn" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffe6b8" stop-opacity="0"/>
+      <stop offset=".3" stop-color="#ffdca4" stop-opacity=".42"/>
+      <stop offset=".5" stop-color="#fff2d2" stop-opacity=".72"/>
+      <stop offset=".7" stop-color="#ffdca4" stop-opacity=".42"/>
+      <stop offset="1" stop-color="#ffe6b8" stop-opacity="0"/>
+    </linearGradient>
+    <!-- 水里那道倒影光柱：越往下越散越淡 -->
+    <linearGradient id="refl" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd79b" stop-opacity=".30"/>
+      <stop offset=".45" stop-color="#e8b868" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#d8a95e" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="mist" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffdcae" stop-opacity=".13"/>
+      <stop offset="1" stop-color="#ffdcae" stop-opacity="0"/>
+    </radialGradient>
   </defs>
 
-  <!-- 远脊：最高、最亮，只透出一点暖金边 -->
-  <path d="M0 196 C170 138 318 246 468 212 C618 178 706 104 856 136 C1006 168 1092 250 1236 226 C1378 202 1494 148 1600 182 L1600 460 L0 460 Z" fill="url(#ga)"/>
-  <path d="M0 196 C170 138 318 246 468 212 C618 178 706 104 856 136 C1006 168 1092 250 1236 226 C1378 202 1494 148 1600 182" fill="none" stroke="url(#grim)" stroke-width="2"/>
+  <!-- 远山（最高、最亮） -->
+  <path d="M0 250 C140 196 268 262 404 236 C540 210 610 148 748 176 C886 204 962 268 1098 246 C1234 224 1330 172 1450 196 C1520 210 1562 232 1600 226 L1600 470 L0 470 Z" fill="url(#f5)"/>
+  <path d="M0 250 C140 196 268 262 404 236 C540 210 610 148 748 176 C886 204 962 268 1098 246 C1234 224 1330 172 1450 196 C1520 210 1562 232 1600 226" fill="none" stroke="url(#rim)" stroke-width="2.2"/>
 
-  <!-- 中脊 -->
-  <path d="M0 270 C150 230 300 298 452 282 C604 266 720 202 880 232 C1040 262 1128 328 1278 306 C1418 286 1520 246 1600 266 L1600 460 L0 460 Z" fill="url(#gb)"/>
-  <path d="M0 270 C150 230 300 298 452 282 C604 266 720 202 880 232 C1040 262 1128 328 1278 306 C1418 286 1520 246 1600 266" fill="none" stroke="url(#grim)" stroke-width="1.7" opacity=".85"/>
+  <!-- 雾带：远山与次远山之间 -->
+  <ellipse cx="800" cy="292" rx="820" ry="26" fill="url(#mist)"/>
 
-  <!-- 近脊：最暗，压住画面底边 -->
-  <path d="M0 338 C172 306 312 364 470 350 C628 336 758 292 900 318 C1042 344 1140 392 1290 376 C1430 362 1530 334 1600 346 L1600 460 L0 460 Z" fill="url(#gc)"/>
-  <path d="M0 338 C172 306 312 364 470 350 C628 336 758 292 900 318 C1042 344 1140 392 1290 376 C1430 362 1530 334 1600 346" fill="none" stroke="url(#grim)" stroke-width="1.4" opacity=".6"/>
+  <!-- 次远山 -->
+  <path d="M0 302 C150 268 292 318 438 300 C584 282 690 232 828 258 C966 284 1060 330 1200 314 C1340 298 1480 264 1600 286 L1600 470 L0 470 Z" fill="url(#f4)"/>
+  <path d="M0 302 C150 268 292 318 438 300 C584 282 690 232 828 258 C966 284 1060 330 1200 314 C1340 298 1480 264 1600 286" fill="none" stroke="url(#rim)" stroke-width="1.8" opacity=".9"/>
+
+  <ellipse cx="760" cy="338" rx="760" ry="22" fill="url(#mist)"/>
+
+  <!-- 中景山 -->
+  <path d="M0 348 C160 320 300 360 452 348 C604 336 700 300 848 320 C996 340 1090 376 1230 362 C1370 348 1500 326 1600 340 L1600 470 L0 470 Z" fill="url(#f3)"/>
+  <path d="M0 348 C160 320 300 360 452 348 C604 336 700 300 848 320 C996 340 1090 376 1230 362 C1370 348 1500 326 1600 340" fill="none" stroke="url(#rim)" stroke-width="1.6" opacity=".8"/>
+
+  <ellipse cx="880" cy="380" rx="700" ry="18" fill="url(#mist)"/>
+
+  <!-- 近山 -->
+  <path d="M0 386 C170 366 310 396 462 386 C614 376 700 350 856 366 C1012 382 1100 410 1240 400 C1380 390 1500 372 1600 382 L1600 470 L0 470 Z" fill="url(#f2)"/>
+  <path d="M0 386 C170 366 310 396 462 386 C614 376 700 350 856 366 C1012 382 1100 410 1240 400 C1380 390 1500 372 1600 382" fill="none" stroke="url(#rim)" stroke-width="1.4" opacity=".7"/>
+
+  <!-- 最前一道岸线，压在水边 -->
+  <path d="M0 420 C160 406 300 428 456 420 C612 412 706 396 862 408 C1018 420 1110 438 1250 432 C1390 426 1500 414 1600 420 L1600 470 L0 470 Z" fill="url(#f1)"/>
+  <path d="M0 420 C160 406 300 428 456 420 C612 412 706 396 862 408 C1018 420 1110 438 1250 432 C1390 426 1500 414 1600 420" fill="none" stroke="url(#rim)" stroke-width="1.2" opacity=".5"/>
+
+  <!-- 湖面 -->
+  <rect x="0" y="468" width="1600" height="92" fill="url(#wtr)"/>
+  <!-- 倒影光柱：上窄下宽，模拟水面把天光摊开 -->
+  <path d="M742 469 L858 469 L1010 560 L590 560 Z" fill="url(#refl)"/>
+  <!-- 水天交界亮线 -->
+  <rect x="0" y="466.5" width="1600" height="3" fill="url(#hzn)"/>
+  <!-- 涟漪：越远越密，越近越宽越淡 -->
+  <ellipse cx="800" cy="482" rx="150" ry="1.6" fill="#ffe6b8" opacity=".26"/>
+  <ellipse cx="800" cy="494" rx="230" ry="2" fill="#ffe6b8" opacity=".17"/>
+  <ellipse cx="800" cy="510" rx="330" ry="2.4" fill="#ffe6b8" opacity=".11"/>
+  <ellipse cx="800" cy="530" rx="440" ry="3" fill="#ffe6b8" opacity=".07"/>
+  <ellipse cx="800" cy="550" rx="560" ry="3.4" fill="#ffe6b8" opacity=".04"/>
 </svg>

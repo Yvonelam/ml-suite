@@ -18,12 +18,26 @@ html,body{background:#0a0806}
 /* 两处暖光：顶部当天光（对应参考图上方的黄昏天空），底部贴地平线（对应山脊后那道暖雾），
    中间压暗、山脊剪影近黑 —— 三件事同时成立才有画册的纵深感 */
 .liquid-bg{background:
+  /* 星空：稀疏几颗，只在上半屏，中间让给天光 */
+  radial-gradient(circle at 8% 9%,rgba(255,242,216,.50) 0,rgba(255,242,216,0) 1.7px),
+  radial-gradient(circle at 17% 19%,rgba(255,242,216,.34) 0,rgba(255,242,216,0) 1.3px),
+  radial-gradient(circle at 26% 7%,rgba(255,242,216,.46) 0,rgba(255,242,216,0) 1.5px),
+  radial-gradient(circle at 34% 23%,rgba(255,242,216,.26) 0,rgba(255,242,216,0) 1.2px),
+  radial-gradient(circle at 44% 12%,rgba(255,242,216,.40) 0,rgba(255,242,216,0) 1.4px),
+  radial-gradient(circle at 57% 6%,rgba(255,242,216,.30) 0,rgba(255,242,216,0) 1.3px),
+  radial-gradient(circle at 66% 17%,rgba(255,242,216,.44) 0,rgba(255,242,216,0) 1.6px),
+  radial-gradient(circle at 74% 8%,rgba(255,242,216,.28) 0,rgba(255,242,216,0) 1.2px),
+  radial-gradient(circle at 83% 21%,rgba(255,242,216,.38) 0,rgba(255,242,216,0) 1.5px),
+  radial-gradient(circle at 91% 11%,rgba(255,242,216,.32) 0,rgba(255,242,216,0) 1.3px),
+  radial-gradient(circle at 96% 27%,rgba(255,242,216,.22) 0,rgba(255,242,216,0) 1.1px),
+  radial-gradient(circle at 13% 32%,rgba(255,242,216,.20) 0,rgba(255,242,216,0) 1.1px),
   radial-gradient(ellipse 76% 32% at 50% -8%,rgba(240,188,104,.27),transparent 66%),
   radial-gradient(ellipse 38% 18% at 50% -2%,rgba(255,226,168,.15),transparent 72%),
   radial-gradient(ellipse 80% 40% at 50% 102%,rgba(224,166,84,.20),transparent 66%),
   radial-gradient(ellipse 96% 50% at 6% 6%,rgba(150,104,48,.12),transparent 66%),
   linear-gradient(180deg,#1a1109 0%,#110b07 40%,#0a0806 78%,#090705 100%)}
-.liquid-bg::before{content:"";position:absolute;left:0;right:0;bottom:0;height:min(52vh,470px);background:url(gold-ridges.svg) center bottom/100% 100% no-repeat;opacity:.92;pointer-events:none}
+/* 整幅山水：五层山 + 三道雾带 + 湖面倒影，贴底铺满宽度（1600×560，按 1440 宽时约 500px 高来定高度，形变最小）*/
+.liquid-bg::before{content:"";position:absolute;left:0;right:0;bottom:0;height:min(58vh,520px);background:url(gold-ridges.svg) center bottom/100% 100% no-repeat;opacity:.96;pointer-events:none}
 .liquid-bg::after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 94% 80% at 50% 40%,transparent 40%,rgba(4,3,2,.62) 100%)}
 .liquid-grid{background-image:linear-gradient(rgba(226,186,120,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(226,186,120,.035) 1px,transparent 1px);opacity:.55}
 .orb-1{background:radial-gradient(circle,rgba(232,182,104,.34),transparent 70%)}
