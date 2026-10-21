@@ -76,6 +76,17 @@ const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = 
     await sleep(1400);
     await shot('box');
 
+    // 放大裁拍页标题，用来看烫金渐变是否真的出效果
+    await ev("(function(){var a=document.querySelector('nav a[data-go=\"hub\"]');if(a)a.click();window.scrollTo(0,0);})()");
+    await sleep(1200);
+    const tr = JSON.parse(await ev("(function(){var h=document.querySelector('.ph2 h1');if(!h)return '{}';var r=h.getBoundingClientRect();var cs=getComputedStyle(h);return JSON.stringify({x:r.x,y:r.y,w:r.width,h:r.height,fill:cs.webkitTextFillColor,clip:cs.webkitBackgroundClip,bg:cs.backgroundImage.slice(0,90)})})()"));
+    console.log('  页标题计算样式：' + JSON.stringify(tr).slice(0, 300));
+    if (tr.w) {
+      const z = await send('Page.captureScreenshot', { format: 'png', clip: { x: tr.x - 6, y: tr.y - 8, width: tr.w + 12, height: tr.h + 16, scale: 4 } });
+      fs.writeFileSync(path.join(outDir, PREFIX + '-title.png'), Buffer.from(z.data, 'base64'));
+      console.log('  → probe-out/' + PREFIX + '-title.png');
+    }
+
     console.log('尺寸：' + await ev("JSON.stringify({h:innerHeight,sw:document.body.scrollWidth})"));
   } catch (e) {
     console.log('  ✗ ' + e.message);

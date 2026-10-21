@@ -60,7 +60,7 @@ input:focus,select:focus,textarea:focus{border-color:rgba(232,190,124,.55);box-s
 
 /* ---- 字：页标题做成烫金渐变（这套皮肤最显眼的一处）---- */
 @supports ((-webkit-background-clip:text) or (background-clip:text)){
-  .ph2 h1{background:linear-gradient(180deg,#fdf1d6,#f4dca8 34%,#d8a95e 74%,#b0823c);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
+  .ph2 h1{background:linear-gradient(180deg,#fff8e8,#f7e0b0 28%,#d8a95e 70%,#a8752f 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;filter:drop-shadow(0 1px 14px rgba(216,169,94,.28))}
 }
 .brand span{color:#f2ddb6}
 .ch h3,.hub-panel-head h3{color:#f0d9ae}
