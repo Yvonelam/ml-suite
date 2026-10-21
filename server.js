@@ -1209,23 +1209,16 @@ app.get('/api/ml/sales', async (req, res) => {
       return res.json({ ...salesCache.data, cached: true });
     }
 
+    // 全量抓取：复用利润页的 fetchAllOrders（按 paging.total 拉满 + 大区间按天切片 + order.id 去重）。
+    // 踩过的坑：这里原来写死 CAP=500，10 月 939 单时只统计到最近 500 单，
+    // 概览的销售额/订单数与实际订单对不上（「仅统计最近 500 单」的横幅就是这儿来的）。
     const qFrom = `${from}T00:00:00.000${SALES_TZ.offset}`;
     const qTo = `${to}T23:59:59.999${SALES_TZ.offset}`;
-    const CAP = 500;
-    const raw = [];
-    let offset = 0, apiTotal = 0;
-    while (raw.length < CAP) {
-      const d = await mlRequest(
-        `/orders/search?seller=${uid}&order.date_created.from=${encodeURIComponent(qFrom)}&order.date_created.to=${encodeURIComponent(qTo)}&sort=date_asc&limit=50&offset=${offset}`
-      );
-      const rs = (d && d.results) || [];
-      apiTotal = (d && d.paging && d.paging.total) || rs.length;
-      raw.push(...rs);
-      offset += 50;
-      if (rs.length < 50 || offset >= apiTotal) break;
-    }
+    const fetched = await fetchAllOrders(uid, from, to);
+    const raw = fetched.orders;
+    const apiTotal = Number(fetched.apiTotal) || raw.length;
 
-    const rows = raw.slice(0, CAP).map(o => {
+    const rows = raw.map(o => {
       const p = tzParts(o.date_created, SALES_TZ.tz) || {};
       const items = o.order_items || [];
       const qty = items.reduce((s, it) => s + (Number(it.quantity) || 1), 0);
@@ -1254,7 +1247,7 @@ app.get('/api/ml/sales', async (req, res) => {
     const data = {
       ok: true, site: siteCode, siteName: site.name,
       tz: SALES_TZ.tz, tzLabel: SALES_TZ.label, offset: SALES_TZ.offset,
-      range: { from, to }, truncated: apiTotal > rows.length, apiTotal,
+      range: { from, to }, truncated: apiTotal > rows.length + 20, apiTotal,
       currency,
       totals: {
         orders: valid.length,
@@ -1786,21 +1779,13 @@ app.get('/api/ml/listings', async (req, res) => {
       return res.json({ ...listingsCache.data, cached: true });
     }
 
+    // 全量抓取：与 /api/ml/sales 同款 fetchAllOrders，修掉 CAP=1000 截断隐患
+    // （超过 1000 单时 Listing 销售表现同样会静默少算）。
     const qFrom = `${from}T00:00:00.000${SALES_TZ.offset}`;
     const qTo = `${to}T23:59:59.999${SALES_TZ.offset}`;
-    const CAP = 1000;
-    const raw = [];
-    let offset = 0, apiTotal = 0;
-    while (raw.length < CAP) {
-      const d = await mlRequest(
-        `/orders/search?seller=${uid}&order.date_created.from=${encodeURIComponent(qFrom)}&order.date_created.to=${encodeURIComponent(qTo)}&sort=date_asc&limit=50&offset=${offset}`
-      );
-      const rs = (d && d.results) || [];
-      apiTotal = (d && d.paging && d.paging.total) || rs.length;
-      raw.push(...rs);
-      offset += 50;
-      if (rs.length < 50 || offset >= apiTotal) break;
-    }
+    const fetched = await fetchAllOrders(uid, from, to);
+    const raw = fetched.orders;
+    const apiTotal = Number(fetched.apiTotal) || raw.length;
 
     // 按商品聚合（排除已取消/无效订单）
     const agg = {};
@@ -1842,7 +1827,7 @@ app.get('/api/ml/listings', async (req, res) => {
     const data = {
       ok: true, site: siteCode, siteName: site.name,
       tz: SALES_TZ.tz, tzLabel: SALES_TZ.label, offset: SALES_TZ.offset,
-      range: { from, to }, truncated: apiTotal > raw.length, apiTotal,
+      range: { from, to }, truncated: apiTotal > raw.length + 20, apiTotal,
       currency,
       totals: { listings: listings.length, qty: totalQty, amount: totalAmount },
       listings,
