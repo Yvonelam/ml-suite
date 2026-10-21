@@ -5,27 +5,33 @@ html,body{background:#1a1040}
 /* —— Monterey 动态背景 ——
    复刻自用户桌面壁纸 MacOS Monterey Animated（Wallpaper Engine / Videoplayback.mp4）的实测配色：
    垂直 顶部亮薰衣草粉 rgb(190,155,199) → 底部鲜紫 rgb(126,15,186) → 极深靛蓝 #0a0525。
-   真壁纸本身极慢（44s 位移≈0），直接照搬肉眼看不出在动，所以做"可感知的加速版"：
-   三团光斑 22s/27s/33s 互质周期 + 一层横扫柔光(16s) + 一层缓慢旋转光晕(48s)。
-   整体走"沉稳版"：整层 brightness(.78) saturate(.92)，压暗但保留色彩，玻璃面板上的文字对比更稳。 */
+   速率按原视频实测校准：视频亮度平均变化 3.74 级/秒（一次可见变化≈10.7s）、色相摆动≈17°，
+   且主要动感来自「明暗+色相呼吸」而非位移（光流 44s≈0）。所以：
+   ① 整层亮度/色相呼吸 18s 一轮（单向 9s，对齐视频 10.7s 的节奏）
+   ② 三团光斑 16s/19s/23s（原空间位移极慢，但网页上需要一点位移才不呆）
+   ③ 横扫柔光 11s、旋转光晕 26s。
+   整体走"沉稳版"：基准 brightness(.78) saturate(.92)，压暗但保留色彩，玻璃面板上的文字对比更稳。 */
 @keyframes mtDriftA{from{transform:translate3d(-16vw,-4vh,0) scale(.90)}to{transform:translate3d(14vw,8vh,0) scale(1.16)}}
 @keyframes mtDriftB{from{transform:translate3d(14vw,6vh,0) scale(1.12)}to{transform:translate3d(-14vw,-6vh,0) scale(.88)}}
 @keyframes mtDriftC{from{transform:translate3d(-12vw,8vh,0) scale(.92)}to{transform:translate3d(12vw,-8vh,0) scale(1.14)}}
 @keyframes mtSweep{from{transform:translate3d(-26vw,-8vh,0) scale(.95)}to{transform:translate3d(26vw,10vh,0) scale(1.15)}}
 @keyframes mtSpin{to{transform:rotate(360deg)}}
-.liquid-bg{background:radial-gradient(58% 42% at 74% 10%,rgba(226,180,223,.85),transparent 70%),radial-gradient(50% 38% at 20% 36%,rgba(181,69,157,.75),transparent 72%),radial-gradient(62% 46% at 52% 98%,rgba(64,10,164,.85),transparent 72%),linear-gradient(180deg,#b98ec6 0%,#a06bc0 14%,#8349b6 30%,#6a2dae 46%,#4c1a9e 62%,#2e0b74 78%,#170540 90%,#0a0525 100%);filter:brightness(.78) saturate(.92)}
+/* 明暗 + 色相呼吸：对齐原视频「约 10 秒一次可见变化」的节奏 */
+@keyframes mtPhase{0%{filter:brightness(.72) saturate(.86) hue-rotate(-9deg)}50%{filter:brightness(.94) saturate(1.06) hue-rotate(9deg)}100%{filter:brightness(.72) saturate(.86) hue-rotate(-9deg)}}
+.liquid-bg{background:radial-gradient(58% 42% at 74% 10%,rgba(226,180,223,.85),transparent 70%),radial-gradient(50% 38% at 20% 36%,rgba(181,69,157,.75),transparent 72%),radial-gradient(62% 46% at 52% 98%,rgba(64,10,164,.85),transparent 72%),linear-gradient(180deg,#b98ec6 0%,#a06bc0 14%,#8349b6 30%,#6a2dae 46%,#4c1a9e 62%,#2e0b74 78%,#170540 90%,#0a0525 100%);animation:mtPhase 18s ease-in-out infinite}
 /* 横扫柔光：一团亮粉光带在大屏尺度上缓缓扫过，最容易被眼睛捕捉到的动态 */
-.liquid-bg::before{content:"";position:absolute;left:-25%;top:-25%;width:110%;height:150%;pointer-events:none;mix-blend-mode:screen;filter:blur(46px);background:radial-gradient(42% 36% at 50% 50%,rgba(255,216,238,.5),rgba(216,150,236,.2) 46%,transparent 72%);animation:mtSweep 16s ease-in-out infinite alternate;will-change:transform}
+.liquid-bg::before{content:"";position:absolute;left:-25%;top:-25%;width:110%;height:150%;pointer-events:none;mix-blend-mode:screen;filter:blur(46px);background:radial-gradient(42% 36% at 50% 50%,rgba(255,216,238,.5),rgba(216,150,236,.2) 46%,transparent 72%);animation:mtSweep 11s ease-in-out infinite alternate;will-change:transform}
 /* 旋转光晕：大尺度 conic 渐变整体慢转，给背景一层流动的丝缎感 */
-.liquid-bg::after{content:"";position:absolute;inset:-45%;pointer-events:none;mix-blend-mode:soft-light;filter:blur(34px);background:conic-gradient(from 0deg,rgba(190,120,255,.28),transparent 26%,rgba(255,120,220,.24) 52%,transparent 74%,rgba(120,90,255,.28));animation:mtSpin 48s linear infinite;will-change:transform}
+.liquid-bg::after{content:"";position:absolute;inset:-45%;pointer-events:none;mix-blend-mode:soft-light;filter:blur(34px);background:conic-gradient(from 0deg,rgba(190,120,255,.28),transparent 26%,rgba(255,120,220,.24) 52%,transparent 74%,rgba(120,90,255,.28));animation:mtSpin 26s linear infinite;will-change:transform}
 .liquid-orb{opacity:1;filter:blur(70px);will-change:transform}
-.orb-1{width:58vmax;height:78vmax;top:-14%;left:44%;background:radial-gradient(closest-side,rgba(233,196,229,.5),transparent 72%);opacity:.75;animation:mtDriftA 22s ease-in-out infinite alternate}
-.orb-2{width:52vmax;height:70vmax;top:8%;left:-12%;right:auto;background:radial-gradient(closest-side,rgba(186,69,164,.45),transparent 72%);opacity:.8;animation:mtDriftB 27s ease-in-out infinite alternate}
-.orb-3{width:64vmax;height:80vmax;top:auto;bottom:-24%;left:24%;background:radial-gradient(closest-side,rgba(88,18,196,.55),transparent 72%);opacity:.85;animation:mtDriftC 33s ease-in-out infinite alternate}
+.orb-1{width:58vmax;height:78vmax;top:-14%;left:44%;background:radial-gradient(closest-side,rgba(233,196,229,.5),transparent 72%);opacity:.75;animation:mtDriftA 16s ease-in-out infinite alternate}
+.orb-2{width:52vmax;height:70vmax;top:8%;left:-12%;right:auto;background:radial-gradient(closest-side,rgba(186,69,164,.45),transparent 72%);opacity:.8;animation:mtDriftB 19s ease-in-out infinite alternate}
+.orb-3{width:64vmax;height:80vmax;top:auto;bottom:-24%;left:24%;background:radial-gradient(closest-side,rgba(88,18,196,.55),transparent 72%);opacity:.85;animation:mtDriftC 23s ease-in-out infinite alternate}
 .liquid-grid{opacity:.5}
 /* 手机端减负：模糊与混合层降档，动画保留 */
 @media (max-width:760px){.liquid-bg::before{filter:blur(30px)}.liquid-bg::after{filter:blur(24px);opacity:.7}}
-@media (prefers-reduced-motion:reduce){.liquid-orb,.liquid-bg::before,.liquid-bg::after{animation:none!important}}
+/* 减弱动态效果：动画全停，但把沉稳版的压暗值补回来（压暗是靠动画的 filter 实现的） */
+@media (prefers-reduced-motion:reduce){.liquid-bg{animation:none!important;filter:brightness(.78) saturate(.92)}.liquid-orb,.liquid-bg::before,.liquid-bg::after{animation:none!important}}
 .side,.card,.modal,.dock,.tool-card,.account-menu,.account-dialog{background:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,.05));border-color:var(--glass-border);backdrop-filter:blur(24px) saturate(150%);box-shadow:inset 0 1px 0 var(--glass-hi),0 20px 50px -20px rgba(10,5,40,.6)}
 .card,.tool-card{border-radius:22px}.side{border-radius:26px}
 .card::before{background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent)}
