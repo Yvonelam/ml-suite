@@ -193,7 +193,7 @@ node version.js apply 对方给的.patch    # 或从文件应用
 
 改版必读 **[`DESIGN.md`](DESIGN.md)**，里面写清了三件事：
 
-1. **在用的界面只有一套皮肤**：`public/index.html` + `public/style.css`（7 个视图共用）。
+1. **在用的界面只有一套结构**：`public/index.html` + `public/style.css`（7 个视图共用）。配色的三层主题表见 `DESIGN.md` §0.1 —— 现在有 4 套美术风格（经典深色 / 柔雾玻璃 / 彩色毛玻璃 / 典藏金），改颜色要连 Logo 一起改。
    ⚠️ `public/search/` 和 `public/boxmark/` 是**已退役的独立页** —— 打开 `/search/` 会立刻跳回工作台 `#rank`、`/boxmark/` 跳回 `#box`，它们的 CSS 现在**在任何真实页面上都不生效**，别去改
 2. **设计变量表**（`--bg/--s1/--s2/--s3/--bd/--ink/--tx2/--mut/--ac/--ok/--bad/--cyan/--violet/--glass*`）与布局骨架、组件清单
 3. **改版禁区** —— 最要命的是「JS 依赖的 id 不能删改」

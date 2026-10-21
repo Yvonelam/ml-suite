@@ -21,30 +21,37 @@
 
 也就是说：**那两个独立页的 CSS，目前在任何一个真实页面上都不会生效**。
 
-### 0.1 三套美术风格 + 三版 Logo（改版别漏）
+### 0.1 四套美术风格 + 四版 Logo（改版别漏）
 
-界面有 **3 套可切换的美术风格**，点侧边栏左上角 Logo 弹出菜单选择，选择记在 `localStorage.mlsuiteTheme`：
+界面有 **4 套可切换的美术风格**，点侧边栏左上角 Logo 弹出菜单选择，选择记在 `localStorage.mlsuiteTheme`：
 
 | key | 名称 | 由什么决定 |
 |---|---|---|
-| `classic` | 经典深色 | `style.css` 的 `:root`（两张主题表都 `disabled`） |
-| `mist` | 柔雾玻璃 | `theme-mist.css` 开、`theme-color.css` 关 |
-| `glass` | 彩色毛玻璃 | 两张都开（`theme-color.css` 建立在 `theme-mist.css` 之上） |
+| `classic` | 经典深色 | `style.css` 的 `:root`（三张主题表都 `disabled`） |
+| `mist` | 柔雾玻璃 | 只开 `theme-mist.css` |
+| `glass` | 彩色毛玻璃 | mist + color 都开（`theme-color.css` 建立在 `theme-mist.css` 之上） |
+| `gold` | 典藏金 | mist + gold 都开（`theme-gold.css` 同样建立在 `theme-mist.css` 之上，排最后以覆盖 F） |
 
-**Logo 跟着主题一起换**，三版成品并列挂在 `.brand-logo` 里，靠 `html[data-theme=…]` 切透明度，不切 `src`（所以不闪白、不会 404）：
+**Logo 跟着主题一起换**，四版成品并列挂在 `.brand-logo` 里，靠 `html[data-theme=…]` 切透明度，不切 `src`（所以不闪白、不会 404）：
 
 | 主题 | 文件 | 观感 |
 |---|---|---|
 | `classic` | `public/ml-suite-mark-classic.svg` | 近黑芯片底 + 青紫渐变描边 + 青紫渐变 ML |
 | `mist` | `public/ml-suite-mark-mist.svg` | 淡雾白磨砂底 + 石板蓝灰 ML + 顶部高光 |
 | `glass` | `public/ml-suite-mark-glass.svg` | 紫→粉渐变底 + 白 ML + 玻璃高光 |
+| `gold` | `public/ml-suite-mark-gold.svg` | 暖褐近黑底 + 烫金渐变 ML + 双圈细金描边 |
 
-⚠️ 三版必须保持**同一构图**（都是 `256×256`、圆角 `rx=66`、居中 `ML` 字标、字号 `104`／`letter-spacing -6`／基线 `y≈132`），只换材质和颜色 —— 否则切风格时会像换了家公司。
+**典藏金专属素材**：`public/gold-ridges.svg`（三层山脊剪影 + 细金脊线）由 `theme-gold.css` 挂在
+`.liquid-bg::before` 下，`::after` 再压一圈暗角。光线逻辑照着一张「黄昏山脊」参考图做的：**顶上天光暖、中间压暗、山脊处贴一道地平线暖雾、剪影本身近黑**——
+这四点缺一个就会变成「一片糊的棕色」而不是画册感。页标题 `.ph2 h1` 做成烫金渐变文字（`background-clip:text`，用 `@supports` 兜底）。
+
+⚠️ 四版必须保持**同一构图**（都是 `256×256`、圆角 `rx=66`、居中 `ML` 字标、字号 `104`／`letter-spacing -6`／基线 `y≈132`），只换材质和颜色 —— 否则切风格时会像换了家公司。
 
 改主题色板时**记得同步改 Logo**，否则会出现「界面变蓝、Logo 还是紫的」。改完必须跑：
 
 ```bash
-node probe-theme-logo.js     # 33 项：三张是否都加载成功、每套主题下是否只有对应那张可见、刷新是否记得、有无 404
+node probe-theme-logo.js     # 41 项：四张是否都加载成功、每套主题下是否只有对应那张可见、刷新是否记得、有无 404
+node probe-theme-shot.js gold shot-gold   # 设计用截图：概览顶部 / 概览底部 / 箱唛裁切 / 主题菜单 / 放大页标题
 ```
 `public/index.html` 里既没有 `<iframe>`，也没有 `<link>` 指向它们 —— 它们只是还留在仓库里的历史文件。
 
