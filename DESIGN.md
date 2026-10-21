@@ -21,18 +21,19 @@
 
 也就是说：**那两个独立页的 CSS，目前在任何一个真实页面上都不会生效**。
 
-### 0.1 四套美术风格 + 四版 Logo（改版别漏）
+### 0.1 五套美术风格 + 五版 Logo（改版别漏）
 
-界面有 **4 套可切换的美术风格**，点侧边栏左上角 Logo 弹出菜单选择，选择记在 `localStorage.mlsuiteTheme`：
+界面有 **5 套可切换的美术风格**，点侧边栏左上角 Logo 弹出菜单选择，选择记在 `localStorage.mlsuiteTheme`：
 
 | key | 名称 | 由什么决定 |
 |---|---|---|
 | `classic` | 经典深色 | `style.css` 的 `:root`（三张主题表都 `disabled`） |
 | `mist` | 柔雾玻璃 | 只开 `theme-mist.css` |
 | `glass` | 彩色毛玻璃 | mist + color 都开（`theme-color.css` 建立在 `theme-mist.css` 之上） |
-| `gold` | 典藏金 | mist + gold 都开（`theme-gold.css` 同样建立在 `theme-mist.css` 之上，排最后以覆盖 F） |
+| `gold` | 典藏金 | mist + gold 都开（`theme-gold.css` 同样建立在 `theme-mist.css` 之上） |
+| `motion` | 动态玻璃 | mist + color + motion 都开（`theme-motion.css` 排最后，复用 G 的配色材质，只把背景换成循环视频） |
 
-**Logo 跟着主题一起换**，四版成品并列挂在 `.brand-logo` 里，靠 `html[data-theme=…]` 切透明度，不切 `src`（所以不闪白、不会 404）：
+**Logo 跟着主题一起换**，五版成品并列挂在 `.brand-logo` 里，靠 `html[data-theme=…]` 切透明度，不切 `src`（所以不闪白、不会 404）：
 
 | 主题 | 文件 | 观感 |
 |---|---|---|
@@ -40,6 +41,7 @@
 | `mist` | `public/ml-suite-mark-mist.svg` | 淡雾白磨砂底 + 石板蓝灰 ML + 顶部高光 |
 | `glass` | `public/ml-suite-mark-glass.svg` | 紫→粉渐变底 + 白 ML + 玻璃高光 |
 | `gold` | `public/ml-suite-mark-gold.svg` | 暖褐近黑底 + 烫金渐变 ML + 双圈细金描边 |
+| `motion` | `public/ml-suite-mark-motion.svg` | 紫粉动态渐变底 + 三道流动波纹 + 白 ML |
 
 **典藏金专属素材**：`public/gold-ridges.svg` 是一整幅山水，由 `theme-gold.css` 挂在 `.liquid-bg::before`（贴底，`height:min(58vh,520px)`），
 `::after` 再压一圈暗角；星点则是 `.liquid-bg` 背景栈里的十几个 1px `radial-gradient`。
@@ -57,12 +59,42 @@
 面板比另外两套更实（`rgba(44,33,21,.90) → rgba(12,9,6,.96)`），因为背景是整幅山水，面板再透就会把山脊线漏到图表底下
 （参考图里的信息块本身也是近不透明的深色板 + 细金边）。页标题 `.ph2 h1` 做成烫金渐变文字（`background-clip:text`，用 `@supports` 兜底）。
 
-⚠️ 四版必须保持**同一构图**（都是 `256×256`、圆角 `rx=66`、居中 `ML` 字标、字号 `104`／`letter-spacing -6`／基线 `y≈132`），只换材质和颜色 —— 否则切风格时会像换了家公司。
+**动态玻璃的素材与取舍**（`theme-motion.css`）：
+
+- 背景视频 `public/bg-dynamic.mp4`（1280×672 / 20 秒 / 812KB），是从一段 4K、8 分钟、233MB 的 macOS Monterey 动态壁纸里截的。
+  **做法是「正放 + 倒放」拼接**：正放 10 秒后再倒放同一段，首尾天然相接，不需要调交叉淡化。
+  重新生成（换片段只要改 `-ss` 的秒数）：
+
+  ```bash
+  # 1) 截 10 秒并压到网页尺寸
+  ffmpeg -ss 330 -t 10 -i 源视频.mp4 -vf "scale=1280:672,fps=24" -an \
+    -c:v libx264 -preset medium -crf 27 -pix_fmt yuv420p -movflags +faststart tmp.mp4
+  # 2) 正放 + 倒放，做成无缝循环
+  ffmpeg -i tmp.mp4 -filter_complex \
+    "[0:v]split[a][b];[b]reverse,trim=start_frame=1,setpts=PTS-STARTPTS[r];[a][r]concat=n=2:v=1[v]" \
+    -map "[v]" -an -c:v libx264 -preset medium -crf 27 -pix_fmt yuv420p -movflags +faststart public/bg-dynamic.mp4
+  # 3) 首帧当 poster
+  ffmpeg -i public/bg-dynamic.mp4 -frames:v 1 -q:v 5 public/bg-dynamic-poster.jpg
+  ```
+
+  验证接缝别用眼睛看：抽第 0 帧和最后一帧比 PSNR，**接缝的 PSNR 应该高于普通相邻帧**（实测接缝 45.3dB vs 相邻 33dB）才是无缝。
+
+- **视频用 `data-src` 而不是 `src`**，只有第一次切到这套皮肤才下载，其它四套皮肤一个字节都不下。
+  播放控制全在 `app.js` 的 `syncBgVideo()`：切走暂停、切回续播、`prefers-reduced-motion` 下不自动播、标签页隐藏时暂停。
+- **「默认隐藏」写在 `style.css`，不能只写在 `theme-motion.css`** ——主题表被 `disabled` 时它的规则一起失效，
+  视频会以行内元素露在背景左上角（探针抓到过这个 bug）。
+- **性能上最重要的一条**：不在面板上用 `backdrop-filter`，改成**把视频整层模糊一次**（`filter:blur(9px)`）。
+  背景是逐帧变化的视频，85 个元素挂 `backdrop-filter` 等于每帧重算 85 次模糊；模糊一层视频只需一次。
+  实测把 `backdrop-filter` 从 85 个降到 5 个（只留 `.modal/.account-menu/.account-dialog/.theme-menu` 这几个浮层）。
+  必须用 `html[data-theme=motion] *{backdrop-filter:none!important}` 全域压——这些规则散落在三张表里，逐个列选择器一定漏。
+
+⚠️ 五版必须保持**同一构图**（都是 `256×256`、圆角 `rx=66`、居中 `ML` 字标、字号 `104`／`letter-spacing -6`／基线 `y≈132`），只换材质和颜色 —— 否则切风格时会像换了家公司。
 
 改主题色板时**记得同步改 Logo**，否则会出现「界面变蓝、Logo 还是紫的」。改完必须跑：
 
 ```bash
-node probe-theme-logo.js     # 41 项：四张是否都加载成功、每套主题下是否只有对应那张可见、刷新是否记得、有无 404
+node probe-theme-logo.js     # 65 项：五张是否都加载成功、每套主题下是否只有对应那张可见、刷新是否记得、有无 404
+                             # 另外验动态玻璃的背景视频：懒加载、自动播放、currentTime 真的在走、切走是否暂停、切回是否重复下载
 node probe-theme-shot.js gold shot-gold   # 设计用截图：概览顶部 / 概览底部 / 箱唛裁切 / 主题菜单 / 放大页标题
 ```
 `public/index.html` 里既没有 `<iframe>`，也没有 `<link>` 指向它们 —— 它们只是还留在仓库里的历史文件。
