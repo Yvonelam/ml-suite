@@ -1,35 +1,35 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 460" width="1600" height="460" preserveAspectRatio="none" role="img" aria-label="层叠山脊剪影">
   <defs>
     <linearGradient id="ga" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3a2c1b"/>
-      <stop offset="1" stop-color="#1d150d"/>
+      <stop offset="0" stop-color="#2b2013"/>
+      <stop offset="1" stop-color="#140e08"/>
     </linearGradient>
     <linearGradient id="gb" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#261b11"/>
-      <stop offset="1" stop-color="#130d07"/>
+      <stop offset="0" stop-color="#1a130c"/>
+      <stop offset="1" stop-color="#0c0805"/>
     </linearGradient>
     <linearGradient id="gc" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#160f09"/>
-      <stop offset="1" stop-color="#060403"/>
+      <stop offset="0" stop-color="#0f0a06"/>
+      <stop offset="1" stop-color="#040302"/>
     </linearGradient>
     <linearGradient id="grim" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="#e8b874" stop-opacity="0"/>
-      <stop offset=".26" stop-color="#e8b874" stop-opacity=".5"/>
-      <stop offset=".58" stop-color="#f6d7a2" stop-opacity=".34"/>
-      <stop offset=".83" stop-color="#e8b874" stop-opacity=".2"/>
+      <stop offset=".26" stop-color="#f0c886" stop-opacity=".78"/>
+      <stop offset=".58" stop-color="#ffe6b8" stop-opacity=".52"/>
+      <stop offset=".83" stop-color="#f0c886" stop-opacity=".3"/>
       <stop offset="1" stop-color="#e8b874" stop-opacity="0"/>
     </linearGradient>
   </defs>
 
   <!-- 远脊：最高、最亮，只透出一点暖金边 -->
   <path d="M0 196 C170 138 318 246 468 212 C618 178 706 104 856 136 C1006 168 1092 250 1236 226 C1378 202 1494 148 1600 182 L1600 460 L0 460 Z" fill="url(#ga)"/>
-  <path d="M0 196 C170 138 318 246 468 212 C618 178 706 104 856 136 C1006 168 1092 250 1236 226 C1378 202 1494 148 1600 182" fill="none" stroke="url(#grim)" stroke-width="1.6"/>
+  <path d="M0 196 C170 138 318 246 468 212 C618 178 706 104 856 136 C1006 168 1092 250 1236 226 C1378 202 1494 148 1600 182" fill="none" stroke="url(#grim)" stroke-width="2"/>
 
   <!-- 中脊 -->
   <path d="M0 270 C150 230 300 298 452 282 C604 266 720 202 880 232 C1040 262 1128 328 1278 306 C1418 286 1520 246 1600 266 L1600 460 L0 460 Z" fill="url(#gb)"/>
-  <path d="M0 270 C150 230 300 298 452 282 C604 266 720 202 880 232 C1040 262 1128 328 1278 306 C1418 286 1520 246 1600 266" fill="none" stroke="url(#grim)" stroke-width="1.3" opacity=".8"/>
+  <path d="M0 270 C150 230 300 298 452 282 C604 266 720 202 880 232 C1040 262 1128 328 1278 306 C1418 286 1520 246 1600 266" fill="none" stroke="url(#grim)" stroke-width="1.7" opacity=".85"/>
 
   <!-- 近脊：最暗，压住画面底边 -->
   <path d="M0 338 C172 306 312 364 470 350 C628 336 758 292 900 318 C1042 344 1140 392 1290 376 C1430 362 1530 334 1600 346 L1600 460 L0 460 Z" fill="url(#gc)"/>
-  <path d="M0 338 C172 306 312 364 470 350 C628 336 758 292 900 318 C1042 344 1140 392 1290 376 C1430 362 1530 334 1600 346" fill="none" stroke="url(#grim)" stroke-width="1.1" opacity=".55"/>
+  <path d="M0 338 C172 306 312 364 470 350 C628 336 758 292 900 318 C1042 344 1140 392 1290 376 C1430 362 1530 334 1600 346" fill="none" stroke="url(#grim)" stroke-width="1.4" opacity=".6"/>
 </svg>
