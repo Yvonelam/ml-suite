@@ -50,16 +50,19 @@ const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = 
     await send('Runtime.enable'); await send('Page.enable');
     await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1.6, mobile: false });
     await send('Network.setCookie', { name: 'ml_session', value: ck, url: HOST + '/', path: '/' });
-    // 先把主题写进 localStorage，再进页面，省得进页面后还要点菜单
-    await send('Page.navigate', { url: HOST + '/favicon.svg' });
-    await sleep(400);
-    await ev("localStorage.setItem('mlsuiteTheme','" + THEME + "')");
     await send('Page.navigate', { url: HOST + '/index.html' });
     for (let i = 0; i < 60; i++) { await sleep(300); if (await ev('document.title||""')) break; }
     for (let i = 0; i < 40; i++) { const g = await ev("(function(){var s=document.getElementById('splash');if(!s)return true;if(s.classList.contains('leave'))return true;try{s.style.setProperty('display','none','important')}catch(e){}return false})()"); if (g) break; await sleep(250); }
-    await sleep(2200);
+    await sleep(1600);
+    // 直接调 app.js 的 applyTheme —— 比「先写 localStorage 再跳转」稳，那条路存在竞态，
+    // 偶尔会在 about:blank（不透明源）上写失败，结果静默退回默认主题，截出来的图是错的。
+    const switched = await ev("(function(){if(typeof applyTheme!=='function')return 'no-fn';applyTheme('" + THEME + "');return document.documentElement.dataset.theme})()");
+    if (switched !== THEME) { console.log('  ✗ 切主题失败：' + switched); process.exitCode = 1; }
+    await sleep(1000);
     const th = await ev("document.documentElement.dataset.theme");
-    console.log('当前主题：' + th);
+    console.log('当前主题：' + th + (th === THEME ? ' ✓' : ' ✗ 与目标不符'));
+    const layers = JSON.parse(await ev("JSON.stringify({mist:document.getElementById('themeMist').disabled,color:document.getElementById('themeColor').disabled,gold:document.getElementById('themeGold').disabled})"));
+    console.log('主题层开关（true=关）：' + JSON.stringify(layers));
 
     const shot = async (name) => {
       const r = await send('Page.captureScreenshot', { format: 'png' });
@@ -97,6 +100,18 @@ const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = 
       const z = await send('Page.captureScreenshot', { format: 'png', clip: { x: tr.x - 6, y: tr.y - 8, width: tr.w + 12, height: tr.h + 16, scale: 4 } });
       fs.writeFileSync(path.join(outDir, PREFIX + '-title.png'), Buffer.from(z.data, 'base64'));
       console.log('  → probe-out/' + PREFIX + '-title.png');
+    }
+
+    // 任意选择器放大裁拍（看某块卡片有没有被背景渗色 / 有没有糊掉）
+    const sel = process.env.CLIP_SEL;
+    if (sel) {
+      const cr = JSON.parse(await ev("(function(){var e=document.querySelector('" + sel + "');if(!e)return '{}';var r=e.getBoundingClientRect();return JSON.stringify({x:r.x,y:r.y,w:r.width,h:r.height})})()"));
+      if (cr.w) {
+        const cs = await send('Page.captureScreenshot', { format: 'png', clip: { x: cr.x, y: cr.y, width: cr.w, height: Math.min(cr.h, 420), scale: 2.4 } });
+        const f2 = path.join(outDir, PREFIX + '-clip.png');
+        fs.writeFileSync(f2, Buffer.from(cs.data, 'base64'));
+        console.log('  裁拍 ' + sel + ' (' + Math.round(cr.w) + '×' + Math.round(cr.h) + ') → ' + path.relative(__dirname, f2));
+      } else { console.log('  ! 没找到 ' + sel); }
     }
 
     console.log('尺寸：' + await ev("JSON.stringify({h:innerHeight,sw:document.body.scrollWidth})"));
