@@ -1,8 +1,22 @@
 /* G 彩色毛玻璃：在 F 柔雾玻璃之上提高色彩饱和度与玻璃通透感（只改变量与材质，不动结构） */
 :root{--g-v:#7c3aed;--g-p:#ec4899;--g-b:#2563eb;--g-o:#f97316;--ac:#c9b8ff;--cyan:#c9b8ff;--violet:#ff9ad8;--tx2:#dfe2f6;--mut:#b4b9d8;--glass-border:rgba(255,255,255,.2);--glass-hi:rgba(255,255,255,.3);--btn-grad:linear-gradient(135deg,#ff8ad8,#8b7bff)}
 html,body{background:#1a1040}
-.liquid-bg{background:radial-gradient(60rem 40rem at 8% -10%,var(--g-v),transparent 60%),radial-gradient(50rem 40rem at 100% 10%,var(--g-p),transparent 55%),radial-gradient(55rem 45rem at 70% 110%,var(--g-b),transparent 60%),radial-gradient(40rem 30rem at 0% 90%,var(--g-o),transparent 60%),#1a1040}
-.orb-1,.orb-2,.orb-3{opacity:.3}.liquid-grid{opacity:.5}
+
+/* —— Monterey 动态背景 ——
+   复刻自用户桌面壁纸 MacOS Monterey Animated（Wallpaper Engine / Videoplayback.mp4）的实测特征：
+   垂直方向 顶部亮薰衣草粉 rgb(190,155,199) → 底部鲜紫 rgb(126,15,186) → 极深靛蓝 #0a0525；
+   水平方向亮色"山丘"以几十秒级速度横漂（光流 44s 位移≈0，极慢）。
+   三团光斑周期取 46s / 58s / 70s 互质，避免看出循环节奏。 */
+@keyframes mtDriftA{from{transform:translate3d(-7vw,-2vh,0) scale(.94)}to{transform:translate3d(6vw,5vh,0) scale(1.1)}}
+@keyframes mtDriftB{from{transform:translate3d(6vw,3vh,0) scale(1.06)}to{transform:translate3d(-6vw,-3vh,0) scale(.92)}}
+@keyframes mtDriftC{from{transform:translate3d(-4vw,4vh,0) scale(.96)}to{transform:translate3d(5vw,-4vh,0) scale(1.08)}}
+.liquid-bg{background:radial-gradient(58% 42% at 74% 10%,rgba(226,180,223,.85),transparent 70%),radial-gradient(50% 38% at 20% 36%,rgba(181,69,157,.75),transparent 72%),radial-gradient(62% 46% at 52% 98%,rgba(64,10,164,.85),transparent 72%),linear-gradient(180deg,#b98ec6 0%,#a06bc0 14%,#8349b6 30%,#6a2dae 46%,#4c1a9e 62%,#2e0b74 78%,#170540 90%,#0a0525 100%)}
+.liquid-orb{opacity:1;filter:blur(70px);will-change:transform}
+.orb-1{width:58vmax;height:78vmax;top:-14%;left:44%;background:radial-gradient(closest-side,rgba(233,196,229,.5),transparent 72%);animation:mtDriftA 46s ease-in-out infinite alternate}
+.orb-2{width:52vmax;height:70vmax;top:8%;left:-12%;right:auto;background:radial-gradient(closest-side,rgba(186,69,164,.45),transparent 72%);animation:mtDriftB 58s ease-in-out infinite alternate}
+.orb-3{width:64vmax;height:80vmax;top:auto;bottom:-24%;left:24%;background:radial-gradient(closest-side,rgba(88,18,196,.55),transparent 72%);animation:mtDriftC 70s ease-in-out infinite alternate}
+.liquid-grid{opacity:.5}
+@media (prefers-reduced-motion:reduce){.liquid-orb{animation:none!important}}
 .side,.card,.modal,.dock,.tool-card,.account-menu,.account-dialog{background:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,.05));border-color:var(--glass-border);backdrop-filter:blur(24px) saturate(150%);box-shadow:inset 0 1px 0 var(--glass-hi),0 20px 50px -20px rgba(10,5,40,.6)}
 .card,.tool-card{border-radius:22px}.side{border-radius:26px}
 .card::before{background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent)}
@@ -15,7 +29,7 @@ html,body{background:#1a1040}
 /* 手机端防「滑出背景」：iOS 橡皮筋回弹时页面被拉离 fixed 背景层，顶部/底部露出突兀色带。
    1) 关闭页面级回弹；2) body 铺同一份固定渐变兜底，即使回弹发生露出的区域也与背景层无缝 */
 html,body{overscroll-behavior:none}
-body{background:radial-gradient(60rem 40rem at 8% -10%,var(--g-v),transparent 60%),radial-gradient(50rem 40rem at 100% 10%,var(--g-p),transparent 55%),radial-gradient(55rem 45rem at 70% 110%,var(--g-b),transparent 60%),radial-gradient(40rem 30rem at 0% 90%,var(--g-o),transparent 60%),#1a1040;background-attachment:fixed}
+body{background:radial-gradient(58% 42% at 74% 10%,rgba(226,180,223,.85),transparent 70%),radial-gradient(50% 38% at 20% 36%,rgba(181,69,157,.75),transparent 72%),radial-gradient(62% 46% at 52% 98%,rgba(64,10,164,.85),transparent 72%),linear-gradient(180deg,#b98ec6 0%,#a06bc0 14%,#8349b6 30%,#6a2dae 46%,#4c1a9e 62%,#2e0b74 78%,#170540 90%,#0a0525 100%);background-attachment:fixed}
 
 /* 账户菜单：加深玻璃填充并增强背景模糊，避免底层界面穿透影响文字辨识 */
 .account-menu{background:linear-gradient(140deg,rgba(52,39,91,.92),rgba(39,28,73,.88));backdrop-filter:blur(32px) saturate(185%);-webkit-backdrop-filter:blur(32px) saturate(185%);border-color:rgba(255,255,255,.22);box-shadow:0 22px 54px rgba(7,3,22,.48),inset 0 1px rgba(255,255,255,.20)}
