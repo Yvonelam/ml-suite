@@ -1,0 +1,61 @@
+/* I 动态玻璃：在 G 彩色毛玻璃之上，把背景换成一段「正放 + 倒放」拼成的无缝循环视频
+   （素材来自 macOS Monterey 动态渐变，已压到 1280×672 / 20 秒 / 812KB）。
+   配色与材质继续沿用 G，这里只做三件事：架视频层、压暗视频、把玻璃面板做得更暗更糊。 */
+:root{
+  --mv-glass-1:rgba(28,14,62,.52);
+  --mv-glass-2:rgba(15,7,40,.46);
+  --mv-base:#150a33;
+}
+
+/* ---- 视频层：默认不占位、不下载；只有 data-theme=motion 时才显示 ---- */
+.bg-video,.bg-veil{display:none}
+html[data-theme=motion] .liquid-bg{background:var(--mv-base)}
+html[data-theme=motion] .liquid-grid,
+html[data-theme=motion] .orb-1,
+html[data-theme=motion] .orb-2,
+html[data-theme=motion] .orb-3{display:none}
+html[data-theme=motion] .bg-video{
+  display:block;position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;object-position:center;
+  /* 原片饱和度偏高，压一点，否则面板上的彩字读不清 */
+  filter:saturate(.92) contrast(1.04)
+}
+/* 压暗 + 暗角：视频再好看也只是背景，不能压过内容 */
+html[data-theme=motion] .bg-veil{
+  display:block;position:absolute;inset:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 94% 78% at 50% 42%,transparent 32%,rgba(6,2,22,.64) 100%),
+    linear-gradient(180deg,rgba(12,5,38,.44) 0%,rgba(12,5,38,.14) 36%,rgba(8,3,26,.52) 100%)
+}
+
+/* ---- 面板：比彩色毛玻璃更暗、更糊 ----
+   视频一直在动，每帧都要重新算一次 backdrop blur，所以这里刻意只提模糊半径、
+   不再叠加发光，避免大面积高强度滤镜把帧率拖垮。 */
+.side,.card,.modal,.dock,.tool-card,.account-menu,.account-dialog{
+  background:linear-gradient(135deg,var(--mv-glass-1),var(--mv-glass-2));
+  border-color:rgba(255,255,255,.22);
+  backdrop-filter:blur(30px) saturate(150%);-webkit-backdrop-filter:blur(30px) saturate(150%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 20px 50px -20px rgba(4,2,20,.62)
+}
+.card,.tool-card{border-radius:22px}.side{border-radius:26px}
+.card::before{background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent)}
+.tb{background:rgba(16,8,42,.50);border-color:rgba(255,255,255,.20);backdrop-filter:blur(30px) saturate(150%);-webkit-backdrop-filter:blur(30px) saturate(150%)}
+#nav a.on{background:rgba(255,255,255,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.34)}
+.theme-menu{background:linear-gradient(145deg,rgba(30,14,62,.94),rgba(18,8,44,.92));border-color:rgba(255,255,255,.20)}
+.account-menu{background:linear-gradient(140deg,rgba(40,20,78,.93),rgba(24,11,54,.9));border-color:rgba(255,255,255,.22);backdrop-filter:blur(30px) saturate(170%);-webkit-backdrop-filter:blur(30px) saturate(170%)}
+
+/* 表格与输入框在视频上容易发飘，加一层底衬把它们"坐实" */
+.table th,.orders th{background:rgba(255,255,255,.07)}
+input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{background-color:rgba(14,6,36,.62)}
+
+/* ---- 系统开了「减少动态效果」时不自动播放，停在首帧（poster）---- */
+@media(prefers-reduced-motion:reduce){
+  html[data-theme=motion] .bg-video{opacity:.9}
+}
+
+/* ---- 手机端：视频照播（1280 宽的片子手机扛得住），但把模糊半径降下来，
+        大屏那种 blur(30px) 在手机上叠在动态视频上会明显掉帧 ---- */
+@media(max-width:760px){
+  .side,.card,.modal,.dock,.tool-card{backdrop-filter:blur(18px) saturate(145%);-webkit-backdrop-filter:blur(18px) saturate(145%)}
+  .tb{backdrop-filter:blur(18px) saturate(145%);-webkit-backdrop-filter:blur(18px) saturate(145%)}
+}

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="mt md">
+  <title id="mt">ML Suite · 动态玻璃</title>
+  <desc id="md">紫到粉的动态渐变底，三道流动波纹，白色 ML 字标与玻璃高光。</desc>
+  <defs>
+    <linearGradient id="dt" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset=".45" stop-color="#c04ae2"/>
+      <stop offset="1" stop-color="#f472b6"/>
+    </linearGradient>
+    <!-- 三道波纹：取自参考视频里那种层层推过去的色带 -->
+    <linearGradient id="dw1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".34"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="dw2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#ffffff" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="dw3" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2b0a53" stop-opacity=".40"/>
+      <stop offset=".6" stop-color="#2b0a53" stop-opacity=".10"/>
+      <stop offset="1" stop-color="#2b0a53" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="dg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".58"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="dc"><rect width="256" height="256" rx="66"/></clipPath>
+  </defs>
+  <g clip-path="url(#dc)">
+    <rect width="256" height="256" fill="url(#dt)"/>
+    <!-- 波纹带 -->
+    <path d="M0 210 C60 168 96 96 150 78 C196 62 228 84 256 70 L256 256 L0 256 Z" fill="url(#dw3)"/>
+    <path d="M0 168 C56 132 104 74 164 62 C206 54 232 66 256 58 L256 120 L0 214 Z" fill="url(#dw2)" opacity=".55"/>
+    <path d="M0 60 C48 30 96 58 132 44 C168 30 200 8 256 16 L256 74 C200 66 168 88 132 102 C96 116 48 88 0 118 Z" fill="url(#dw1)"/>
+    <!-- 顶部玻璃高光 -->
+    <rect width="256" height="110" rx="66" fill="url(#dg)" opacity=".40"/>
+  </g>
+  <rect x="7.5" y="7.5" width="241" height="241" rx="59" fill="none" stroke="#ffffff" stroke-width="3" stroke-opacity=".58"/>
+  <text x="131" y="133" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="104" font-weight="800" letter-spacing="-6">ML</text>
+</svg>

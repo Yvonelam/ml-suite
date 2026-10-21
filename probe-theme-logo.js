@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 浏览器实测：四套美术风格下侧边栏 Logo 是否各自换成对应版本
+ * 浏览器实测：五套美术风格下侧边栏 Logo 是否各自换成对应版本
  * 检查点：data-theme 正确 / 只有当前主题那张 Logo 不透明 / 三张都真的加载成功 / 切换后菜单收起 / 无 404
  * 用法：node probe-theme-logo.js
  */
@@ -15,8 +15,8 @@ const DBG = 9388;
 const API = Number(process.env.PORT || 3000);
 const HOST = 'http://127.0.0.1:' + API;
 const dev = JSON.parse(fs.readFileSync(path.join(__dirname, 'auth-data', 'dev-login.json'), 'utf8'));
-const THEMES = ['classic', 'mist', 'glass', 'gold'];
-const NAME = { classic: '经典深色', mist: '柔雾玻璃', glass: '彩色毛玻璃', gold: '典藏金' };
+const THEMES = ['classic', 'mist', 'glass', 'gold', 'motion'];
+const NAME = { classic: '经典深色', mist: '柔雾玻璃', glass: '彩色毛玻璃', gold: '典藏金', motion: '动态玻璃' };
 
 function login() {
   const body = Buffer.from(JSON.stringify({ username: dev.username, password: dev.password }));
@@ -41,7 +41,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
   try { fs.mkdirSync(outDir, { recursive: true }); } catch (e) { }
   const child = spawn(browser, ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--hide-scrollbars', '--mute-audio', '--window-size=1440,900', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });
   let ws = null, id = 0; const pending = new Map();
-  const errors = [], badReq = [];
+  const errors = [], badReq = [], reqs = [];
   const send = (m, p = {}) => { const n = ++id; ws.send(JSON.stringify({ id: n, method: m, params: p })); return new Promise((res, rej) => pending.set(n, { res, rej })); };
   const ev = async (expr) => (await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true })).result.value;
 
@@ -58,6 +58,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
       if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') errors.push(m.params.args.map(a => a.value ?? a.description ?? '').join(' ').slice(0, 160));
       if (m.method === 'Network.responseReceived') {
         const r = m.params.response;
+        reqs.push(r.url);
         if (r.status >= 400) badReq.push(r.status + ' ' + r.url);
       }
       if (m.method === 'Network.loadingFailed') badReq.push('FAILED ' + (m.params.errorText || '') + ' ' + (m.params.type || ''));
@@ -76,11 +77,11 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     console.log('\n— 结构 —');
     const imgs = await ev("JSON.stringify([].map.call(document.querySelectorAll('.brand-logo img'),function(i){return {t:i.getAttribute('data-t'),src:i.getAttribute('src')}}))");
     const list = JSON.parse(imgs || '[]');
-    ok(list.length === 4, '侧边栏 Logo 挂了 4 张（每套主题一张）', list);
-    ok(THEMES.every(t => list.some(x => x.t === t)), '四套主题 key 都在 DOM 里：classic / mist / glass / gold', list.map(x => x.t));
-    ok(new Set(list.map(x => x.src)).size === 4, '四张指向四个不同文件', list.map(x => x.src));
+    ok(list.length === 5, '侧边栏 Logo 挂了 5 张（每套主题一张）', list);
+    ok(THEMES.every(t => list.some(x => x.t === t)), '五套主题 key 都在 DOM 里：classic / mist / glass / gold / motion', list.map(x => x.t));
+    ok(new Set(list.map(x => x.src)).size === 5, '五张指向五个不同文件', list.map(x => x.src));
 
-    console.log('\n— 四张是否都真的加载成功（预载）—');
+    console.log('\n— 五张是否都真的加载成功（预载）—');
     const nat = JSON.parse(await ev("JSON.stringify([].map.call(document.querySelectorAll('.brand-logo img'),function(i){return {t:i.getAttribute('data-t'),w:i.naturalWidth,h:i.naturalHeight}}))") || '[]');
     nat.forEach(n => ok(n.w > 0, 'Logo 资源已解码：' + n.t + ' (' + n.w + '×' + n.h + ')', n));
 
@@ -90,7 +91,11 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
       await sleep(260);
       const opened = await ev("!document.getElementById('themeMenu').hidden");
       if (th === 'classic') ok(opened, '点侧边栏 Logo 能弹出风格菜单', opened);
+      const reqBefore = reqs.filter(u => /bg-dynamic\.mp4/.test(u)).length;
       await ev("(function(){var b=document.querySelector('.theme-item[data-t=\"" + th + "\"]');if(b)b.click();})()");
+      if (th === 'motion') {
+        ok(reqBefore === 0, '[动态玻璃] 之前四套皮肤下从未请求过背景视频（data-src 懒加载生效）', reqBefore);
+      }
       await sleep(320);   // 动画已禁用，样式切换即时生效，这里只留一点余量给事件派发
       const st = JSON.parse(await ev(`JSON.stringify((function(){
         var d=document.documentElement.dataset.theme;
@@ -126,6 +131,52 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
       console.log('    截图 → ' + path.relative(__dirname, f));
     }
 
+    console.log('\n— 动态玻璃：背景视频 —');
+    // 等视频真的能播（readyState>=2 = 已有当前帧数据）
+    let vinfo = {};
+    for (let i = 0; i < 50; i++) {
+      vinfo = JSON.parse(await ev(`JSON.stringify((function(){
+        var v=document.getElementById('bgVideo');
+        if(!v) return {missing:true};
+        var cs=getComputedStyle(v);
+        return {src:v.getAttribute('src')||'',ready:v.readyState,paused:v.paused,ct:v.currentTime,
+                dur:isFinite(v.duration)?v.duration:null,vw:v.videoWidth,vh:v.videoHeight,
+                disp:cs.display,loop:v.loop,muted:v.muted,poster:v.getAttribute('poster')||''};
+      })())`) || '{}');
+      if (vinfo.ready >= 2 && vinfo.dur) break;
+      await sleep(200);
+    }
+    ok(!vinfo.missing, '页面里有 #bgVideo 元素', vinfo);
+    ok(/bg-dynamic\.mp4$/.test(vinfo.src || ''), 'src 已挂上 bg-dynamic.mp4（切到这套皮肤才加载）', vinfo.src);
+    ok(vinfo.disp !== 'none', '动态玻璃下视频层是显示的', vinfo.disp);
+    ok(vinfo.ready >= 2, '视频已解出可播数据（readyState≥2）', vinfo.ready);
+    ok(vinfo.vw === 1280 && vinfo.vh === 672, '视频分辨率 1280×672', vinfo.vw + '×' + vinfo.vh);
+    ok(vinfo.dur && Math.abs(vinfo.dur - 19.96) < 0.5, '循环时长约 20 秒（正放+倒放）', vinfo.dur);
+    ok(vinfo.loop === true, 'loop 打开（自动无缝循环）', vinfo.loop);
+    ok(vinfo.muted === true, 'muted 打开（否则浏览器禁止自动播放）', vinfo.muted);
+    ok(vinfo.paused === false, '切到动态玻璃后自动开始播放', vinfo.paused);
+
+    const t0 = await ev("document.getElementById('bgVideo').currentTime");
+    await sleep(1600);
+    const t1 = await ev("document.getElementById('bgVideo').currentTime");
+    ok(t1 > t0 + 0.4, '画面在真的走（1.6 秒内 currentTime 前进 ' + (t1 - t0).toFixed(2) + 's）', { t0, t1 });
+
+    const vReqs1 = reqs.filter(u => /bg-dynamic\.mp4/.test(u)).length;
+    ok(vReqs1 >= 1, '视频文件确实被请求了 ' + vReqs1 + ' 次', vReqs1);
+
+    // 切走 → 必须暂停，不能在背后空转解码
+    await ev("(function(){var b=document.querySelector('.theme-item[data-t=\"glass\"]');if(b)b.click();})()");
+    await sleep(500);
+    ok(await ev("document.getElementById('bgVideo').paused") === true, '切回彩色毛玻璃后视频已暂停（不在后台空转）', null);
+    ok(await ev("getComputedStyle(document.getElementById('bgVideo')).display") === 'none', '非动态玻璃下视频层是 display:none', null);
+
+    // 切回 → 立刻续播，且不应重复下载
+    await ev("(function(){var b=document.querySelector('.theme-item[data-t=\"motion\"]');if(b)b.click();})()");
+    await sleep(700);
+    ok(await ev("document.getElementById('bgVideo').paused") === false, '再切回动态玻璃能立刻续播', null);
+    const vReqs2 = reqs.filter(u => /bg-dynamic\.mp4/.test(u)).length;
+    ok(vReqs2 === vReqs1, '切回来没有重复下载视频（复用已加载的 src）', { before: vReqs1, after: vReqs2 });
+
     console.log('\n— 整页观感 —');
     for (const th of THEMES) {
       await ev("(function(){var b=document.querySelector('.theme-item[data-t=\"" + th + "\"]');if(b)b.click();})()");
@@ -151,7 +202,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
 
     console.log('\n— 资源与报错 —');
     const svgBad = badReq.filter(u => /\.svg|ml-suite-mark/i.test(u));
-    ok(svgBad.length === 0, '四个 Logo 文件请求无 404 / 无失败', svgBad);
+    ok(svgBad.length === 0, '五个 Logo 文件请求无 404 / 无失败', svgBad);
     ok(badReq.length === 0, '整轮无失败请求', badReq);
     ok(errors.length === 0, '无 console 报错 / 未捕获异常', errors);
   } catch (e) {

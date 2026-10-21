@@ -9,20 +9,22 @@
 <link rel="icon" href="favicon-16.png" type="image/png" sizes="16x16">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#09090b">
-<link rel="stylesheet" href="style.css?v=65">
+<link rel="stylesheet" href="style.css?v=66">
 <!-- 主题层：F 柔雾玻璃是最底层材质，G 彩色毛玻璃 / H 典藏金都建立在它之上，三张表按顺序加载；disabled 即可整层关掉 -->
 <link rel="stylesheet" href="theme-mist.css?v=2" id="themeMist">
 <link rel="stylesheet" href="theme-color.css?v=5" id="themeColor">
 <link rel="stylesheet" href="theme-gold.css?v=1" id="themeGold">
+<link rel="stylesheet" href="theme-motion.css?v=1" id="themeMotion">
 <script>
 /* 主题提前应用：在 body 渲染前按上次选择开关主题层，避免刷新时闪一下旧皮肤 */
 (function () {
   try {
     var t = localStorage.getItem('mlsuiteTheme');
-    if (t !== 'classic' && t !== 'mist' && t !== 'glass' && t !== 'gold') t = 'glass';   // 默认彩色毛玻璃
-    document.getElementById('themeMist').disabled = (t === 'classic');   // 典藏金也要 F 打底
-    document.getElementById('themeColor').disabled = (t !== 'glass');
+    if (t !== 'classic' && t !== 'mist' && t !== 'glass' && t !== 'gold' && t !== 'motion') t = 'glass';   // 默认彩色毛玻璃
+    document.getElementById('themeMist').disabled = (t === 'classic');   // 典藏金 / 动态玻璃 都要 F 打底
+    document.getElementById('themeColor').disabled = (t !== 'glass' && t !== 'motion');
     document.getElementById('themeGold').disabled = (t !== 'gold');
+    document.getElementById('themeMotion').disabled = (t !== 'motion');
     document.documentElement.dataset.theme = t;
   } catch (e) { }
 })();
@@ -44,6 +46,10 @@
 
 <!-- 液态玻璃背景 -->
 <div class="liquid-bg">
+  <!-- 动态玻璃专用：只有 data-theme=motion 时才显示并播放。
+       data-src 而不是 src —— 不选这套皮肤就一个字节都不下载 -->
+  <video class="bg-video" id="bgVideo" data-src="bg-dynamic.mp4" poster="bg-dynamic-poster.jpg" muted loop playsinline preload="none" disablepictureinpicture disableremoteplayback aria-hidden="true"></video>
+  <div class="bg-veil" aria-hidden="true"></div>
   <div class="liquid-orb orb-1"></div>
   <div class="liquid-orb orb-2"></div>
   <div class="liquid-orb orb-3"></div>
@@ -52,7 +58,7 @@
 
 <div class="app">
 <aside class="side">
-  <div class="brand" id="brandLogo" title="点击切换美术风格" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false"><b class="brand-logo"><img data-t="classic" src="ml-suite-mark-classic.svg" alt="" aria-hidden="true"><img data-t="mist" src="ml-suite-mark-mist.svg" alt="" aria-hidden="true"><img data-t="glass" src="ml-suite-mark-glass.svg" alt="" aria-hidden="true"><img data-t="gold" src="ml-suite-mark-gold.svg" alt="" aria-hidden="true"></b><span>ML Suite</span></div>
+  <div class="brand" id="brandLogo" title="点击切换美术风格" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false"><b class="brand-logo"><img data-t="classic" src="ml-suite-mark-classic.svg" alt="" aria-hidden="true"><img data-t="mist" src="ml-suite-mark-mist.svg" alt="" aria-hidden="true"><img data-t="glass" src="ml-suite-mark-glass.svg" alt="" aria-hidden="true"><img data-t="gold" src="ml-suite-mark-gold.svg" alt="" aria-hidden="true"><img data-t="motion" src="ml-suite-mark-motion.svg" alt="" aria-hidden="true"></b><span>ML Suite</span></div>
   <nav id="nav">
     <p class="grp">工作台</p>
     <a data-go="hub" class="on"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>概览</a>
@@ -628,7 +634,8 @@
   <button class="theme-item" data-t="mist" type="button" role="menuitem"><span class="dot d-mist"></span><span class="nm"><b>柔雾玻璃</b><small>冷色低饱和 · 轻盈通透</small></span><span class="ck">✓</span></button>
   <button class="theme-item" data-t="glass" type="button" role="menuitem"><span class="dot d-glass"></span><span class="nm"><b>彩色毛玻璃</b><small>紫粉渐变 · 高饱和</small></span><span class="ck">✓</span></button>
   <button class="theme-item" data-t="gold" type="button" role="menuitem"><span class="dot d-gold"></span><span class="nm"><b>典藏金</b><small>暖金天光 · 层叠山脊 · 细金描边</small></span><span class="ck">✓</span></button>
+  <button class="theme-item" data-t="motion" type="button" role="menuitem"><span class="dot d-motion"></span><span class="nm"><b>动态玻璃</b><small>动态渐变 · 流动波纹 · 通透玻璃</small></span><span class="ck">✓</span></button>
 </div>
-<script src="app.js?v=61"></script>
+<script src="app.js?v=62"></script>
 </body>
 </html>

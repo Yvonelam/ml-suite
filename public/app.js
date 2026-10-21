@@ -641,15 +641,43 @@ function switchProfitTab(p) {
 }
 $$('#profitSubTabs button').forEach(b => b.onclick = () => switchProfitTab(b.dataset.p));
 /* ---- 美术风格切换：点侧边栏 Logo 弹菜单，选择后立即生效并记住 ----
-   主题层是三张可选样式表：theme-mist（柔雾玻璃，最底层材质）/ theme-color（彩色毛玻璃）/ theme-gold（典藏金），
-   后两张都建立在 mist 之上。全关 = 经典深色；只开 mist = 柔雾玻璃；mist+color = 彩色毛玻璃；mist+gold = 典藏金。 */
-const THEMES = { classic: '经典深色', mist: '柔雾玻璃', glass: '彩色毛玻璃', gold: '典藏金' };
+   主题层是四张可选样式表：theme-mist（柔雾玻璃，最底层材质）/ theme-color（彩色毛玻璃）/
+   theme-gold（典藏金）/ theme-motion（动态玻璃）。后三张都建立在 mist 之上。
+   全关 = 经典深色；只开 mist = 柔雾玻璃；mist+color = 彩色毛玻璃；
+   mist+gold = 典藏金；mist+color+motion = 动态玻璃（沿用毛玻璃的配色材质，只把背景换成循环视频）。 */
+const THEMES = { classic: '经典深色', mist: '柔雾玻璃', glass: '彩色毛玻璃', gold: '典藏金', motion: '动态玻璃' };
+
+/* 背景视频只在「动态玻璃」下播放：
+   - data-src 而不是 src，没选这套皮肤就一个字节都不下载
+   - 系统开了「减少动态效果」就只停在首帧
+   - 切到别的皮肤立刻暂停，别让它在背后空转解码 20 秒的 1280×672 */
+function syncBgVideo(t) {
+  const v = document.getElementById('bgVideo');
+  if (!v) return;
+  const play = () => { const p = v.play(); if (p && p.catch) p.catch(() => { }); };
+  const stop = () => { try { v.pause(); } catch (e) { } };
+  if (t !== 'motion') { stop(); return; }
+  if (!v.getAttribute('src')) {
+    const src = v.getAttribute('data-src');
+    if (src) { v.setAttribute('src', src); v.load(); }
+  }
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) stop(); else play();
+}
+document.addEventListener('visibilitychange', () => {
+  const v = document.getElementById('bgVideo');
+  if (!v || !v.getAttribute('src')) return;
+  if (document.hidden) { try { v.pause(); } catch (e) { } }
+  else if (document.documentElement.dataset.theme === 'motion') syncBgVideo('motion');
+});
+
 function applyTheme(t) {
   if (!THEMES[t]) t = 'glass';
-  const mist = $('#themeMist'), color = $('#themeColor'), gold = $('#themeGold');
+  const mist = $('#themeMist'), color = $('#themeColor'), gold = $('#themeGold'), motion = $('#themeMotion');
   if (mist) mist.disabled = (t === 'classic');
-  if (color) color.disabled = (t !== 'glass');
+  if (color) color.disabled = (t !== 'glass' && t !== 'motion');
   if (gold) gold.disabled = (t !== 'gold');
+  if (motion) motion.disabled = (t !== 'motion');
   document.documentElement.dataset.theme = t;
   $$('.theme-item').forEach(b => {
     const on = b.dataset.t === t;
@@ -657,6 +685,7 @@ function applyTheme(t) {
     b.setAttribute('aria-checked', on ? 'true' : 'false');
   });
   try { localStorage.setItem('mlsuiteTheme', t); } catch (e) { }
+  syncBgVideo(t);
   if (typeof toast === 'function') toast('已切换到「' + THEMES[t] + '」');
 }
 function bindThemeMenu() {
