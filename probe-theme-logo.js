@@ -88,7 +88,14 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
       const opened = await ev("!document.getElementById('themeMenu').hidden");
       if (th === 'classic') ok(opened, '点侧边栏 Logo 能弹出风格菜单', opened);
       await ev("(function(){var b=document.querySelector('.theme-item[data-t=\"" + th + "\"]');if(b)b.click();})()");
-      await sleep(760);   // 等 .55s 过渡结束
+      // 等过渡真正落定（.55s 的 transform 过渡在机器忙时可能差最后几毫秒，
+      // 直接读会拿到 matrix(0.9999…) 这种「几乎归位」，会被误判成失败）
+      for (let k = 0; k < 20; k++) {
+        const settled = await ev("(function(){var ok=true;[].forEach.call(document.querySelectorAll('.brand-logo img'),function(i){if(+getComputedStyle(i).opacity<=0.95)return;var t=getComputedStyle(i).transform;if(t==='none')return;var m=t.match(/matrix\\(([^)]+)\\)/);if(!m){ok=false;return;}var n=m[1].split(',').map(Number);if(Math.abs(n[0]-1)>1e-3||Math.abs(n[1])>1e-3||Math.abs(n[2])>1e-3||Math.abs(n[3]-1)>1e-3||Math.abs(n[4])>0.5||Math.abs(n[5])>0.5)ok=false;});return ok})()");
+        if (settled) break;
+        await sleep(100);
+      }
+      await sleep(60);
 
       const st = JSON.parse(await ev(`JSON.stringify((function(){
         var d=document.documentElement.dataset.theme;
@@ -107,7 +114,13 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
       const shown = (st.items || []).filter(i => i.op > .95);
       ok(shown.length === 1, '[' + NAME[th] + '] 恰好一张 Logo 可见（其余透明）', (st.items || []).map(i => i.t + ':' + i.op));
       ok(shown.length === 1 && shown[0].t === th, '[' + NAME[th] + '] 可见的那张正是 ' + th + ' 版 Logo', shown.map(s => s.t));
-      ok(shown.length === 1 && shown[0].tr === 'none', '[' + NAME[th] + '] 可见 Logo 无残留位移/旋转（已归位）', shown[0] && shown[0].tr);
+      const trOk = (function (t) {
+        if (!t || t === 'none') return true;
+        const m = t.match(/matrix\(([^)]+)\)/); if (!m) return false;
+        const n = m[1].split(',').map(Number);
+        return Math.abs(n[0] - 1) < 1e-3 && Math.abs(n[1]) < 1e-3 && Math.abs(n[2]) < 1e-3 && Math.abs(n[3] - 1) < 1e-3 && Math.abs(n[4]) < 0.5 && Math.abs(n[5]) < 0.5;
+      })(shown[0] && shown[0].tr);
+      ok(shown.length === 1 && trOk, '[' + NAME[th] + '] 可见 Logo 无残留位移/旋转（已归位）', shown[0] && shown[0].tr);
       ok(st.rect && st.rect.w >= 28 && st.rect.w <= 32, '[' + NAME[th] + '] Logo 容器尺寸仍是 30px 级', st.rect);
 
       // 裁一张 Logo 区域的大图，方便肉眼比对
