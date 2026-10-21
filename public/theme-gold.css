@@ -47,9 +47,11 @@ html,body{background:#0a0806}
 
 /* ---- 材质：暖褐玻璃 + 细金描边（金边是这套皮肤的签名）---- */
 .side,.card,.modal,.dock,.tool-card,.account-menu,.account-dialog{
-  background:linear-gradient(152deg,rgba(50,38,24,.70),rgba(26,19,13,.86) 54%,rgba(14,10,7,.92));
+  /* 比雾面/彩色两套更实：背景是整幅山水，面板再透就会把山脊线漏到图表底下，
+     参考图里的信息块本身也是「近不透明的深色板 + 细金边」，压住画面反而更像画册 */
+  background:linear-gradient(152deg,rgba(44,33,21,.90),rgba(22,16,11,.94) 54%,rgba(12,9,6,.96));
   border-color:rgba(230,190,124,.21);
-  backdrop-filter:blur(26px) saturate(140%);-webkit-backdrop-filter:blur(26px) saturate(140%);
+  backdrop-filter:blur(28px) saturate(140%);-webkit-backdrop-filter:blur(28px) saturate(140%);
   box-shadow:0 20px 52px rgba(0,0,0,.52),inset 0 1px rgba(255,236,202,.11)}
 .card,.tool-card{border-radius:16px}.side{border-radius:22px}
 .card::before{background:linear-gradient(90deg,transparent,rgba(240,200,132,.62),transparent)}
