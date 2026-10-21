@@ -641,14 +641,15 @@ function switchProfitTab(p) {
 }
 $$('#profitSubTabs button').forEach(b => b.onclick = () => switchProfitTab(b.dataset.p));
 /* ---- 美术风格切换：点侧边栏 Logo 弹菜单，选择后立即生效并记住 ----
-   主题层是两张可选样式表：theme-mist（柔雾玻璃）/ theme-color（彩色毛玻璃，建立在前者之上）。
-   关掉两张 = 经典深色；只开 mist = 柔雾玻璃；两张都开 = 彩色毛玻璃。 */
-const THEMES = { classic: '经典深色', mist: '柔雾玻璃', glass: '彩色毛玻璃' };
+   主题层是三张可选样式表：theme-mist（柔雾玻璃，最底层材质）/ theme-color（彩色毛玻璃）/ theme-gold（典藏金），
+   后两张都建立在 mist 之上。全关 = 经典深色；只开 mist = 柔雾玻璃；mist+color = 彩色毛玻璃；mist+gold = 典藏金。 */
+const THEMES = { classic: '经典深色', mist: '柔雾玻璃', glass: '彩色毛玻璃', gold: '典藏金' };
 function applyTheme(t) {
   if (!THEMES[t]) t = 'glass';
-  const mist = $('#themeMist'), color = $('#themeColor');
+  const mist = $('#themeMist'), color = $('#themeColor'), gold = $('#themeGold');
   if (mist) mist.disabled = (t === 'classic');
   if (color) color.disabled = (t !== 'glass');
+  if (gold) gold.disabled = (t !== 'gold');
   document.documentElement.dataset.theme = t;
   $$('.theme-item').forEach(b => {
     const on = b.dataset.t === t;

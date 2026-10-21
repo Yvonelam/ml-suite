@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="mt md">
+  <title id="mt">ML Suite · 典藏金</title>
+  <desc id="md">暖褐近黑底，烫金渐变 ML 字标，一圈细金描边与顶部天光。</desc>
+  <defs>
+    <linearGradient id="ot" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#231809"/>
+      <stop offset=".52" stop-color="#150e07"/>
+      <stop offset="1" stop-color="#0a0705"/>
+    </linearGradient>
+    <linearGradient id="oe" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4dca8"/>
+      <stop offset=".45" stop-color="#c9963f"/>
+      <stop offset="1" stop-color="#8f6626"/>
+    </linearGradient>
+    <linearGradient id="ok" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fdf1d6"/>
+      <stop offset=".36" stop-color="#f4dca8"/>
+      <stop offset=".74" stop-color="#d8a95e"/>
+      <stop offset="1" stop-color="#b0823c"/>
+    </linearGradient>
+    <linearGradient id="oh" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6d7a2" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#f6d7a2" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="og" cx=".5" cy=".44" r=".48">
+      <stop offset="0" stop-color="#e8b868" stop-opacity=".26"/>
+      <stop offset="1" stop-color="#e8b868" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" rx="66" fill="url(#ot)"/>
+  <rect width="256" height="256" rx="66" fill="url(#oh)"/>
+  <ellipse cx="128" cy="126" rx="92" ry="66" fill="url(#og)"/>
+  <rect x="7.5" y="7.5" width="241" height="241" rx="59" fill="none" stroke="url(#oe)" stroke-width="2.6" stroke-opacity=".85"/>
+  <rect x="15" y="15" width="226" height="226" rx="52" fill="none" stroke="#e0b575" stroke-width="1" stroke-opacity=".18"/>
+  <text x="131" y="133" text-anchor="middle" dominant-baseline="central" fill="url(#ok)" font-family="Arial, Helvetica, sans-serif" font-size="104" font-weight="800" letter-spacing="-6">ML</text>
+</svg>

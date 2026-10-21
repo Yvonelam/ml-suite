@@ -1,0 +1,86 @@
+/* H 典藏金：暖金渐变天光 + 层叠山脊剪影 + 细金描边
+   建立在 F 柔雾玻璃之上（雾面材质、圆角、侧栏浮动都沿用 F），只把色温换成暖金、并加上山脊与暗角。
+   只改变量与材质，不动任何结构 —— 三张主题表里它永远排在最后，保证覆盖 F。 */
+:root{
+  --bg:#0a0806;--s1:rgba(36,28,19,.72);--s2:rgba(50,39,26,.55);--s3:rgba(66,51,33,.5);
+  --bd:rgba(222,178,110,.16);--bd2:rgba(230,190,124,.26);--line:rgba(222,178,110,.14);
+  --ink:#f5eddf;--tx2:#d9cab2;--mut:#9d8e78;--ac:#d8a95e;
+  --ok:#6fbf92;--bad:#e0674e;--warn:#e2b467;--cyan:#e0b575;--violet:#c9905a;
+  --glass:rgba(240,214,170,.05);--glass-strong:rgba(240,214,170,.09);
+  --glass-border:rgba(230,190,124,.16);--glass-border-hover:rgba(238,202,140,.42);
+  --glass-hi:rgba(255,238,206,.2);
+  --gold-1:#f4dca8;--gold-2:#d8a95e;--gold-3:#b0823c;
+  --gold-grad:linear-gradient(135deg,var(--gold-1),var(--gold-2) 55%,var(--gold-3));
+}
+html,body{background:#0a0806}
+
+/* ---- 背景：黄昏天光 → 层叠山脊 → 四角暗角（参考图的构图）---- */
+.liquid-bg{background:
+  radial-gradient(ellipse 74% 30% at 50% -8%,rgba(232,182,104,.30),transparent 68%),
+  radial-gradient(ellipse 40% 20% at 50% 0%,rgba(248,220,160,.18),transparent 72%),
+  radial-gradient(ellipse 92% 44% at 10% 2%,rgba(158,110,52,.16),transparent 66%),
+  radial-gradient(ellipse 84% 40% at 94% 6%,rgba(128,86,40,.14),transparent 66%),
+  linear-gradient(180deg,#1a1209 0%,#110b07 40%,#0a0806 100%)}
+.liquid-bg::before{content:"";position:absolute;left:0;right:0;bottom:0;height:min(52vh,470px);background:url(gold-ridges.svg) center bottom/100% 100% no-repeat;opacity:.92;pointer-events:none}
+.liquid-bg::after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 94% 80% at 50% 40%,transparent 40%,rgba(4,3,2,.62) 100%)}
+.liquid-grid{background-image:linear-gradient(rgba(226,186,120,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(226,186,120,.035) 1px,transparent 1px);opacity:.55}
+.orb-1{background:radial-gradient(circle,rgba(232,182,104,.34),transparent 70%)}
+.orb-2{background:radial-gradient(circle,rgba(150,102,48,.30),transparent 70%)}
+.orb-3{background:radial-gradient(circle,rgba(120,82,38,.22),transparent 70%)}
+.orb-1,.orb-2,.orb-3{opacity:.28}
+
+/* ---- 材质：暖褐玻璃 + 细金描边（金边是这套皮肤的签名）---- */
+.side,.card,.modal,.dock,.tool-card,.account-menu,.account-dialog{
+  background:linear-gradient(152deg,rgba(58,45,29,.74),rgba(32,24,16,.84) 54%,rgba(19,14,10,.90));
+  border-color:rgba(230,190,124,.17);
+  backdrop-filter:blur(26px) saturate(140%);-webkit-backdrop-filter:blur(26px) saturate(140%);
+  box-shadow:0 20px 52px rgba(0,0,0,.52),inset 0 1px rgba(255,236,202,.11)}
+.card,.tool-card{border-radius:16px}.side{border-radius:22px}
+.card::before{background:linear-gradient(90deg,transparent,rgba(240,200,132,.62),transparent)}
+.tb{background:rgba(22,16,11,.62);border-color:rgba(230,190,124,.18);box-shadow:inset 0 1px rgba(255,236,202,.08)}
+
+/* ---- 导航 ---- */
+#nav a:hover{background:rgba(240,214,170,.08)}
+#nav a.on{background:linear-gradient(100deg,rgba(216,169,94,.26),rgba(150,104,48,.20));color:#f7e8cc;box-shadow:inset 0 1px rgba(255,238,206,.16),0 0 0 1px rgba(230,190,124,.14)}
+
+/* ---- 按钮 / 分段器 / 表单 ---- */
+.btn,.ghost,.seg,.mode{border-radius:999px;background:rgba(240,214,170,.06);border-color:rgba(230,190,124,.2);box-shadow:inset 0 1px rgba(255,238,206,.1);backdrop-filter:blur(22px) saturate(140%)}
+.btn:hover,.ghost:hover{background:rgba(240,214,170,.12)}
+.btn.y{background:var(--gold-grad);border-color:rgba(255,232,190,.42);color:#2a1d0c;box-shadow:0 8px 22px rgba(170,120,52,.30),inset 0 1px rgba(255,255,255,.55)}
+.btn.y:hover{background:linear-gradient(135deg,#fbe7bd,#e0b46c 55%,#bd8c42);filter:none}
+.seg button.on{background:rgba(232,190,124,.20);color:#f7e8cc;box-shadow:inset 0 1px rgba(255,238,206,.16)}
+input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{background-color:rgba(26,19,13,.78);border-color:rgba(230,190,124,.22);color:var(--ink)}
+input:focus,select:focus,textarea:focus{border-color:rgba(232,190,124,.55);box-shadow:0 0 0 3px rgba(216,169,94,.14)}
+
+/* ---- 表格 ---- */
+.table th,.orders th{background:rgba(240,214,170,.05)}
+.table td,.table th{border-color:rgba(222,178,110,.11)}
+
+/* ---- 字：页标题做成烫金渐变（这套皮肤最显眼的一处）---- */
+@supports ((-webkit-background-clip:text) or (background-clip:text)){
+  .ph2 h1{background:linear-gradient(180deg,#fdf1d6,#f4dca8 34%,#d8a95e 74%,#b0823c);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
+}
+.brand span{color:#f2ddb6}
+.ch h3,.hub-panel-head h3{color:#f0d9ae}
+.theme-item .ck{color:var(--gold-2)}
+
+/* ---- 风格菜单 / 账户菜单 ---- */
+.theme-menu{background:linear-gradient(150deg,rgba(46,35,23,.96),rgba(22,16,11,.94));border-color:rgba(230,190,124,.22);box-shadow:0 20px 54px rgba(0,0,0,.6),inset 0 1px rgba(255,238,206,.1)}
+.theme-item:hover,.theme-item.on{background:rgba(240,214,170,.10)}
+.account-menu{background:linear-gradient(140deg,rgba(48,36,24,.94),rgba(28,21,14,.92));border-color:rgba(230,190,124,.24);box-shadow:0 22px 54px rgba(0,0,0,.55),inset 0 1px rgba(255,238,206,.1)}
+.account-menu-item:hover{background:rgba(240,214,170,.10)}
+.account-menu-avatar{background:rgba(216,169,94,.16);border-color:rgba(216,169,94,.30)}
+.account-shade,.modal-mask{background:rgba(6,4,2,.66);backdrop-filter:blur(12px)}
+
+/* ---- 开屏：跟着变成暖金，别一切回来还是蓝的 ---- */
+#splash{background-color:#0a0806;background-image:radial-gradient(ellipse 68% 42% at 50% 34%,rgba(232,182,104,.22),transparent 66%),linear-gradient(180deg,#171009,#0a0806 72%)}
+#splash #hg stop:first-child{stop-color:#f7e3b4}
+#splash #hg stop:nth-child(2){stop-color:#e0b575}
+#splash #hg stop:last-child{stop-color:#c9905a}
+#splash .sp h1{color:#f7e8cc}
+#splash .bar i{background:linear-gradient(90deg,#f7e3b4,#d8a95e)}
+#splash .sites span.on{border-color:rgba(216,169,94,.55);background:rgba(216,169,94,.12);color:#fdf1d6;box-shadow:0 0 14px rgba(216,169,94,.22)}
+
+/* ---- 手机端：铺同一份底色兜底，避免回弹时露出突兀色带 ---- */
+html,body{overscroll-behavior:none}
+body{background:linear-gradient(180deg,#1a1209,#110b07 40%,#0a0806);background-attachment:fixed}

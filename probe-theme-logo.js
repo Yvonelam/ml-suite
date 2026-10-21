@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 浏览器实测：三套美术风格下侧边栏 Logo 是否各自换成对应版本
+ * 浏览器实测：四套美术风格下侧边栏 Logo 是否各自换成对应版本
  * 检查点：data-theme 正确 / 只有当前主题那张 Logo 不透明 / 三张都真的加载成功 / 切换后菜单收起 / 无 404
  * 用法：node probe-theme-logo.js
  */
@@ -15,8 +15,8 @@ const DBG = 9388;
 const API = Number(process.env.PORT || 3000);
 const HOST = 'http://127.0.0.1:' + API;
 const dev = JSON.parse(fs.readFileSync(path.join(__dirname, 'auth-data', 'dev-login.json'), 'utf8'));
-const THEMES = ['classic', 'mist', 'glass'];
-const NAME = { classic: '经典深色', mist: '柔雾玻璃', glass: '彩色毛玻璃' };
+const THEMES = ['classic', 'mist', 'glass', 'gold'];
+const NAME = { classic: '经典深色', mist: '柔雾玻璃', glass: '彩色毛玻璃', gold: '典藏金' };
 
 function login() {
   const body = Buffer.from(JSON.stringify({ username: dev.username, password: dev.password }));
@@ -73,11 +73,11 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     console.log('\n— 结构 —');
     const imgs = await ev("JSON.stringify([].map.call(document.querySelectorAll('.brand-logo img'),function(i){return {t:i.getAttribute('data-t'),src:i.getAttribute('src')}}))");
     const list = JSON.parse(imgs || '[]');
-    ok(list.length === 3, '侧边栏 Logo 挂了 3 张（每套主题一张）', list);
-    ok(THEMES.every(t => list.some(x => x.t === t)), '三套主题 key 都在 DOM 里：classic / mist / glass', list.map(x => x.t));
-    ok(new Set(list.map(x => x.src)).size === 3, '三张指向三个不同文件', list.map(x => x.src));
+    ok(list.length === 4, '侧边栏 Logo 挂了 4 张（每套主题一张）', list);
+    ok(THEMES.every(t => list.some(x => x.t === t)), '四套主题 key 都在 DOM 里：classic / mist / glass / gold', list.map(x => x.t));
+    ok(new Set(list.map(x => x.src)).size === 4, '四张指向四个不同文件', list.map(x => x.src));
 
-    console.log('\n— 三张是否都真的加载成功（预载）—');
+    console.log('\n— 四张是否都真的加载成功（预载）—');
     const nat = JSON.parse(await ev("JSON.stringify([].map.call(document.querySelectorAll('.brand-logo img'),function(i){return {t:i.getAttribute('data-t'),w:i.naturalWidth,h:i.naturalHeight}}))") || '[]');
     nat.forEach(n => ok(n.w > 0, 'Logo 资源已解码：' + n.t + ' (' + n.w + '×' + n.h + ')', n));
 
@@ -125,7 +125,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
       const shot = await send('Page.captureScreenshot', { format: 'png' });
       fs.writeFileSync(path.join(outDir, 'theme-' + th + '.png'), Buffer.from(shot.data, 'base64'));
     }
-    console.log('    整页截图 → probe-out/theme-{classic,mist,glass}.png');
+    console.log('    整页截图 → probe-out/theme-<主题>.png');
 
     console.log('\n— 刷新后是否还记得 —');
     await ev("(function(){var b=document.querySelector('.theme-item[data-t=\"mist\"]');if(b)b.click();})()");
@@ -143,7 +143,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
 
     console.log('\n— 资源与报错 —');
     const svgBad = badReq.filter(u => /\.svg|ml-suite-mark/i.test(u));
-    ok(svgBad.length === 0, '三个 Logo 文件请求无 404 / 无失败', svgBad);
+    ok(svgBad.length === 0, '四个 Logo 文件请求无 404 / 无失败', svgBad);
     ok(badReq.length === 0, '整轮无失败请求', badReq);
     ok(errors.length === 0, '无 console 报错 / 未捕获异常', errors);
   } catch (e) {
