@@ -74,6 +74,20 @@ input:focus,select:focus,textarea:focus{border-color:rgba(232,190,124,.55);box-s
 .account-menu-avatar{background:rgba(216,169,94,.16);border-color:rgba(216,169,94,.30)}
 .account-shade,.modal-mask{background:rgba(6,4,2,.66);backdrop-filter:blur(12px)}
 
+/* ---- 概览里写死的冷色半透明白统一回暖，否则放到金皮上会发灰 ---- */
+.hub-period{background:rgba(240,214,170,.05)}
+.hub-ads-grid>div{border-color:rgba(222,178,110,.11);background:rgba(240,214,170,.045)}
+.hub-trend .hub-gridline{stroke:rgba(226,186,120,.10)}
+.hub-list-table th,.hub-list-table td{border-bottom-color:rgba(222,178,110,.10)}
+.hub-hot-foot{border-top-color:rgba(222,178,110,.10)}
+.hub-sites .li{border-color:rgba(222,178,110,.11);background:rgba(240,214,170,.035)}
+.hub-task-icon{background:rgba(216,169,94,.14)}
+.hub-task:nth-child(2) .hub-task-icon{background:rgba(111,191,146,.12)}
+.hub-task:nth-child(3) .hub-task-icon{background:rgba(226,180,103,.13)}
+.hub-order-status .hub-task-icon{background:rgba(201,144,90,.12);color:#dfae72}
+.hub-product img,.hub-product .hub-thumb{background:rgba(216,169,94,.14)}
+.hub-dates input{background:rgba(26,19,13,.78)}
+
 /* ---- 开屏：跟着变成暖金，别一切回来还是蓝的 ---- */
 #splash{background-color:#0a0806;background-image:radial-gradient(ellipse 68% 42% at 50% 34%,rgba(232,182,104,.22),transparent 66%),linear-gradient(180deg,#171009,#0a0806 72%)}
 #splash #hg stop:first-child{stop-color:#f7e3b4}
