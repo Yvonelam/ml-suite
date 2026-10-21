@@ -19,10 +19,12 @@ html[data-theme=motion] .bg-video{
   object-fit:cover;object-position:center;
   /* 关键取舍：整层模糊一次，而不是让每个面板各做一次 backdrop-filter。
      背景是逐帧变化的视频，85 个元素挂 backdrop-filter 就等于每帧重算 85 次模糊，
-     而模糊一层视频只需要一次。反正「透过玻璃看外面」本来就是糊的，视觉上更对。
-     scale(1.06) 是为了盖住模糊在四边产生的半透明羽化。 */
-  filter:blur(9px) saturate(.95) contrast(1.03);
-  transform:scale(1.06)
+     而模糊一层视频只需要一次。
+     模糊半径别调大：9px 时波浪边缘全被抹平，人眼正是靠这些细节判断快慢，
+     看起来会明显「变慢」。5px 足够读作磨砂玻璃，又能留出运动细节。
+     scale(1.04) 是为了盖住模糊在四边产生的半透明羽化。 */
+  filter:blur(5px) saturate(.96) contrast(1.05);
+  transform:scale(1.04)
 }
 /* 压暗 + 暗角：视频再好看也只是背景，不能压过内容 */
 html[data-theme=motion] .bg-veil{
@@ -72,5 +74,5 @@ input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{b
 /* ---- 手机端：视频照播（1280 宽的片子手机扛得住），但把模糊半径降下来，
         大屏那种 blur(30px) 在手机上叠在动态视频上会明显掉帧 ---- */
 @media(max-width:760px){
-  html[data-theme=motion] .bg-video{filter:blur(7px) saturate(.95) contrast(1.03)}
+  html[data-theme=motion] .bg-video{filter:blur(4px) saturate(.96) contrast(1.05)}
 }
