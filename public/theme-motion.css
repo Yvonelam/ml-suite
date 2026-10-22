@@ -9,12 +9,25 @@
 }
 
 /* ---- 视频层 ----
-   注意「默认隐藏」那条在 style.css 里（主题表被 disabled 时它的规则会失效），这里只管显示。 */
+   注意「默认隐藏」那条在 style.css 里（主题表被 disabled 时它的规则会失效），这里只管显示。
+   背景色用近黑紫兜底：视频没起播的那几帧、以及 poster 解码前，看到的就是它。 */
 html[data-theme=motion] .liquid-bg{background:var(--mv-base)}
 html[data-theme=motion] .liquid-grid,
 html[data-theme=motion] .orb-1,
 html[data-theme=motion] .orb-2,
 html[data-theme=motion] .orb-3{display:none}
+
+/* ⚠️ 必须掐掉 theme-color.css 挂在 .liquid-bg 上的 mtPhase：
+   那是一条 `animation:mtPhase` 动画着 `filter:brightness() saturate() hue-rotate()`，
+   而 .bg-video 是 .liquid-bg 的子元素 —— 等于每帧对整块背景（含视频）重算一次滤镜。
+   实测它稳定吃掉 3~6% 的渲染主线程（正反两向各测一次都是这个数）。
+   它原本负责的「沉稳版压暗」已经烘进视频（colorchannelmixer ×0.83 + eq saturation .92），
+   所以这里关掉不会变亮也不会变艳。 */
+html[data-theme=motion] .liquid-bg{animation:none!important;filter:none!important}
+/* ::before 是横扫柔光，它按文档顺序画在所有子元素**下面**，而视频是不透明的整屏 —— 
+   也就是说这一层 blur(46px)+screen 混合从头到尾被完全压住，纯属白烧。 */
+html[data-theme=motion] .liquid-bg::before{display:none!important}
+
 html[data-theme=motion] .bg-video{
   display:block;position:absolute;inset:0;width:100%;height:100%;
   object-fit:cover;object-position:center

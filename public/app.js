@@ -651,10 +651,14 @@ const THEMES = { classic: '经典深色', mist: '柔雾玻璃', glass: '彩色�
    - data-src 而不是 src，没选这套皮肤就一个字节都不下载
    - 系统开了「减少动态效果」就只停在首帧
    - 切到别的皮肤立刻暂停，别让它在背后空转解码 13 秒的 1280×672 */
+let bgVideoToken = 0;
 function syncBgVideo(t) {
   const v = document.getElementById('bgVideo');
   if (!v) return;
-  const play = () => { const p = v.play(); if (p && p.catch) p.catch(() => { }); };
+  // 快速来回切主题时，上一个还没等到缓冲的定时器会继续跑，得让它认得出自己已过期
+  const token = ++bgVideoToken;
+  const alive = () => token === bgVideoToken;
+  const play = () => { if (!alive()) return; const p = v.play(); if (p && p.catch) p.catch(() => { }); };
   const stop = () => { try { v.pause(); } catch (e) { } };
   if (t !== 'motion') { stop(); return; }
   if (!v.getAttribute('src')) {
@@ -662,7 +666,20 @@ function syncBgVideo(t) {
     if (src) { v.setAttribute('src', src); v.load(); }
   }
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduce) stop(); else play();
+  if (reduce) { stop(); return; }
+  /* 起播门坎：这 414KB 是通过隧道边播边下的。
+     一挂上 src 就 play()，会得到「播几帧 → 缓冲 → 再播几帧」的观感，
+     看起来就是掉帧。先等它缓冲到「整段可播」（readyState≥4）再开始；
+     等待期间看到的是 poster，静止一瞬好过抖一整段。
+     最多等 5 秒 —— 网速实在不行就先播着，别一直定在海报上。 */
+  const start = () => {
+    if (!alive()) return;
+    v.removeEventListener('canplaythrough', start);
+    play();
+  };
+  if (v.readyState >= 4) { play(); return; }
+  v.addEventListener('canplaythrough', start, { once: true });
+  setTimeout(start, 5000);
 }
 document.addEventListener('visibilitychange', () => {
   const v = document.getElementById('bgVideo');

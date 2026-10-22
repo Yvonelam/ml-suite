@@ -158,9 +158,27 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     // 模糊必须在 ffmpeg 里烘进视频（gblur），浏览器侧一律不许再挂 filter / transform。
     ok(vinfo.filter === 'none', '视频层没挂 CSS filter（挂了会把帧读回 CPU，实测掉到 7fps）', vinfo.filter);
     ok(vinfo.transform === 'none', '视频层没挂 transform（单独一个 scale 也要吃 5fps）', vinfo.transform);
+    // 视频的父容器也不能有 filter / 动画：theme-color.css 的 mtPhase 就是动画着
+    // filter:brightness()/hue-rotate() 的，而视频在它里面，等于每帧对视频也重算一遍滤镜。
+    const bgLayer = JSON.parse(await ev(`JSON.stringify((function(){
+      var b=document.querySelector('.liquid-bg'); if(!b) return {};
+      var cs=getComputedStyle(b), pb=getComputedStyle(b,'::before');
+      return {filter:cs.filter, anim:cs.animationName, pbDisplay:pb.display};
+    })())`));
+    ok(bgLayer.filter === 'none', '视频的父容器没有 filter（挂上就等于每帧对视频重算滤镜）', bgLayer.filter);
+    ok(bgLayer.anim === 'none', '视频的父容器没有在跑的动画（mtPhase 已掐掉）', bgLayer.anim);
+    ok(bgLayer.pbDisplay === 'none', '横扫柔光 ::before 已关（被不透明视频完全压住，纯白烧）', bgLayer.pbDisplay);
     ok(vinfo.loop === true, 'loop 打开（自动无缝循环）', vinfo.loop);
     ok(vinfo.muted === true, 'muted 打开（否则浏览器禁止自动播放）', vinfo.muted);
-    ok(vinfo.paused === false, '切到动态玻璃后自动开始播放', vinfo.paused);
+    // 起播是**有门坎**的：syncBgVideo 会等 readyState≥4（整段缓冲够）才开始播，
+    // 免得在隧道上「播几帧→缓冲→再播」看起来像掉帧。所以这里要等一会儿再判，不能立刻断言。
+    let started = false;
+    for (let i = 0; i < 40; i++) {
+      started = await ev("(function(){var v=document.getElementById('bgVideo');return !v.paused})()");
+      if (started) break;
+      await sleep(200);
+    }
+    ok(started === true, '缓冲够之后自动开始播放（最多等 8 秒）', started);
 
     const t0 = await ev("document.getElementById('bgVideo').currentTime");
     await sleep(1600);
