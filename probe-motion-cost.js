@@ -49,6 +49,9 @@ const VARIANTS = [
   { key: 'C', name: '再停 ::before/::after', css: KILL_PHASE + KILL_PSEUDO },
   { key: 'D', name: '只留视频', css: KILL_PHASE + KILL_PSEUDO }
 ];
+// ORDER=rev 倒着跑。这个开关是必需的：第一版测量就是把「第一个测的」冤枉成了慢的那一档，
+// 换个顺序结论就翻过来。任何「A 比 B 慢」的结论都得两向各跑一遍才算数。
+if (process.env.ORDER === 'rev') VARIANTS.reverse();
 
 (async () => {
   const ck = await login();
