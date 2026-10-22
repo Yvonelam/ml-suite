@@ -61,26 +61,48 @@
 
 **动态玻璃的素材与取舍**（`theme-motion.css`）：
 
-- 背景视频 `public/bg-dynamic.mp4`（1280×672 / 13.3 秒 / 849KB），是从一段 4K、8 分钟、233MB 的 macOS Monterey 动态壁纸里截的。
-  **做法是「正放 + 倒放」拼接**：正放 6.65 秒后再倒放同一段，首尾天然相接，不需要调交叉淡化。
-  重新生成（换片段只要改 `-ss` 的秒数，改快慢只要改 `setpts` 的分母）：
+- 背景视频 `public/bg-dynamic.mp4`（960×504 / 13.27 秒 / 398 帧 / 414KB），是从一段 4K、8 分钟、233MB 的 macOS Monterey 动态壁纸里截的。
+  **做法是「正放 + 倒放」拼接**，但没有用一个完整的回文 —— 这是个坑，见下。
+  重新生成（换片段只要改 `-ss`，改快慢只要改 `setpts` 的分母）：
 
   ```bash
-  # 1) 截 12 秒 → 加速 1.8 倍（setpts 分母越大越快）→ 压到网页尺寸 + 30fps
+  # 1) 截 12 秒 → 加速 1.8 倍 → 缩放 → 把「模糊 + 色彩」全部烘死 → 30fps
   #    -ss 118 这段是量出来的「运动最强」区间，别随手换
-  ffmpeg -ss 118 -t 12 -i 源视频.mp4 -vf "scale=1280:672,setpts=PTS/1.8,fps=30" -an \
-    -c:v libx264 -preset slow -crf 26 -pix_fmt yuv420p -movflags +faststart tmp.mp4
-  # 2) 正放 + 倒放，做成无缝循环
-  ffmpeg -i tmp.mp4 -filter_complex \
-    "[0:v]split[a][b];[b]reverse,trim=start_frame=1,setpts=PTS-STARTPTS[r];[a][r]concat=n=2:v=1[v]" \
-    -map "[v]" -an -c:v libx264 -preset slow -crf 26 -pix_fmt yuv420p -movflags +faststart public/bg-dynamic.mp4
+  #    模糊半径按「大屏 cover 后的观感」算：源 960 宽要铺满 1440×900，放大 1.786 倍，
+  #    所以 sigma 2.8 ≈ 屏幕上的 5px。改成 3px 会明显更糊，改到 6px 就糊成一片。
+  #    colorchannelmixer ×0.83 是替掉 theme-color.css 的 mtPhase 压暗（见下），
+  #    eq saturation .92 是 mtPhase 的 saturate(.96) × 原来的 CSS saturate(.96)。
+  ffmpeg -ss 118 -t 12 -i 源视频.mp4 \
+    -vf "scale=960:504,gblur=sigma=2.8:steps=3,colorchannelmixer=rr=0.83:gg=0.83:bb=0.83,eq=saturation=0.92:contrast=1.05,setpts=PTS/1.8,fps=30" \
+    -an -c:v libx264 -preset slow -crf 28 -g 30 -pix_fmt yuv420p -movflags +faststart flat.mp4
+  # 2) 正放 200 帧 + 倒放中间 198 帧（掐头去尾各一帧），做成零重复帧的无缝循环
+  ffmpeg -i flat.mp4 -filter_complex \
+    "[0:v]split[a][b];[b]reverse,trim=start_frame=1:end_frame=199,setpts=PTS-STARTPTS[r];[a][r]concat=n=2:v=1[v]" \
+    -map "[v]" -an -c:v libx264 -preset slow -crf 28 -g 30 -pix_fmt yuv420p -movflags +faststart public/bg-dynamic.mp4
   # 3) 首帧当 poster
-  ffmpeg -i public/bg-dynamic.mp4 -frames:v 1 -vf "scale=1280:-1" -q:v 5 public/bg-dynamic-poster.jpg
+  ffmpeg -i public/bg-dynamic.mp4 -frames:v 1 -vf "scale=960:-1" -q:v 5 public/bg-dynamic-poster.jpg
   ```
 
-  验证接缝别用眼睛看：抽第 0 帧和最后一帧比 PSNR，**接缝的 PSNR 应该高于普通相邻帧**（实测接缝 46.25dB vs 相邻 41.05/41.50dB）才是无缝。
+  `-g 30`（每秒一个关键帧）不是可有可无：`<video loop>` 每次回绕都要 seek 到 0，
+  关键帧间隔太长的话那一下会明显卡顿。片长 13 秒意味着每 13 秒就回绕一次，这个位置必须干净。
 
-- **「动感」要量化，不能凭感觉调**。用法是把画面缩成 320×168、`tblend=difference` 取相邻帧差、`signalstats` 输出 `YAVG`，
+- **回文拼接有个隐蔽陷阱：接缝处会重复一帧。**
+  直接用 `trim=start_frame=1`（掐掉倒放段的第一帧）得到的是 f0…f199 + f198…f0，
+  最后落在 f0，下一轮又从 f0 开始 —— 同一帧连播两次，每 13 秒停 1/30 秒，观感就是「偶尔掉一下」。
+  掐头去尾各一帧（`trim=start_frame=1:end_frame=199` → f198…f1）之后，
+  **折返点和接缝都变成正常的一步**，两头都不重复。
+
+  验证不能只看 PSNR 高低：帧 0 是 I 帧、帧 397 是远离关键帧的 P 帧，编码质量本来就不对等，
+  比出来必然偏低。改看**平均绝对差**（`blend=all_mode=difference` + `signalstats` 的 `YAVG`）：
+
+  ```bash
+  ffmpeg -i a.png -i b.png -filter_complex "blend=all_mode=difference,signalstats,metadata=mode=print:file=-" -f null -
+  ```
+
+  实测：普通相邻 0.414 / 折返点 0.374 / 接缝 0.613（0~255 尺度，0.6 就是 0.24%，看不出来）。
+  重复帧会是接近 0 的值 —— 这条比 PSNR 好判得多。
+
+- **「动感」要量化，不能凭感觉调**。把画面缩成 320×168、`tblend=difference` 取相邻帧差、`signalstats` 输出 `YAVG`，
   这个均值就是运动强度：
 
   ```bash
@@ -91,25 +113,53 @@
 
   实测原片各时段差异很大（t=5s→1.26 / t=60s→0.94 / t=120s→**2.22** / t=240s→1.22 / t=420s→1.54），
   第一次随手取的 t=330 只有 1.68，成品 1.43。换成 t=118 起 + 加速 1.8× 后，成品运动强度升到 **3.51**（2.45 倍）。
+  注意这个指标对模糊敏感：模糊越重、YAVG 越低，所以**只能在同模糊档位之间比较**。
+
 - **模糊半径会直接毁掉动感**。9px 时波浪边缘的细节全被抹平，而人眼就是靠这些边缘判断快慢——片子的实际运动强度只涨了 30%，
-  观感却像慢了一倍。现在用 `blur(5px)`（手机 `4px`）。**调模糊前先想清楚：这是背景，不是前景文字，不需要那么糊。**
+  观感却像慢了一倍。现在烘进视频的是 `gblur=sigma=2.8`（≈屏幕上 5px）。
+
+- ### 三层「白烧」的动画 —— 曾经每帧在给背景做无用功
+
+  这三层都来自 `theme-color.css`（彩色毛玻璃的表），而 `motion` 主题也开着这张表，于是全部叠在视频上：
+
+  | 层 | 原样 | 问题 | 现在 |
+  |---|---|---|---|
+  | `.liquid-bg` 的 `animation:mtPhase` | 动画着 `filter:brightness()/saturate()/hue-rotate()` | 视频是它的**子元素**，等于每帧对整块背景（含视频）重算一次滤镜。实测稳定吃 **7% 渲染主线程**（正反两向各测一次都是这个数） | 掐掉，压暗烘进视频 |
+  | `.liquid-bg::before` | 全屏 `blur(46px)` + `mix-blend-mode:screen`，横扫动画 | 按文档顺序它画在所有子元素**下面**，而视频是不透明的整屏 —— 从头到尾被完全压住，看不见 | `display:none` |
+  | `.bg-video` 自己的 `filter` | `blur(5px) saturate() contrast()` | 给 `<video>` 挂 filter 会让 Chrome 把视频帧从 GPU 读回 CPU，破坏零拷贝叠加路径 | 全部烘进 ffmpeg |
+
+  `::after`（旋转 conic + `soft-light`）留着：它确实画在视频**上面**、有视觉贡献，实测成本约 0。
+
+- **起播有门坎，不是挂上 src 就 `play()`**。这 414KB 是走隧道边播边下的，立刻播会得到
+  「播几帧 → 缓冲 → 再播几帧」的观感，看起来就是掉帧。`syncBgVideo()` 现在等 `readyState≥4`
+  （或 `canplaythrough`）再开始，最多等 5 秒兜底；等待期间看到的是 poster。
+  另外用 `bgVideoToken` 认领快照 —— 来回快切主题时，上一个还没等到缓冲的定时器不能把新主题的视频搅乱。
 
 - **视频用 `data-src` 而不是 `src`**，只有第一次切到这套皮肤才下载，其它四套皮肤一个字节都不下。
   播放控制全在 `app.js` 的 `syncBgVideo()`：切走暂停、切回续播、`prefers-reduced-motion` 下不自动播、标签页隐藏时暂停。
 - **「默认隐藏」写在 `style.css`，不能只写在 `theme-motion.css`** ——主题表被 `disabled` 时它的规则一起失效，
   视频会以行内元素露在背景左上角（探针抓到过这个 bug）。
-- **性能上最重要的一条**：不在面板上用 `backdrop-filter`，改成**把视频整层模糊一次**（`filter:blur(5px)`）。
-  背景是逐帧变化的视频，85 个元素挂 `backdrop-filter` 等于每帧重算 85 次模糊；模糊一层视频只需一次。
-  实测把 `backdrop-filter` 从 85 个降到 5 个（只留 `.modal/.account-menu/.account-dialog/.theme-menu` 这几个浮层）。
+- **面板上不用 `backdrop-filter`**：背景是逐帧变化的视频，85 个元素挂 `backdrop-filter` 等于每帧重算 85 次模糊。
+  实测从 85 个降到 5 个（只留 `.modal/.account-menu/.account-dialog/.theme-menu` 这几个浮层）。
   必须用 `html[data-theme=motion] *{backdrop-filter:none!important}` 全域压——这些规则散落在三张表里，逐个列选择器一定漏。
+
+- ⚠️ **关于「哪个变体更慢」的结论，一律要两向各测一遍。** 这个坑踩了两次：
+  第一次把 CSS `filter:blur()` 判成元凶（A 档 7fps），换顺序一跑 7fps 跑到没加 blur 的那档去了；
+  第二次把 `mtPhase` 判成元凶（A 档 14.5fps），反向一跑 A 档又是 30fps。
+  **真正慢的是「排在第一个被测的」那一档** —— 视频起播有 3~6 秒的爬坡（实测 0 / 0 / 31 fps），
+  第一个测的必背这口锅。现在两支探针都先跑「起播爬坡」预热，`probe-motion-cost.js` 还支持 `ORDER=rev`。
 
 ⚠️ 五版必须保持**同一构图**（都是 `256×256`、圆角 `rx=66`、居中 `ML` 字标、字号 `104`／`letter-spacing -6`／基线 `y≈132`），只换材质和颜色 —— 否则切风格时会像换了家公司。
 
 改主题色板时**记得同步改 Logo**，否则会出现「界面变蓝、Logo 还是紫的」。改完必须跑：
 
 ```bash
-node probe-theme-logo.js     # 65 项：五张是否都加载成功、每套主题下是否只有对应那张可见、刷新是否记得、有无 404
-                             # 另外验动态玻璃的背景视频：懒加载、自动播放、currentTime 真的在走、切走是否暂停、切回是否重复下载
+node probe-theme-logo.js     # 70 项：五张是否都加载成功、每套主题下是否只有对应那张可见、刷新是否记得、有无 404
+                             # 另外验动态玻璃的背景视频：懒加载、缓冲门坎后自动播放、currentTime 真的在走、
+                             # 切走是否暂停、切回是否重复下载，以及「视频和它的父容器都不许挂 filter/动画」
+node probe-video-perf.js     # 视频呈现帧率：交错两轮，确认稳态跑满 30fps（先用「起播爬坡」预热）
+node probe-motion-cost.js    # 背景层成本：把 mtPhase / ::before / 视频 filter 逐层加回去，看各欠多少主线程
+                             # 加 ORDER=rev 反着跑一遍，确认结论不是测量顺序造成的
 node probe-theme-shot.js gold shot-gold   # 设计用截图：概览顶部 / 概览底部 / 箱唛裁切 / 主题菜单 / 放大页标题
 ```
 `public/index.html` 里既没有 `<iframe>`，也没有 `<link>` 指向它们 —— 它们只是还留在仓库里的历史文件。
