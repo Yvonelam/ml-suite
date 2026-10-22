@@ -41,7 +41,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
   try { fs.mkdirSync(outDir, { recursive: true }); } catch (e) { }
   const child = spawn(browser, ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--hide-scrollbars', '--mute-audio', '--window-size=1440,900', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });
   let ws = null, id = 0; const pending = new Map();
-  const errors = [], badReq = [], reqs = [];
+  const errors = [], badReq = [], reqs = [], reqById = new Map();
   const send = (m, p = {}) => { const n = ++id; ws.send(JSON.stringify({ id: n, method: m, params: p })); return new Promise((res, rej) => pending.set(n, { res, rej })); };
   const ev = async (expr) => (await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true })).result.value;
 
@@ -56,12 +56,14 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
       if (m.id && pending.has(m.id)) { const p = pending.get(m.id); pending.delete(m.id); m.error ? p.rej(new Error(m.error.message)) : p.res(m.result); return; }
       if (m.method === 'Runtime.exceptionThrown') errors.push((m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text || '').split('\n')[0]);
       if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') errors.push(m.params.args.map(a => a.value ?? a.description ?? '').join(' ').slice(0, 160));
+      if (m.method === 'Network.requestWillBeSent') reqById.set(m.params.requestId, m.params.request.url);
       if (m.method === 'Network.responseReceived') {
         const r = m.params.response;
         reqs.push(r.url);
         if (r.status >= 400) badReq.push(r.status + ' ' + r.url);
       }
-      if (m.method === 'Network.loadingFailed') badReq.push('FAILED ' + (m.params.errorText || '') + ' ' + (m.params.type || ''));
+      // 带上 URL，不然「FAILED ERR_ABORTED Media」这种报错根本看不出是谁挂了
+      if (m.method === 'Network.loadingFailed' && !m.params.canceled) badReq.push('FAILED ' + (m.params.errorText || '') + ' ' + (m.params.type || '') + ' ' + (reqById.get(m.params.requestId) || '?'));
     });
     await send('Runtime.enable'); await send('Page.enable'); await send('Network.enable');
     await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
