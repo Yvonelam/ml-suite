@@ -94,6 +94,24 @@ if (process.env.ORDER === 'rev') VARIANTS.reverse();
     await ev("(function(){var s=document.createElement('style');s.id='costOverride';document.head.appendChild(s);return 1})()");
     const setVariant = css => ev("(function(){document.getElementById('costOverride').textContent=" + JSON.stringify(css) + ";return 1})()");
 
+    // ---- 起播爬坡：不先等这个，第一个测的档位一定被冤枉 ----
+    // 视频刚起播时解码器初始化 + 合成层建立要好几秒，这期间呈现帧率只有个位数。
+    // 已经被这个坑坑过两次（一次把 CSS blur 判成元凶，一次把 mtPhase 判成元凶）。
+    const fpsWindow = async (ms) => {
+      const a = await ev("document.getElementById('bgVideo').getVideoPlaybackQuality().totalVideoFrames");
+      await sleep(ms);
+      const b = await ev("document.getElementById('bgVideo').getVideoPlaybackQuality().totalVideoFrames");
+      return (b - a) / (ms / 1000);
+    };
+    let warm = 0, warmMs = 0;
+    process.stdout.write('  起播爬坡：');
+    for (let i = 0; i < 20; i++) {
+      warm = await fpsWindow(1000); warmMs += 1000;
+      process.stdout.write(' ' + warm.toFixed(0));
+      if (warm >= 25) break;
+    }
+    console.log('  → ' + warmMs / 1000 + ' 秒后稳定在 ' + warm.toFixed(1) + ' fps\n');
+
     console.log('\n— 背景层成本（每档 ' + (MEASURE_MS / 1000) + ' 秒，数值＝渲染进程干活时间占墙钟的比例）—');
     const rows = [];
     for (const v of VARIANTS) {
