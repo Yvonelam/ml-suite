@@ -141,7 +141,8 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
         var cs=getComputedStyle(v);
         return {src:v.getAttribute('src')||'',ready:v.readyState,paused:v.paused,ct:v.currentTime,
                 dur:isFinite(v.duration)?v.duration:null,vw:v.videoWidth,vh:v.videoHeight,
-                disp:cs.display,loop:v.loop,muted:v.muted,poster:v.getAttribute('poster')||''};
+                disp:cs.display,loop:v.loop,muted:v.muted,poster:v.getAttribute('poster')||'',
+                filter:cs.filter,transform:cs.transform};
       })())`) || '{}');
       if (vinfo.ready >= 2 && vinfo.dur) break;
       await sleep(200);
@@ -150,8 +151,13 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     ok(/bg-dynamic\.mp4$/.test(vinfo.src || ''), 'src 已挂上 bg-dynamic.mp4（切到这套皮肤才加载）', vinfo.src);
     ok(vinfo.disp !== 'none', '动态玻璃下视频层是显示的', vinfo.disp);
     ok(vinfo.ready >= 2, '视频已解出可播数据（readyState≥2）', vinfo.ready);
-    ok(vinfo.vw === 1280 && vinfo.vh === 672, '视频分辨率 1280×672', vinfo.vw + '×' + vinfo.vh);
-    ok(vinfo.dur && vinfo.dur > 8 && vinfo.dur < 30, '循环时长合理（当前 13.3 秒 = 6.65 秒正放 + 倒放）', vinfo.dur);
+    ok(vinfo.vw === 960 && vinfo.vh === 504, '视频分辨率 960×504（解码像素量是 1280×672 的 56%）', vinfo.vw + '×' + vinfo.vh);
+    ok(vinfo.dur && vinfo.dur > 8 && vinfo.dur < 30, '循环时长合理（当前 13.27 秒 = 6.63 秒正放 + 倒放）', vinfo.dur);
+    // 这条是给未来的自己踩的刹车：给 <video> 挂 filter:blur() 会让 Chrome 把视频帧读回 CPU
+    // 去做模糊，破坏零拷贝叠加路径，实测 30fps 的片子只呈现得出 7fps（详见 probe-video-perf.js）。
+    // 模糊必须在 ffmpeg 里烘进视频（gblur），浏览器侧一律不许再挂 filter / transform。
+    ok(vinfo.filter === 'none', '视频层没挂 CSS filter（挂了会把帧读回 CPU，实测掉到 7fps）', vinfo.filter);
+    ok(vinfo.transform === 'none', '视频层没挂 transform（单独一个 scale 也要吃 5fps）', vinfo.transform);
     ok(vinfo.loop === true, 'loop 打开（自动无缝循环）', vinfo.loop);
     ok(vinfo.muted === true, 'muted 打开（否则浏览器禁止自动播放）', vinfo.muted);
     ok(vinfo.paused === false, '切到动态玻璃后自动开始播放', vinfo.paused);

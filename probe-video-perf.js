@@ -7,14 +7,14 @@
  * 里面的 droppedVideoFrames / totalVideoFrames 是真的掉帧比例，不受 rAF 影响。
  *
  * 用法：node probe-video-perf.js
- * 输出四个变体的掉帧率：
- *   A 现状（CSS filter:blur(5px) + scale(1.04)）
- *   B 只去掉 blur（保留 scale）
- *   C 去掉 filter 全部
- *   D 去掉 filter 且把渲染尺寸降到 960 宽（模拟「源视频分辨率降低」）
+ * 输出四个变体的呈现帧率：
+ *   A 现状（无 CSS filter，模糊已烘进视频）
+ *   B 复现旧写法 filter:blur(5px)
+ *   C 旧写法但去掉 blur（只留 scale(1.04)）
+ *   D 现状 + 把渲染尺寸压到 960 宽（确认 object-fit 缩放本身不贵）
  *
- * 判据：A 的掉帧率明显高于 C，就证明「CSS filter 挂在 <video> 上」是掉帧主因
- * —— 挂 filter 会让 Chrome 把视频帧读回再做模糊，破坏视频零拷贝叠加路径。
+ * 判据：B 的呈现帧率明显低于 A，就证明「CSS filter 挂在 <video> 上」是掉帧主因
+ * —— 挂 filter 会让 Chrome 把视频帧读回 CPU 再做模糊，破坏视频零拷贝叠加路径。
  */
 'use strict';
 const { spawn } = require('child_process');
@@ -74,35 +74,41 @@ const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = 
     await ev("(function(){var s=document.createElement('style');s.id='perfOverride';document.head.appendChild(s);return 1})()");
     const setVariant = css => ev("(function(){document.getElementById('perfOverride').textContent=" + JSON.stringify(css) + ";return 1})()");
 
-    // 每个变体：先跑满 1 秒热身（让 CSS 变更后的第一帧、以及上一变体残留的管线排空），
-    // 再记一次基线，跑 MEASURE_MS 后记终点，两个 totalVideoFrames 的差就是这段里应有的帧数。
+    // 每个变体：先跑满 1 秒热身（让上一变体的管线排空、新 CSS 生效），
+    // 再记一次基线，跑 MEASURE_MS 后记终点。
+    // 主指标用「呈现帧率」= totalVideoFrames 的增量 / 秒数 —— 这个数才是观众真正看到的。
+    // droppedVideoFrames 在 Chrome 里语义不稳（有时比 total 还大），只作参考不打头条。
+    const FPS = 30;
     async function run(name, css) {
       await setVariant(css);
       await sleep(1000);
       await ev("(function(){window.__p0=document.getElementById('bgVideo').getVideoPlaybackQuality();return 1})()");
       await sleep(MEASURE_MS);
       const r = await ev("(function(){var q=document.getElementById('bgVideo').getVideoPlaybackQuality();var p=window.__p0;return {df:q.droppedVideoFrames-p.droppedVideoFrames,tf:q.totalVideoFrames-p.totalVideoFrames}})()");
-      const expect = MEASURE_MS / 1000 * 30;
-      const rate = r.tf > 0 ? (r.df / r.tf * 100) : (r.df > 0 ? 100 : 0);
-      console.log('  ' + name.padEnd(30) + ' 呈现 ' + String(r.tf).padStart(3) + ' 帧 / 应到 ' + expect.toFixed(0) + ' 帧，丢 ' + String(r.df).padStart(3) + ' 帧 → 掉帧率 ' + rate.toFixed(1) + '%');
-      return { name, ...r, rate, expect };
+      const fps = r.tf / (MEASURE_MS / 1000);
+      const bar = '█'.repeat(Math.round(fps / FPS * 24)).padEnd(24, '·');
+      console.log('  ' + name.padEnd(28) + ' ' + bar + ' ' + fps.toFixed(1).padStart(5) + ' fps'
+        + (r.df > 0 ? '   (另记丢帧 ' + r.df + ')' : ''));
+      return { name, fps, ...r };
     }
 
-    console.log('\n— 背景视频掉帧测量（每档 ' + (MEASURE_MS / 1000) + ' 秒）—');
-    const A = await run('A 现状 blur(5px)+scale', 'html[data-theme=motion] .bg-video{filter:blur(5px) saturate(.96) contrast(1.05)!important;transform:scale(1.04)!important}');
-    const B = await run('B 只去掉 blur（留 scale）', 'html[data-theme=motion] .bg-video{filter:none!important;transform:scale(1.04)!important}');
-    const C = await run('C 去掉 filter 全部', 'html[data-theme=motion] .bg-video{filter:none!important;transform:none!important}');
-    const D = await run('D 无 filter + 960 宽渲染', 'html[data-theme=motion] .bg-video{filter:none!important;transform:none!important}');
-    // D 其实要配合更小的源文件；这里只能验证「渲染尺寸」这一半，源文件尺寸由 ffmpeg 决定。
-    void D;
+    console.log('\n— 背景视频呈现帧率（每档 ' + (MEASURE_MS / 1000) + ' 秒，片源 30fps，满分 30）—');
+    const A = await run('A 现状（无 CSS filter）', '');
+    const B = await run('B 旧写法 blur(5px)', 'html[data-theme=motion] .bg-video{filter:blur(5px) saturate(.96) contrast(1.05)!important}');
+    const C = await run('C 旧写法只留 scale(1.04)', 'html[data-theme=motion] .bg-video{filter:none!important;transform:scale(1.04)!important}');
+    const D = await run('D 现状 + 缩到 960 宽渲染', 'html[data-theme=motion] .bg-video{width:960px!important;height:504px!important}');
 
     console.log('\n— 结论 —');
-    const saved = (A.rate - C.rate);
-    if (saved > 3) console.log('  ✓ CSS filter 是掉帧主因：去掉后掉帧率从 ' + A.rate.toFixed(1) + '% 降到 ' + C.rate.toFixed(1) + '%（- ' + saved.toFixed(1) + ' 个百分点）');
-    else console.log('  · CSS filter 影响有限（' + A.rate.toFixed(1) + '% vs ' + C.rate.toFixed(1) + '%），掉帧主要来自解码/分辨率');
-    if (B.rate < A.rate - 3) console.log('  ✓ 光去掉 blur 就有效，说明代价确实在模糊本身，不在 scale');
-    else console.log('  · 去掉 blur 没明显改善，scale 或复合层也有份');
-    process.exitCode = 0;
+    let bad = 0;
+    const r2 = n => n.toFixed(1);
+    if (A.fps >= 26) console.log('  ✓ 现状跑满帧：' + r2(A.fps) + ' fps（片源 30fps，≥26 就算跟得上）');
+    else { console.log('  ✗ 现状只有 ' + r2(A.fps) + ' fps，仍在掉帧'); bad++; }
+    if (B.fps < A.fps - 8) console.log('  ✓ 复现了旧 bug：挂上 blur(5px) 立刻掉到 ' + r2(B.fps) + ' fps（-' + r2(A.fps - B.fps) + ' 帧/秒）');
+    else console.log('  · 挂 blur 这次没明显掉帧（' + r2(B.fps) + ' fps），可能这台机器/这个版本走了别的路径');
+    if (C.fps < A.fps - 3) console.log('  · scale(1.04) 单独也要吃 ' + r2(A.fps - C.fps) + ' fps，所以它也一起删了');
+    if (Math.abs(D.fps - A.fps) < 3) console.log('  ✓ object-fit 缩放本身不贵（' + r2(D.fps) + ' vs ' + r2(A.fps) + ' fps），降源分辨率只为省解码，不为省合成');
+    else console.log('  · 降到 960 宽渲染后 ' + r2(D.fps) + ' fps（差 ' + r2(A.fps - D.fps) + '），缩放有成本');
+    process.exitCode = bad ? 1 : 0;
   } catch (e) {
     console.error('✗ ' + e.message); process.exitCode = 1;
   } finally {

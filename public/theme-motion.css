@@ -1,5 +1,6 @@
 /* I 动态玻璃：在 G 彩色毛玻璃之上，把背景换成一段「正放 + 倒放」拼成的无缝循环视频
-   （素材来自 macOS Monterey 动态渐变，取运动最强的区间加速 1.8 倍，已压到 1280×672 / 13.3 秒 / 849KB）。
+   （素材来自 macOS Monterey 动态渐变，取运动最强的区间加速 1.8 倍；
+     模糊已烘进视频，成品 960×504 / 13.27 秒 / 422KB）。
    配色与材质继续沿用 G，这里只做三件事：架视频层、压暗视频、把玻璃面板做得更暗更糊。 */
 :root{
   --mv-glass-1:rgba(28,14,62,.60);
@@ -16,16 +17,16 @@ html[data-theme=motion] .orb-2,
 html[data-theme=motion] .orb-3{display:none}
 html[data-theme=motion] .bg-video{
   display:block;position:absolute;inset:0;width:100%;height:100%;
-  object-fit:cover;object-position:center;
-  /* 关键取舍：整层模糊一次，而不是让每个面板各做一次 backdrop-filter。
-     背景是逐帧变化的视频，85 个元素挂 backdrop-filter 就等于每帧重算 85 次模糊，
-     而模糊一层视频只需要一次。
-     模糊半径别调大：9px 时波浪边缘全被抹平，人眼正是靠这些细节判断快慢，
-     看起来会明显「变慢」。5px 足够读作磨砂玻璃，又能留出运动细节。
-     scale(1.04) 是为了盖住模糊在四边产生的半透明羽化。 */
-  filter:blur(5px) saturate(.96) contrast(1.05);
-  transform:scale(1.04)
+  object-fit:cover;object-position:center
 }
+/* ⚠️ 这里绝对不能再挂 filter —— 踩过一次，记牢：
+   给 <video> 加 filter:blur() 会让 Chrome 为了做模糊把视频帧从 GPU 读回 CPU，
+   破坏视频零拷贝的叠加路径。实测 5 秒内只呈现 35 帧（≈7fps），30fps 的片子看起来就是掉帧。
+   同一台机器上把 filter 去掉后回到 149 帧（30fps）。
+   模糊、saturate、contrast 全部在 ffmpeg 里烘进视频（gblur + eq），浏览器只管解码合成。
+   顺带把 transform:scale(1.04) 也删了：那是为了盖住 CSS 模糊在四边产生的半透明羽化，
+   现在模糊是烘死的、边缘不透明，不需要放大；实测单独一个 scale 也要吃掉 5fps（125 vs 149）。
+   细节见 DESIGN.md「动态玻璃」一节。 */
 /* 压暗 + 暗角：视频再好看也只是背景，不能压过内容 */
 html[data-theme=motion] .bg-veil{
   display:block;position:absolute;inset:0;pointer-events:none;
@@ -69,10 +70,4 @@ input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{b
 /* ---- 系统开了「减少动态效果」时不自动播放，停在首帧（poster）---- */
 @media(prefers-reduced-motion:reduce){
   html[data-theme=motion] .bg-video{opacity:.9}
-}
-
-/* ---- 手机端：视频照播（1280 宽的片子手机扛得住），但把模糊半径降下来，
-        大屏那种 blur(30px) 在手机上叠在动态视频上会明显掉帧 ---- */
-@media(max-width:760px){
-  html[data-theme=motion] .bg-video{filter:blur(4px) saturate(.96) contrast(1.05)}
 }
