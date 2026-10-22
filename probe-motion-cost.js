@@ -9,12 +9,13 @@
  * 这个数在无头软件光栅下会明显放大，但变体之间的相对关系是可比的。
  *
  * 用法：node probe-motion-cost.js
- * 四档，每档 4 秒：
- *   A 现状（视频 + mtPhase 滤镜动画 + ::before 扫光 + ::after 旋转 conic）
- *   B 停掉 .liquid-bg 的 mtPhase（那是对整层含视频做 brightness/hue-rotate）
- *   C 再停掉 ::before / ::after（两个全屏模糊 + 混合模式，还在视频上面）
- *   D 只留视频
+ * 四档，每档 4 秒，逐层把「拆掉的包袱」加回去：
+ *   A 现状（mtPhase 已掐、::before 已关、视频无 filter）
+ *   B + 加回 mtPhase（动画着 filter:brightness/hue-rotate，而视频就在它里面）
+ *   C + 再加回 ::before（全屏 blur(46px) + screen 混合，被不透明视频压住，看不见）
+ *   D + 再加回视频的 blur(5px)+scale(1.04)
  * 顺便每档截一张图，用来判断「删掉的东西到底看不看得出来」。
+ * ORDER=rev 反着跑，用来排除「第一个测的总是慢」这种顺序偏差。
  */
 'use strict';
 const { spawn } = require('child_process');
@@ -41,13 +42,16 @@ const BROWSERS = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/P
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { res(JSON.parse(d)); } catch (e) { rej(e); } }); }).on('error', rej); });
 
-const KILL_PHASE = 'html[data-theme=motion] .liquid-bg{animation:none!important;filter:none!important}';
-const KILL_PSEUDO = 'html[data-theme=motion] .liquid-bg::before,html[data-theme=motion] .liquid-bg::after{display:none!important}';
+// 现在的口径是「逐层加回去」，看每层欠了多少债。
+// （旧版是逐层拆掉，因为那时还没修；修完就得反过来问「加回去会怎样」，否则测不出东西。）
+const ADD_PHASE = 'html[data-theme=motion] .liquid-bg{animation:mtPhase 18s ease-in-out infinite!important;filter:brightness(.83) saturate(.96)!important}';
+const ADD_PSEUDO = 'html[data-theme=motion] .liquid-bg::before{display:block!important}';
+const ADD_VIDEOFILTER = 'html[data-theme=motion] .bg-video{filter:blur(5px) saturate(.96) contrast(1.05)!important;transform:scale(1.04)!important}';
 const VARIANTS = [
-  { key: 'A', name: '现状（三项全开）', css: '' },
-  { key: 'B', name: '停掉 mtPhase 滤镜动画', css: KILL_PHASE },
-  { key: 'C', name: '再停 ::before/::after', css: KILL_PHASE + KILL_PSEUDO },
-  { key: 'D', name: '只留视频', css: KILL_PHASE + KILL_PSEUDO }
+  { key: 'A', name: '现状（三层都已拆）', css: '' },
+  { key: 'B', name: '+ 加回 mtPhase 滤镜动画', css: ADD_PHASE },
+  { key: 'C', name: '+ 再加回 ::before 横扫柔光', css: ADD_PHASE + ADD_PSEUDO },
+  { key: 'D', name: '+ 再加回视频 blur+scale', css: ADD_PHASE + ADD_PSEUDO + ADD_VIDEOFILTER }
 ];
 // ORDER=rev 倒着跑。这个开关是必需的：第一版测量就是把「第一个测的」冤枉成了慢的那一档，
 // 换个顺序结论就翻过来。任何「A 比 B 慢」的结论都得两向各跑一遍才算数。
@@ -110,14 +114,24 @@ if (process.env.ORDER === 'rev') VARIANTS.reverse();
       fs.writeFileSync(path.join(outDir, 'cost-' + v.key + '.png'), Buffer.from(shot.data, 'base64'));
     }
 
-    console.log('\n— 结论 —');
+    console.log('\n— 结论（成本从 A 往上叠）—');
     const map = Object.fromEntries(rows.map(r => [r.key, r]));
-    const drop1 = map.A.busy - map.B.busy, drop2 = map.B.busy - map.C.busy;
-    if (drop1 > 3) console.log('  ✓ mtPhase（整层 brightness/hue-rotate 动画）占掉 ' + drop1.toFixed(0) + '% 的主线程：' + map.A.busy.toFixed(0) + '% → ' + map.B.busy.toFixed(0) + '%');
-    else console.log('  · mtPhase 影响不大（' + map.A.busy.toFixed(0) + '% → ' + map.B.busy.toFixed(0) + '%），但仍应停掉：它对视频也在做滤镜');
-    if (drop2 > 3) console.log('  ✓ ::before/::after（两个全屏模糊 + 混合模式）再省 ' + drop2.toFixed(0) + '%：' + map.B.busy.toFixed(0) + '% → ' + map.C.busy.toFixed(0) + '%');
-    else console.log('  · ::before/::after 影响不大（' + map.B.busy.toFixed(0) + '% → ' + map.C.busy.toFixed(0) + '%）');
-    console.log('\n  截图（对比 A 与 C 判断视觉差异）：probe-out/cost-A.png … cost-D.png');
+    let bad = 0;
+    const d1 = map.B.busy - map.A.busy, d2 = map.C.busy - map.B.busy, d3 = map.D.busy - map.C.busy;
+    const fp = k => map[k].fps.toFixed(1) + ' fps';
+    if (map.A.busy > 3 || map.A.fps < 26) {
+      console.log('  ✗ 现状本身就不干净：主线程 ' + map.A.busy.toFixed(0) + '%，视频 ' + fp('A')); bad++;
+    } else {
+      console.log('  ✓ 现状干净：主线程 ' + map.A.busy.toFixed(0) + '%，视频 ' + fp('A'));
+    }
+    if (d1 > 2) console.log('  · mtPhase 滤镜动画（对整块背景含视频）+' + d1.toFixed(0) + '% 主线程，视频 ' + fp('A') + ' → ' + fp('B'));
+    else console.log('  · mtPhase 这轮量化差异不明显（+' + d1.toFixed(0) + '%），但它是唯一一层会吃到视频上的 filter，不留');
+    if (d2 > 2) console.log('  · ::before 横扫柔光（被不透明视频压住，看不见）+' + d2.toFixed(0) + '%');
+    else console.log('  · ::before 这轮差异不明显（+' + d2.toFixed(0) + '%），仍是零收益的层，不留');
+    if (d3 > 2) console.log('  · 视频 blur+scale +' + d3.toFixed(0) + '% 主线程，视频 ' + fp('C') + ' → ' + fp('D'));
+    else console.log('  · 视频 blur+scale 这轮差异不明显（+' + d3.toFixed(0) + '%），但会把帧读回 CPU，一律不留');
+    console.log('\n  截图（对比 A 与 B/C 判断「删掉的东西到底看不看得出来」）：probe-out/cost-A.png … cost-D.png');
+    process.exitCode = bad ? 1 : 0;
   } catch (e) {
     console.error('✗ ' + e.message); process.exitCode = 1;
   } finally {

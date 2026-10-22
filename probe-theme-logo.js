@@ -235,7 +235,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     const svgBad = badReq.filter(u => /\.svg|ml-suite-mark/i.test(u));
     ok(svgBad.length === 0, '五个 Logo 文件请求无 404 / 无失败', svgBad);
     ok(badReq.length === 0, '整轮无失败请求', badReq);
-    if (cancelReq.length) console.log('    · 另有 ' + cancelReq.length + ' 个被渲染进程主动取消的请求（多为民视频 range 请求，正常）：' + cancelReq.join(' | '));
+    if (cancelReq.length) console.log('    · 另有 ' + cancelReq.length + ' 个被渲染进程主动取消的请求（多为视频 range 请求，正常）：' + cancelReq.join(' | '));
     ok(errors.length === 0, '无 console 报错 / 未捕获异常', errors);
   } catch (e) {
     fail++; console.log('  ✗ 探针跑挂了：' + e.message);
