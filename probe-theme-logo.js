@@ -41,7 +41,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
   try { fs.mkdirSync(outDir, { recursive: true }); } catch (e) { }
   const child = spawn(browser, ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--hide-scrollbars', '--mute-audio', '--window-size=1440,900', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });
   let ws = null, id = 0; const pending = new Map();
-  const errors = [], badReq = [], reqs = [], reqById = new Map();
+  const errors = [], badReq = [], reqs = [], reqById = new Map(), cancelReq = [];
   const send = (m, p = {}) => { const n = ++id; ws.send(JSON.stringify({ id: n, method: m, params: p })); return new Promise((res, rej) => pending.set(n, { res, rej })); };
   const ev = async (expr) => (await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true })).result.value;
 
@@ -62,8 +62,13 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
         reqs.push(r.url);
         if (r.status >= 400) badReq.push(r.status + ' ' + r.url);
       }
-      // 带上 URL，不然「FAILED ERR_ABORTED Media」这种报错根本看不出是谁挂了
-      if (m.method === 'Network.loadingFailed' && !m.params.canceled) badReq.push('FAILED ' + (m.params.errorText || '') + ' ' + (m.params.type || '') + ' ' + (reqById.get(m.params.requestId) || '?'));
+      // 带上 URL，不然「FAILED ERR_ABORTED Media」这种报错根本看不出是谁挂了。
+      // canceled=true 的是渲染进程主动取消的（<video> 缓冲够了就不让继续下 range 请求，
+      // Chrome 走隧道时很常见），不算失败 —— 但单独列出来，别让它悄悄藏进「无失败」里。
+      if (m.method === 'Network.loadingFailed') {
+        const line = (m.params.errorText || '') + ' ' + (m.params.type || '') + ' ' + (reqById.get(m.params.requestId) || '?');
+        (m.params.canceled ? cancelReq : badReq).push((m.params.canceled ? 'CANCELED ' : 'FAILED ') + line);
+      }
     });
     await send('Runtime.enable'); await send('Page.enable'); await send('Network.enable');
     await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
@@ -230,6 +235,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     const svgBad = badReq.filter(u => /\.svg|ml-suite-mark/i.test(u));
     ok(svgBad.length === 0, '五个 Logo 文件请求无 404 / 无失败', svgBad);
     ok(badReq.length === 0, '整轮无失败请求', badReq);
+    if (cancelReq.length) console.log('    · 另有 ' + cancelReq.length + ' 个被渲染进程主动取消的请求（多为民视频 range 请求，正常）：' + cancelReq.join(' | '));
     ok(errors.length === 0, '无 console 报错 / 未捕获异常', errors);
   } catch (e) {
     fail++; console.log('  ✗ 探针跑挂了：' + e.message);
