@@ -19,7 +19,7 @@
 | （看板） | 运营数据中心 | 订单概览、销售额、Listing、广告（含分时）、问答、售后索赔 |
 | （集成） | 大麦数据 MCP | 拉取**真实热搜词**，写入「实时热搜词」面板 |
 | （集成） | 每日报表 | 定时抓取排名 → 通过 SMTP 邮件推送 |
-| （集成） | PushPlus 推送 | 新问答 / 新售后实时推送到微信 |
+| （集成） | PushPlus 推送 | 新问答 / 新售后实时推送到微信（已被自动回复的问答会标「已自动回复 · 无需处理」） |
 
 ---
 
@@ -437,7 +437,7 @@ M public/index.html
 | GET | `/api/dm/hot-keywords` | **真实热搜词**（只读缓存，`?force=1` 强制后台刷新） |
 | GET | `/api/dm/quota` | 大麦数据额度（免费接口） |
 | GET | `/api/ml/oauth/start`·`/callback` | 美客多 OAuth 授权流程 |
-| POST | `/api/push/test`·`/check` | PushPlus 测试 / 立即检查 |
+| POST | `/api/push/test`·`/check` | PushPlus 测试 / 立即检查（`?only=questions\|claims`、`?preview=1` 只渲染不发） |
 | POST | `/api/send-report` | 手动触发邮件报表 |
 
 ---
@@ -479,6 +479,7 @@ node dm-mcp.js call search_product_snapshots '{"market_code":"MLB","keyword":"he
 | `probe-adsplit.js` | 广告单拆分的整数分配（15 项 + 1000 组随机压力） |
 | `probe-ledger.js` | 广告账本冻结语义（跨天 final 永不再改 + 小时分摊守恒） |
 | `probe-adsplit-ui.js` | 真浏览器悬停柱子读 tooltip，断言不出现半单 |
+| `probe-push-auto-label.js` | **微信提醒的「已自动回复」标注**：纯渲染断言（全自动回复 / 部分 / 全没回 三种文案与标题，买家原文与规则名的 HTML 转义）+ payload 映射（命中/没命中/数字 id 对字符串 key）+ `?preview=1` 真实链路 |
 | `sync-status.js` | **同步体检**（双击 `同步状态.bat`）：自动同步进程在不在 / 未提交几个 / 未推送几个（→ GitHub 是旧的）/ 未合入几个（→ 本地没跟上远端），并打印最近 8 条记录 |
 | `git-autosync.js --once` | 手动跑一轮同步并强制 fetch+rebase 一次，排查用 |
 
