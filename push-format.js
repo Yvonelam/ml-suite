@@ -81,4 +81,36 @@ function questionPushTitle(list, siteName) {
   return `🛒 美客多新提问 ${n} 条${site}`;
 }
 
-module.exports = { escPush, questionPushHtml, questionPushTitle };
+/**
+ * 把「接口返回的提问 + 商品标题 + 自动回复记录」拼成可渲染的 payload。
+ * 抽出来的理由：这段最容易出错（id 类型、时间戳格式、命中/没命中），
+ * 抽成纯函数后探针可以直接喂假数据断言，不用真的连美客多。
+ *
+ * @param {Array} batch            /questions/search 的原始行 { id, text, date_created, item_id }
+ * @param {Object} titles          { [item_id]: { title, permalink } }
+ * @param {Object} autoRepliedMap  { [questionId]: { at, ruleId, ruleLabel } } —— 只含「本系统真的回成功了」的
+ * @param {(iso:string)=>string} stamp 时间格式化（服务端传 brStamp）
+ */
+function buildQuestionPayload(batch, titles, autoRepliedMap, stamp) {
+  const rows = Array.isArray(batch) ? batch : [];
+  const fmt = typeof stamp === 'function' ? stamp : (v => String(v || ''));
+  const map = autoRepliedMap && typeof autoRepliedMap === 'object' ? autoRepliedMap : {};
+  return rows.map(q => {
+    const row = q || {};
+    const t = (titles && titles[String(row.item_id)]) || {};
+    const hit = map[String(row.id)];
+    return {
+      id: row.id,
+      text: row.text || '(无文字内容)',
+      time: fmt(row.date_created),
+      itemTitle: t.title || '',
+      permalink: t.permalink || '',
+      // 只认 autoReplied（我们替用户回了），不认 processedIds（那里面还有「别人已回 / 提问已失效」）
+      autoReplied: hit
+        ? { atText: hit.at ? fmt(new Date(Number(hit.at) || Date.now()).toISOString()) : '', ruleLabel: hit.ruleLabel || '' }
+        : null,
+    };
+  });
+}
+
+module.exports = { escPush, questionPushHtml, questionPushTitle, buildQuestionPayload };

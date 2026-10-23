@@ -7,7 +7,7 @@ const { ProxyAgent, setGlobalDispatcher } = require('undici');
 const nodemailer = require('nodemailer');
 const reportSchedule = require('./report-schedule');
 const questionAutoReply = require('./question-auto-reply');
-const { escPush, questionPushHtml, questionPushTitle } = require('./push-format');
+const { escPush, questionPushHtml, questionPushTitle, buildQuestionPayload } = require('./push-format');
 
 // node:sqlite（广告账本用）加载时会打一条 "SQLite is an experimental feature" 警告。
 // 功能是好的、稳定的，但这条噪音会让人以为启动报错了 —— 精准挡掉它，其它警告照常放行。
@@ -3160,8 +3160,9 @@ async function checkNewQuestions({ manual = false, preview = false } = {}) {
      原因：自动回复是 1 分钟一轮、推送是 N 分钟一轮，两边谁先到不确定。
      推送先到就会出现「推 3 条新提问叫你去回」→ 你点进后台发现机器人早回完了，白跑一趟。
      这里先同步跑一轮自动回复，下面打标签时读到的就是「已经发生的事实」，而不是猜测。
-     失败不影响推送本身（catch 掉，按「没自动回复」如实标注）。 */
-  if (autoReplyStateUsable()) {
+     失败不影响推送本身（catch 掉，按「没自动回复」如实标注）。
+     注意 preview 模式不跑这一步：预览是只读的，不能因为「看一眼」就去给买家发消息。 */
+  if (!preview && autoReplyStateUsable()) {
     const uid = String(auth.currentUserId());
     if (!questionAutoReplyInFlight.has(uid)) {
       questionAutoReplyInFlight.add(uid);
@@ -3173,19 +3174,7 @@ async function checkNewQuestions({ manual = false, preview = false } = {}) {
 
   const autoState = readQuestionAutoReplyState();
   const titles = await mlItemTitles(batch.map(q => q.item_id));
-  const payload = batch.map(q => {
-    const t = titles[String(q.item_id)] || {};
-    const hit = autoState.autoReplied && autoState.autoReplied[String(q.id)];
-    return {
-      id: q.id,
-      text: q.text || '(无文字内容)',
-      time: brStamp(q.date_created),
-      itemTitle: t.title || '',
-      permalink: t.permalink || '',
-      // 只认 autoReplied（我们替用户回了），不认 processedIds（那里面还有「别人已回/已失效」）
-      autoReplied: hit ? { atText: brStamp(new Date(Number(hit.at) || Date.now()).toISOString()), ruleLabel: hit.ruleLabel || '' } : null,
-    };
-  });
+  const payload = buildQuestionPayload(batch, titles, autoState.autoReplied, brStamp);
 
   const autoCount = payload.filter(p => p.autoReplied).length;
   if (preview) return {
@@ -3492,11 +3481,14 @@ app.post('/api/push/test', async (req, res) => {
 });
 
 // 立即检查一次（默认「提问 + 售后」都查；?only=claims / ?only=questions 可单独查）
+// ?preview=1 只渲染不发送，用来核对推送长什么样（只读，不会给买家发回复，也不会记 seen）
 app.post('/api/push/check', async (req, res) => {
   try {
     const only = String((req.query && req.query.only) || (req.body && req.body.only) || '').toLowerCase();
+    const q = req.query || {}, b = req.body || {};
+    const preview = String(q.preview || b.preview || '') === '1' || (q.preview === true || b.preview === true);
     const out = {};
-    if (only !== 'claims') out.questions = await checkNewQuestions({ manual: true });
+    if (only !== 'claims') out.questions = await checkNewQuestions({ manual: true, preview });
     if (only !== 'questions') out.claims = await checkNewClaims({ manual: true });
     const first = out.questions || out.claims || {};
     res.json({
