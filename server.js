@@ -7,6 +7,7 @@ const { ProxyAgent, setGlobalDispatcher } = require('undici');
 const nodemailer = require('nodemailer');
 const reportSchedule = require('./report-schedule');
 const questionAutoReply = require('./question-auto-reply');
+const { escPush, questionPushHtml, questionPushTitle } = require('./push-format');
 
 // node:sqlite（广告账本用）加载时会打一条 "SQLite is an experimental feature" 警告。
 // 功能是好的、稳定的，但这条噪音会让人以为启动报错了 —— 精准挡掉它，其它警告照常放行。
@@ -2518,7 +2519,18 @@ const QUESTION_AUTO_REPLY_MAX_SENDS_PER_TICK = 5;
 const questionAutoReplyTimers = new Map();
 const questionAutoReplyInFlight = new Set();
 function defaultQuestionAutoReplyState() {
-  return { enabled: false, rules: [], processedIds: [], lastCheckAt: 0, lastReplyAt: 0, lastReplyQuestionId: '', lastReplyRuleId: '', totalReplies: 0, lastError: '', lastSummary: '尚未运行' };
+  // autoReplied: { [questionId]: { at: 毫秒, ruleId, ruleLabel } } —— 只记「本系统真的回成功了」的。
+  // 和 processedIds 的区别很关键：processedIds 是「别再碰这条」（包含别人已回、提问已失效），
+  // 而 autoReplied 是「我们替用户回了」。推送文案只认后者，不能把「别碰」说成「已自动回复」。
+  return { enabled: false, rules: [], processedIds: [], autoReplied: {}, lastCheckAt: 0, lastReplyAt: 0, lastReplyQuestionId: '', lastReplyRuleId: '', totalReplies: 0, lastError: '', lastSummary: '尚未运行' };
+}
+const AUTO_REPLIED_KEEP_MAX = 300;
+function pruneAutoReplied(map) {
+  const entries = Object.entries(map && typeof map === 'object' ? map : {});
+  if (entries.length <= AUTO_REPLIED_KEEP_MAX) return Object.fromEntries(entries);
+  // 按时间留最新的，防止这个 map 无限长
+  entries.sort((a, b) => (Number(b[1] && b[1].at) || 0) - (Number(a[1] && a[1].at) || 0));
+  return Object.fromEntries(entries.slice(0, AUTO_REPLIED_KEEP_MAX));
 }
 function readQuestionAutoReplyState() {
   const fallback = defaultQuestionAutoReplyState();
@@ -2527,6 +2539,7 @@ function readQuestionAutoReplyState() {
     fallback.enabled = raw.enabled === true;
     fallback.rules = questionAutoReply.sanitizeRules(raw.rules || [], () => 'rule-' + randomBytes(8).toString('hex'));
     fallback.processedIds = questionAutoReply.keepRecentIds(raw.processedIds);
+    fallback.autoReplied = pruneAutoReplied(raw.autoReplied);
     fallback.lastCheckAt = Number(raw.lastCheckAt) || 0;
     fallback.lastReplyAt = Number(raw.lastReplyAt) || 0;
     fallback.lastReplyQuestionId = String(raw.lastReplyQuestionId || '');
@@ -2543,6 +2556,7 @@ function writeQuestionAutoReplyState(state) {
     ...state,
     rules: questionAutoReply.sanitizeRules(state.rules || [], () => 'rule-' + randomBytes(8).toString('hex')),
     processedIds: questionAutoReply.keepRecentIds(state.processedIds),
+    autoReplied: pruneAutoReplied(state.autoReplied),
   };
   fs.writeFileSync(privateDataFile(QUESTION_AUTO_REPLY_FILE), JSON.stringify(next, null, 2), 'utf8');
   return next;
@@ -2631,6 +2645,11 @@ async function runQuestionAutoReplyCheck() {
       });
       state = readQuestionAutoReplyState();
       state.processedIds = questionAutoReply.keepRecentIds(state.processedIds.concat(questionId));
+      // 记一笔「我们替用户回了」。推送那边靠这个 map 决定要不要打「已自动回复 · 无需处理」。
+      state.autoReplied = pruneAutoReplied({
+        ...state.autoReplied,
+        [questionId]: { at: Date.now(), ruleId: rule.id, ruleLabel: String(rule.label || rule.name || rule.keyword || '').slice(0, 40) },
+      });
       state.totalReplies++;
       state.lastReplyAt = Date.now();
       state.lastReplyQuestionId = questionId;
@@ -3061,10 +3080,7 @@ function getPushState(){const id=auth.currentUserId();if(pushStates.has(id))retu
 const pushState=new Proxy({}, {get(_t,k){return getPushState()[k];},set(_t,k,v){getPushState()[k]=v;return true;}});
 function savePushState(){try{fs.writeFileSync(privateDataFile('push-state.json'),JSON.stringify(getPushState(),null,2),'utf8');}catch{}}
 
-// 服务端 HTML 转义（消息正文里会拼商品标题和提问原文）
-function escPush(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
+// 服务端 HTML 转义 + 提问推送正文/标题的渲染在 ./push-format（纯函数，探针可直接断言）
 
 // 巴西时间文本（mm-dd hh:mm）
 function brStamp(iso) {
@@ -3094,21 +3110,6 @@ async function pushplusSend({ title, content, template = 'html' }, tokenOverride
     e.status = 502; e.data = d; throw e;
   }
   return d;
-}
-
-function questionPushHtml(list, siteName) {
-  const head = `<div style="font-size:13px;color:#888;margin-bottom:8px">${escPush(siteName || '')} · 共 ${list.length} 条新提问</div>`;
-  const body = list.map(q => {
-    const seg = [];
-    seg.push('<div style="padding:12px 0;border-bottom:1px dashed #e0e0e0">');
-    if (q.itemTitle) seg.push(`<div style="color:#888;font-size:12px;line-height:1.5">${escPush(q.itemTitle)}</div>`);
-    seg.push(`<div style="font-size:15px;font-weight:600;color:#111;margin:7px 0;line-height:1.6">${escPush(q.text)}</div>`);
-    seg.push(`<div style="color:#999;font-size:12px">#${escPush(q.id)} · ${escPush(q.time)}（巴西时间）</div>`);
-    if (q.permalink) seg.push(`<div style="margin-top:8px"><a href="${escPush(q.permalink)}" style="color:#3b82f6">👉 打开商品页去回复</a></div>`);
-    seg.push('</div>');
-    return seg.join('');
-  }).join('');
-  return head + body;
 }
 
 // 检查是否有新提问；首次运行只建立基线（不推送），避免一次刷屏
