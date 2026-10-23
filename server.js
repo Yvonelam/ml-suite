@@ -2648,7 +2648,7 @@ async function runQuestionAutoReplyCheck() {
       // 记一笔「我们替用户回了」。推送那边靠这个 map 决定要不要打「已自动回复 · 无需处理」。
       state.autoReplied = pruneAutoReplied({
         ...state.autoReplied,
-        [questionId]: { at: Date.now(), ruleId: rule.id, ruleLabel: String(rule.label || rule.name || rule.keyword || '').slice(0, 40) },
+        [questionId]: { at: Date.now(), ruleId: rule.id, ruleLabel: (rule.keywords || []).join(' / ').slice(0, 40) },
       });
       state.totalReplies++;
       state.lastReplyAt = Date.now();
@@ -3113,7 +3113,15 @@ async function pushplusSend({ title, content, template = 'html' }, tokenOverride
 }
 
 // 检查是否有新提问；首次运行只建立基线（不推送），避免一次刷屏
-async function checkNewQuestions({ manual = false } = {}) {
+/* 自动回复这一侧是不是「配了、也开着」——推送前的预跑只在开着的时候才有意义 */
+function autoReplyStateUsable() {
+  try {
+    const st = readQuestionAutoReplyState();
+    return !!(st && st.enabled && (st.rules || []).some(r => r && r.enabled));
+  } catch { return false; }
+}
+
+async function checkNewQuestions({ manual = false, preview = false } = {}) {
   const cfg = loadConfig();
   if (!mlConfigured(cfg)) throw Object.assign(new Error('尚未配置美客多 API 凭证'), { status: 400, needConfig: true });
   if (!mlAuthorized(cfg)) throw Object.assign(new Error('还没有完成美客多账号授权'), { status: 401, needAuth: true });
@@ -3147,20 +3155,49 @@ async function checkNewQuestions({ manual = false } = {}) {
   }
 
   const batch = fresh.slice(0, 10); // 单次最多推 10 条，避免刷屏
+
+  /* 推送前先把「能自动回复的」回复掉。
+     原因：自动回复是 1 分钟一轮、推送是 N 分钟一轮，两边谁先到不确定。
+     推送先到就会出现「推 3 条新提问叫你去回」→ 你点进后台发现机器人早回完了，白跑一趟。
+     这里先同步跑一轮自动回复，下面打标签时读到的就是「已经发生的事实」，而不是猜测。
+     失败不影响推送本身（catch 掉，按「没自动回复」如实标注）。 */
+  if (autoReplyStateUsable()) {
+    const uid = String(auth.currentUserId());
+    if (!questionAutoReplyInFlight.has(uid)) {
+      questionAutoReplyInFlight.add(uid);
+      try { await runQuestionAutoReplyCheck(); }
+      catch (e) { console.warn('[微信提醒] 推送前自动回复失败（不影响推送）：' + e.message); }
+      finally { questionAutoReplyInFlight.delete(uid); }
+    }
+  }
+
+  const autoState = readQuestionAutoReplyState();
   const titles = await mlItemTitles(batch.map(q => q.item_id));
   const payload = batch.map(q => {
     const t = titles[String(q.item_id)] || {};
+    const hit = autoState.autoReplied && autoState.autoReplied[String(q.id)];
     return {
       id: q.id,
       text: q.text || '(无文字内容)',
       time: brStamp(q.date_created),
       itemTitle: t.title || '',
       permalink: t.permalink || '',
+      // 只认 autoReplied（我们替用户回了），不认 processedIds（那里面还有「别人已回/已失效」）
+      autoReplied: hit ? { atText: brStamp(new Date(Number(hit.at) || Date.now()).toISOString()), ruleLabel: hit.ruleLabel || '' } : null,
     };
   });
 
+  const autoCount = payload.filter(p => p.autoReplied).length;
+  if (preview) return {
+    ok: true, preview: true, total: list.length, pushed: 0, fresh: fresh.length,
+    autoReplied: autoCount,
+    title: questionPushTitle(payload, site.name),
+    html: questionPushHtml(payload, site.name),
+    summary: '预览（未发送）：新提问 ' + payload.length + ' 条，其中 ' + autoCount + ' 条已自动回复',
+  };
+
   await pushplusSend({
-    title: `🛒 美客多新提问 ${payload.length} 条 · ${site.name}`,
+    title: questionPushTitle(payload, site.name),
     content: questionPushHtml(payload, site.name),
   });
 
@@ -3168,11 +3205,13 @@ async function checkNewQuestions({ manual = false } = {}) {
   pushState.lastFresh = payload.length;
   pushState.lastPushAt = Date.now();
   pushState.lastError = '';
+  const autoNote = autoCount === 0 ? ''
+    : (autoCount === payload.length ? '（全部已自动回复，无需处理）' : '（其中 ' + autoCount + ' 条已自动回复）');
   pushState.lastSummary = fresh.length > payload.length
-    ? `已推送 ${payload.length} 条（还有 ${fresh.length - payload.length} 条将在下轮推送），未回复共 ${list.length} 条`
-    : `已推送 ${payload.length} 条新提问，未回复共 ${list.length} 条`;
+    ? `已推送 ${payload.length} 条${autoNote}（还有 ${fresh.length - payload.length} 条将在下轮推送），未回复共 ${list.length} 条`
+    : `已推送 ${payload.length} 条新提问${autoNote}，未回复共 ${list.length} 条`;
   savePushState();
-  return { ok: true, fresh: fresh.length, pushed: payload.length, total: list.length, summary: pushState.lastSummary };
+  return { ok: true, fresh: fresh.length, pushed: payload.length, total: list.length, autoReplied: autoCount, summary: pushState.lastSummary };
 }
 
 /* ============ 售后（纠纷 / 平台调解）推送 ============
