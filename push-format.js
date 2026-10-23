@@ -34,7 +34,7 @@ function questionPushHtml(list, siteName) {
   const allAuto = items.length > 0 && autoCount === items.length;
 
   const head = [];
-  head.push(`<div style="font-size:13px;color:#888;margin-bottom:8px">${escPush(siteName || '')} · 共 ${items.length} 条新提问</div>`);
+  head.push(`<div style="font-size:13px;color:#888;margin-bottom:8px">${escPush(siteName || '')} · 共 ${items.length} 条${allAuto ? '提问' : '新提问'}</div>`);
   if (allAuto) {
     head.push('<div style="background:#eefaf4;border-left:3px solid ' + COLOR_AUTO + ';color:' + COLOR_AUTO + ';'
       + 'font-size:13px;line-height:1.65;padding:9px 12px;margin-bottom:6px">'
@@ -58,7 +58,7 @@ function questionPushHtml(list, siteName) {
         + '<span style="color:' + COLOR_AUTO + ';font-size:12px;font-weight:600;margin-left:8px">无需处理</span></div>');
       const who = auto.ruleLabel ? '（规则：' + escPush(auto.ruleLabel) + '）' : '';
       const when = auto.atText ? '已于 ' + escPush(auto.atText) + ' ' : '';
-      seg.push(`<div style="color:${COLOR_AUTO};font-size:12px;margin-top:6px;line-height:1.6">${when}自动回复${who}，先不用管这一条。</div>`);
+      seg.push(`<div style="color:${COLOR_AUTO};font-size:12px;margin-top:6px;line-height:1.6">${when}自动回复${who}，<b>无需再跟进</b>。</div>`);
       if (item.permalink) seg.push(`<div style="margin-top:8px"><a href="${escPush(item.permalink)}" style="color:${COLOR_LINK}">👉 打开商品页查看</a></div>`);
     } else {
       if (item.permalink) seg.push(`<div style="margin-top:8px"><a href="${escPush(item.permalink)}" style="color:${COLOR_LINK}">👉 打开商品页去回复</a></div>`);
