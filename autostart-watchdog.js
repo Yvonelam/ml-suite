@@ -29,6 +29,19 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 
+/* ---- 不许静默死掉 ----
+ * 2026-10-19 06:21 这个看门狗就是这么消失的：日志停在「启动器在跑但端口不通（第 1/2 次）」，
+ * 之后什么都没有，也没人知道它已经不在了。结果 10-24 11:40 服务一被硬杀，
+ * 5 天没人看守的公网就直接断到被发现为止。
+ * 所以：任何未捕获异常/未处理的 Promise 拒绝，先记一笔，然后继续活着。
+ * ——死掉的看门狗比没有看门狗更糟，因为你以为它在看。 */
+process.on('uncaughtException', (e) => {
+  try { log('未捕获异常（已忽略，继续看守）：' + ((e && (e.stack || e.message)) || e)); } catch (x) { }
+});
+process.on('unhandledRejection', (e) => {
+  try { log('未处理的 Promise 拒绝（已忽略，继续看守）：' + ((e && (e.stack || e.message)) || e)); } catch (x) { }
+});
+
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 3000);
 const STOP_FLAG = path.join(ROOT, '.stop-flag');
@@ -103,6 +116,8 @@ function launch(reason) {
     windowsHide: true,       // 不弹黑框
     stdio: ['ignore', fd || 'ignore', fd || 'ignore'],
   });
+  // spawn 失败（EPERM/ENOENT）是异步的 'error' 事件；不监听就会被当成未捕获异常把看门狗干掉
+  child.on('error', (e) => log('拉起 start-public 失败：' + e.message));
   if (fd !== null) { try { fs.closeSync(fd); } catch (e) { } }
   child.unref();
   log('已拉起 start-public（PID ' + child.pid + '）。');
@@ -124,6 +139,7 @@ function ensureAutosync() {
       windowsHide: true,
       stdio: ['ignore', 'ignore', 'ignore'],
     });
+    child.on('error', (e) => log('拉起自动同步失败（异步）：' + e.message));
     child.unref();
     log('自动同步进程不在了（原 PID ' + (pid || '无') + '），已重新拉起（新 PID ' + child.pid + '）。');
   } catch (e) {
