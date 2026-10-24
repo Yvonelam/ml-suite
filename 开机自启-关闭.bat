@@ -35,4 +35,14 @@ if exist "%~dp0.watchdog.pid" (
 )
 
 echo.
+echo [3/3] 移除计划任务 ML-Suite Watchdog（每 10 分钟巡检看门狗的那一条）
+schtasks /end /tn "ML-Suite Watchdog" >nul 2>&1
+schtasks /delete /tn "ML-Suite Watchdog" /f >nul 2>&1
+if errorlevel 1 (
+  echo [跳过] 没有这个计划任务，或已移除。
+) else (
+  echo [成功] 已移除计划任务 ML-Suite Watchdog
+)
+
+echo.
 pause
