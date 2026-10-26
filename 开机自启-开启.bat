@@ -26,9 +26,12 @@ set "NODE_EXE="
 if exist "%USERPROFILE%\.workbuddy\binaries\node\versions\22.22.2-6\node.exe" set "NODE_EXE=%USERPROFILE%\.workbuddy\binaries\node\versions\22.22.2-6\node.exe"
 if not defined NODE_EXE if exist "C:\Program Files\nodejs\node.exe" set "NODE_EXE=C:\Program Files\nodejs\node.exe"
 if not defined NODE_EXE set "NODE_EXE=node"
-rem 必须用 PowerShell 注册：schtasks 建出来的任务默认 ExecutionTimeLimit=72 小时，
-rem 到点会把整棵任务树杀掉（看门狗 + 服务 + 隧道一起），这里要显式设成 0（不超时）。
-powershell -NoProfile -Command "$a=New-ScheduledTaskAction -Execute '%NODE_EXE%' -Argument '%~dp0autostart-watchdog.js' -WorkingDirectory '%~dp0'; $t1=New-ScheduledTaskTrigger -AtLogOn; $t2=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) -RepetitionInterval (New-TimeSpan -Minutes 10) -RepetitionDuration (New-TimeSpan -Days 3650); $s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero); Register-ScheduledTask -TaskName 'ML-Suite Watchdog' -Action $a -Trigger $t1,$t2 -Settings $s -Description 'ML Suite watchdog: keep autostart-watchdog.js alive' -Force | Out-Null" >nul 2>&1
+rem 必须用 PowerShell 注册，两个原因：
+rem   1) schtasks 建出来的任务默认 ExecutionTimeLimit=72 小时，到点会把整棵任务树杀掉
+rem      （看门狗 + 服务 + 隧道一起），这里要显式设成 0（不超时）。
+rem   2) 必须用 S4U 主体（-LogonType S4U）：否则 node.exe 是控制台程序，每次触发都会
+rem      在桌面上弹一个黑窗口，关掉又弹，10 分钟一次。S4U 让它跑在会话 0，全程无窗口。
+powershell -NoProfile -Command "$a=New-ScheduledTaskAction -Execute '%NODE_EXE%' -Argument '%~dp0autostart-watchdog.js' -WorkingDirectory '%~dp0'; $p=New-ScheduledTaskPrincipal -UserId \"$env:COMPUTERNAME\$env:USERNAME\" -LogonType S4U -RunLevel Limited; $t1=New-ScheduledTaskTrigger -AtLogOn; $t2=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 10) -RepetitionDuration (New-TimeSpan -Days 3650); $s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero); Register-ScheduledTask -TaskName 'ML-Suite Watchdog' -Action $a -Principal $p -Trigger $t1,$t2 -Settings $s -Description 'ML Suite watchdog (S4U, no console window)' -Force | Out-Null" >nul 2>&1
 if errorlevel 1 (
   echo [跳过] 注册失败（可能没有权限）。不影响上面两层，只是少了「看门狗死了能自动重建」。
 ) else (

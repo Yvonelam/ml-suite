@@ -273,6 +273,14 @@ node handoff.js shots    # 只截图（也可 node shots.js hub ads 只截指定
 >    `ExecutionTimeLimit=0`（不超时）。看门狗活着时重复触发直接被任务计划器忽略（连日志都不刷），
 >    死了就在 10 分钟内被重建。
 >
+> ⚠️ **任务必须用 S4U 主体（`-LogonType S4U`）**，这是踩出来的：
+> 用默认的「只在用户登录时运行」，`node.exe` 是控制台程序，每次触发都会在桌面上**弹一个黑窗口**
+> （2026-10-26 就是这样，10 分钟弹一次）。用户把窗口关掉 = 看门狗被杀 → 10 分钟后任务再弹一个，
+> 形成「一直有 cmd 弹出来」的循环。
+> S4U 让任务跑在**会话 0**，全程无窗口，而且注销后也不受影响。
+> 所以 `开机自启-开启.bat` 里那行 `Register-ScheduledTask` 带了
+> `-Principal (New-ScheduledTaskPrincipal -UserId "$env:COMPUTERNAME\$env:USERNAME" -LogonType S4U -RunLevel Limited)`，别删。
+>
 > ⚠️ 为什么不能靠 `spawn(detached:true)` 就够了：**Windows Job Object 里 detached 逃不出去。**
 > 从某个终端/会话里拉起的进程，只要那个会话的 Job 关闭，整棵树都会被带走——
 > `detached` 只在 POSIX 上真正独立。所以持久化必须交给 Task Scheduler，不能挂在交互式会话下。
