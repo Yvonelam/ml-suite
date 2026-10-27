@@ -49,9 +49,8 @@ function login() {
     for (let i = 0; i < 60; i++) { await sleep(300); if (await ev('document.title||""')) break; }
     for (let i = 0; i < 40; i++) { const g = await ev("(function(){var s=document.getElementById('splash');if(!s)return true;if(s.classList.contains('leave'))return true;try{s.style.setProperty('display','none','important')}catch(e){}return false})()"); if (g) break; await sleep(250); }
     for (let i = 0; i < 60; i++) { if (await ev('typeof analyzePdf === "function"')) break; await sleep(200); }
-    // 切到箱唛视图
-    await ev("(function(){var n=document.querySelector('[data-view=\"box\"]')||document.querySelector('a[href=\"#box\"]');if(n)n.click();return true})()");
-    await sleep(500);
+    await ev("go('box'); true");
+    await sleep(600);
     const info = await ev(`(async () => {
       const bin = atob(${JSON.stringify(b64)}); const u8 = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
@@ -64,7 +63,10 @@ function login() {
       return { pages: boxState.pages.length, counts: boxState.pages.map(p => p.boxes.length) };
     })()`);
     await sleep(900);
-    const shot = await send('Page.captureScreenshot', { format: 'png' });
+    const shot = await Promise.race([
+      send('Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: false }),
+      sleep(20000).then(() => { throw new Error('截图超时'); })
+    ]);
     const f = path.join(outDir, 'boxmark-fixed.png');
     fs.writeFileSync(f, Buffer.from(shot.data, 'base64'));
     console.log('页数 ' + info.pages + ' / 每页箱唛数 ' + info.counts.join(','));
