@@ -3984,7 +3984,7 @@ const REPORT_RETRY_GAP_MS = 5 * 60000;  // 失败后隔 5 分钟再试
 function mailErrorHint(msg) {
   const m = String(msg || '');
   if (/secure TLS connection|ECONNRESET|socket disconnected|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(m)) {
-    return '连不上 SMTP 服务器（握手阶段就被掐断），八成是代理把邮件端口带出国了：机场节点普遍封 465/587，Clash 处于「全局」模式时连国内邮箱也会被送出去。请把 Clash 切回「规则」模式，或给 smtp.qq.com 加一条 DIRECT 规则；也可以把 SMTP 端口改成 587 再试。';
+    return '连不上 SMTP 服务器（握手阶段就被掐断）。Clash 若是「全局」模式，所有流量都走 GLOBAL 组选中的那个节点，而多数机场节点封 465/587/993 —— 换个不封的节点（实测日本[CM]、德国可发），或切回「规则」模式；也可以把 SMTP 端口改成 587 再试。跑 node probe-mail-path.js 能直接测出是哪一层断的。';
   }
   if (/535|Invalid login|Username and Password not accepted|authentication failed/i.test(m)) {
     return '账号或授权码不对。QQ 邮箱要填的是「授权码」不是登录密码：邮箱设置 → 账户 → 开启 SMTP 服务后生成，填到「SMTP 授权码」里保存。';

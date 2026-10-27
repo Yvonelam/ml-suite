@@ -585,15 +585,29 @@ node probe-resilience.js && node probe-profit-api.js && node probe-smoke.js
 隧道在线但本地服务没起来。根因通常是 `server.js` 崩溃退出。本项目已加三层护栏（异常兜底 + 服务自愈 + 隧道重连）；若仍复现，查 `运行日志.txt` 里的 `[服务] 已退出，代码 X` 与堆栈。
 
 **Q：定时邮件一直失败，报 `Client network socket disconnected before secure TLS connection was established`？**
-这句话跟邮箱没关系，是**代理把邮件端口带出国了**。2026-10-27 就是这么栽的：Clash Verge 被切到了「全局」模式（`mode: global`），TUN 虚拟网卡把整机流量（包括国内 `smtp.qq.com:465`）全送去机场节点，而机场普遍封 465/587/993，TLS 握手直接被掐断——同一时刻大麦 MCP 也一起挂，因为同样的原因。
+这句话跟邮箱没关系，是**邮件端口被代理节点封了**。2026-10-27 就是这么栽的：Clash 被切到「全局」模式，GLOBAL 组选中的是**美国硅谷2**，TUN 虚拟网卡把整机流量（包括国内 `smtp.qq.com:465`）全送去那个节点，而它封了 465/587/993，TLS 握手直接被掐断（每次稳定 5.0 秒）——同一时刻大麦 MCP 也一起挂，同一个原因。
 
 判断方法（不用猜）：
 
 ```bash
-node probe-mail-path.js      # 读配置 → 读 Clash 模式 → SMTP TLS 握手 → 认证，3 秒出结论
+node probe-mail-path.js      # 读配置 → 读 Clash 模式与节点 → SMTP TLS 握手 → 认证，3 秒出结论
 ```
 
-修复：Clash Verge 里点「规则」（或给 `smtp.qq.com` 加一条 `DIRECT` 规则），然后重跑上面的脚本；还不行就把 SMTP 端口从 465 改成 587（STARTTLS）。面板上的「建议」一行现在也会直接把这段话说出来（`mailErrorHint()`）。
+**全局模式不是不能用，是节点挑人。** 实测同一批订阅里（2026-10-27，全局模式 + 逐个切节点）：
+
+| 节点 | SMTP 465 |
+|---|---|
+| 美国硅谷2 / 美国西雅图2 / 英国 / 法国 / 香港精品2 | ❌ 被封 |
+| 🇯🇵 日本[CM] | ✅ 595ms（登录认证也过） |
+| 🇩🇪 德国 | ✅ 1931ms（登录认证也过） |
+
+三种可选做法：
+
+1. **保持全局，换节点**：Clash 里把 GLOBAL 组切成 🇯🇵 日本[CM] 或 🇩🇪 德国。代价是国内网站也绕国外（变慢、银行/微信可能风控），发信 IP 在外。
+2. **切回「规则」模式**：国内直连、国外走代理，邮件和大麦都通，发信 IP 稳定在国内。
+3. 全局模式 + TUN 白名单（`tun.route-exclude-address` 排掉邮箱 IP）：能做，但 QQ 邮箱 IP 会变，容易失效，不推荐。
+
+面板上的「建议」一行现在会把这段话说出来（`mailErrorHint()`）。
 
 **Q：抓取美客多超时 / 失败？**
 国内需要代理。确认 `daily-search-config.json` 的 `proxy` 指向你本机的 Clash/Mihomo 混合端口（**端口是动态的**，去客户端「设置」里看当前值，不要照抄文档里的 7897）。
