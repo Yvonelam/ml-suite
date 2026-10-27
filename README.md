@@ -568,6 +568,8 @@ node dm-mcp.js call search_product_snapshots '{"market_code":"MLB","keyword":"he
 | `probe-boxmark-lastpage.js` | 箱唛单页诊断：逐页打印掩膜密度、阈值、块数与块尺寸；`DUMP_MASK=1` 可把掩膜导成 `probe-out/boxmask-p*.json` |
 | `probe-boxmark-cut-debug.js` | 离线复算切分：拿导出的掩膜，把 `xyCut` 的递归过程逐层打出来，定位「是哪一刀切歪的」。`--all` 跑全部页 |
 | `probe-boxmark-shot.js` | 箱唛识别结果截图（`probe-out/boxmark-fixed.png`），人工看一眼最后几页有没有碎块 |
+| `probe-mail-path.js` | **邮件链路体检**（`node probe-mail-path.js`）：读配置 → 读 Clash 当前模式（规则/全局） → SMTP 端口 TLS 握手 → nodemailer 认证。定时邮件发不出去时先跑它，3 秒定位断在哪一层 |
+| `probe-report-status.js` | 打开关键词排名页，把「定时发送运行状态」面板的文字摊出来 + 截图 `probe-out/report-status.png` |
 | `sync-status.js` | **同步体检**（双击 `同步状态.bat`）：自动同步进程在不在 / 未提交几个 / 未推送几个（→ GitHub 是旧的）/ 未合入几个（→ 本地没跟上远端），并打印最近 8 条记录 |
 | `git-autosync.js --once` | 手动跑一轮同步并强制 fetch+rebase 一次，排查用 |
 
@@ -581,6 +583,17 @@ node probe-resilience.js && node probe-profit-api.js && node probe-smoke.js
 
 **Q：站点打不开，Cloudflare 报错 1033？**
 隧道在线但本地服务没起来。根因通常是 `server.js` 崩溃退出。本项目已加三层护栏（异常兜底 + 服务自愈 + 隧道重连）；若仍复现，查 `运行日志.txt` 里的 `[服务] 已退出，代码 X` 与堆栈。
+
+**Q：定时邮件一直失败，报 `Client network socket disconnected before secure TLS connection was established`？**
+这句话跟邮箱没关系，是**代理把邮件端口带出国了**。2026-10-27 就是这么栽的：Clash Verge 被切到了「全局」模式（`mode: global`），TUN 虚拟网卡把整机流量（包括国内 `smtp.qq.com:465`）全送去机场节点，而机场普遍封 465/587/993，TLS 握手直接被掐断——同一时刻大麦 MCP 也一起挂，因为同样的原因。
+
+判断方法（不用猜）：
+
+```bash
+node probe-mail-path.js      # 读配置 → 读 Clash 模式 → SMTP TLS 握手 → 认证，3 秒出结论
+```
+
+修复：Clash Verge 里点「规则」（或给 `smtp.qq.com` 加一条 `DIRECT` 规则），然后重跑上面的脚本；还不行就把 SMTP 端口从 465 改成 587（STARTTLS）。面板上的「建议」一行现在也会直接把这段话说出来（`mailErrorHint()`）。
 
 **Q：抓取美客多超时 / 失败？**
 国内需要代理。确认 `daily-search-config.json` 的 `proxy` 指向你本机的 Clash/Mihomo 混合端口（**端口是动态的**，去客户端「设置」里看当前值，不要照抄文档里的 7897）。

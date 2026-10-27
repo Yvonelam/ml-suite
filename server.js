@@ -3961,7 +3961,7 @@ app.post('/api/send-report', async (req, res) => {
     res.json({ success: true, message: `报告已发送至 ${config.email}`, ...result });
   } catch (error) {
     console.error('[报告] 发送失败:', error);
-    res.status(500).json({ error: '发送报告失败: ' + error.message });
+    res.status(500).json({ error: '发送报告失败: ' + error.message, hint: mailErrorHint(error.message) });
   }
 });
 
@@ -3975,6 +3975,25 @@ app.post('/api/send-report', async (req, res) => {
 //   新：过了计划时间且今天还没发过就发（错过也只是晚一分钟），并用 lastDate 去重。
 const REPORT_MAX_ATTEMPTS = 6;          // 每天最多尝试几次，免得一直失败一直重试
 const REPORT_RETRY_GAP_MS = 5 * 60000;  // 失败后隔 5 分钟再试
+
+// 邮件失败时「为什么 / 怎么办」——
+// 2026-10-27 就是这么栽的：Clash 被切到全局模式（mode: global），TUN 把所有流量（含国内
+// smtp.qq.com:465）都送到机场节点，机场封邮件端口，于是 TLS 握手直接被掐断，
+// 报一个跟邮箱毫无关系的 "Client network socket disconnected before secure TLS connection
+// was established"。光看这句话根本想不到是代理，所以直接把结论摊给用户。
+function mailErrorHint(msg) {
+  const m = String(msg || '');
+  if (/secure TLS connection|ECONNRESET|socket disconnected|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(m)) {
+    return '连不上 SMTP 服务器（握手阶段就被掐断），八成是代理把邮件端口带出国了：机场节点普遍封 465/587，Clash 处于「全局」模式时连国内邮箱也会被送出去。请把 Clash 切回「规则」模式，或给 smtp.qq.com 加一条 DIRECT 规则；也可以把 SMTP 端口改成 587 再试。';
+  }
+  if (/535|Invalid login|Username and Password not accepted|authentication failed/i.test(m)) {
+    return '账号或授权码不对。QQ 邮箱要填的是「授权码」不是登录密码：邮箱设置 → 账户 → 开启 SMTP 服务后生成，填到「SMTP 授权码」里保存。';
+  }
+  if (/550|553|Mailbox|recipient address rejected/i.test(m)) {
+    return '收件地址被服务器拒收，检查收件邮箱是否写错、或该邮箱是否被退信限制。';
+  }
+  return '';
+}
 
 let reportSending = false;                        // 正在发送，防并发
 let reportAttempt = { date: '', count: 0, nextAt: 0 };
@@ -4005,13 +4024,16 @@ function startScheduler() {
         lastAt: reportSchedule.beijingLabel(new Date()),
         lastMessageId: (result && result.messageId) || '',
         lastError: '',
+        lastErrorHint: '',
       });
       console.log('[调度] 邮件发送成功:', result && result.messageId);
     } catch (err) {
+      const hint = mailErrorHint(err.message);
       saveReportState({
         lastError: `第 ${reportAttempt.count} 次失败：${err.message}（${reportSchedule.beijingLabel(new Date())}）`,
+        lastErrorHint: hint,
       });
-      console.error('[调度] 邮件发送失败:', err.message);
+      console.error('[调度] 邮件发送失败:', err.message, hint ? '｜' + hint : '');
     } finally {
       reportSending = false;
     }
@@ -4032,6 +4054,8 @@ app.get('/api/report/status', (req, res) => {
     lastAt: state.lastAt || '',
     lastMessageId: state.lastMessageId || '',
     lastError: state.lastError || '',
+    // 老状态文件里没有 lastErrorHint，就用 lastError 现推一遍，不用等再次失败
+    lastErrorHint: state.lastErrorHint || mailErrorHint(state.lastError) || '',
     nextRunAt: reportSchedule.computeNextRun(config, new Date(), state.lastDate || ''),
     serverNow: reportSchedule.beijingLabel(new Date()),
   });

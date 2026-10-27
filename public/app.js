@@ -1065,6 +1065,7 @@ function renderReportRuntime(s) {
     rows.push(`上次发送：<b>暂无记录</b>`);
   }
   if (s.lastError) rows.push(`最近错误：<span class="bad">${escHtml(s.lastError)}</span>`);
+  if (s.lastError && s.lastErrorHint) rows.push(`<span class="bad">建议：${escHtml(s.lastErrorHint)}</span>`);
 
   rows.push(s.scheduleEnabled && s.nextRunAt
     ? `下次发送：<span class="hl">${escHtml(s.nextRunAt)}</span> 北京时间`
