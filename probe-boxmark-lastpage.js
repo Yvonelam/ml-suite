@@ -143,17 +143,15 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     // 把掩膜导出来，离线复算切分过程（浏览器里不好逐层打印 xyCut 的递归）
     if (process.env.DUMP_MASK) {
       const want = (process.env.MASK_PAGES || '1,13,14').split(',').map(Number);
-      const masks = await ev(`(() => { const want = ${JSON.stringify(want)}; const out = [];
-        for (const p of boxState.pages) { if (want.indexOf(p.num) < 0) continue;
+      for (const num of want) {
+        const m = await ev(`(() => { const p = boxState.pages.find(x => x.num === ${num}); if (!p) return null;
           let s = '';
           for (let i = 0; i < p.mask.length; i += 8192) s += String.fromCharCode.apply(null, p.mask.subarray(i, i + 8192));
-          out.push({ num: p.num, w: p.maskW, h: p.maskH, scale: p.maskScale, gap: boxState.params.gapMm, minSize: boxState.params.minSizeMm, data: btoa(s) });
-        }
-        return out; })()`);
-      for (const m of masks) {
-        fs.writeFileSync(path.join(outDir, 'boxmask-p' + m.num + '.json'), JSON.stringify(m));
+          return { num: p.num, w: p.maskW, h: p.maskH, scale: p.maskScale, gap: boxState.params.gapMm, minSize: boxState.params.minSizeMm, data: btoa(s) };
+        })()`);
+        if (m) fs.writeFileSync(path.join(outDir, 'boxmask-p' + m.num + '.json'), JSON.stringify(m));
       }
-      console.log('  已导出 ' + masks.length + ' 页掩膜到 probe-out/boxmask-p*.json');
+      console.log('  已导出掩膜：' + want.join(', ') + ' → probe-out/boxmask-p*.json');
     }
 
     // 每页的渲染尺寸与阈值（analyzePdf 里现算的，已经存进 __thr）
