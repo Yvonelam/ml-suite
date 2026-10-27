@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 /**
- * 离线复算 splitPage：把 probe-out/boxmask-p*.json 里的掩膜喂给与 app.js 逐字相同的切分代码，
- * 逐层打印 xyCut 的递归过程，定位「2 个箱唛被切成 23 块」是哪一刀切歪的。
- * 用法：node probe-boxmark-cut-debug.js 13 14
+ * 离线对照实验：把 app.js 的 splitPage 换成不同版本，跑全部掩膜，看哪种写法
+ * 既能让第 14 页切出 2 个箱唛，又不把第 1~13 页（各 3 个）弄坏。
+ * 用法：node probe-boxmark-cut-debug.js [页号...]      → 打印某页的递归过程
+ *       node probe-boxmark-cut-debug.js --all         → 全部页面跑所有变体
  */
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const which = process.argv.slice(2).map(Number);
-const nums = which.length ? which : [13, 14];
+const all = process.argv.includes('--all');
+const nums = process.argv.slice(2).filter(s => /^\d+$/.test(s)).map(Number);
 
+const PREFIX = process.env.MASK_PREFIX || '';
 function load(num) {
-  const f = path.join(__dirname, 'probe-out', 'boxmask-p' + num + '.json');
+  const f = path.join(__dirname, 'probe-out', 'boxmask-' + PREFIX + 'p' + num + '.json');
+  if (!fs.existsSync(f)) return null;
   const j = JSON.parse(fs.readFileSync(f, 'utf8'));
   const buf = Buffer.from(j.data, 'base64');
   return { num: j.num, mask: new Uint8Array(buf), W: j.w, H: j.h, maskScale: j.scale, gapMm: j.gap, minSizeMm: j.minSize };
@@ -54,23 +57,6 @@ function bestGap(S, W, r, dir, minGap) {
   }
   return best;
 }
-function xyCut(S, W, H, minGap, log) {
-  const out = [], stack = [{ x0: 0, y0: 0, x1: W, y1: H, depth: 0 }];
-  while (stack.length) {
-    const r = stack.pop();
-    if (r.x1 - r.x0 < 3 || r.y1 - r.y0 < 3 || r.depth > 22) { out.push(r); if (log) log('   叶子(过小/太深) ' + JSON.stringify(r)); continue; }
-    const cy = bestGap(S, W, r, 'y', minGap), cx = bestGap(S, W, r, 'x', minGap);
-    let cut = null;
-    if (cy && cx) cut = cy.len >= cx.len ? { dir: 'y', mid: cy.mid } : { dir: 'x', mid: cx.mid };
-    else if (cy) cut = { dir: 'y', mid: cy.mid };
-    else if (cx) cut = { dir: 'x', mid: cx.mid };
-    if (!cut) { out.push(r); if (log) log('   叶子(无缝隙) ' + JSON.stringify(r)); continue; }
-    if (log) log('  切 ' + cut.dir + ' mid=' + cut.mid + '  region=' + [r.x0, r.y0, r.x1, r.y1].join(',') + '  cy=' + (cy ? cy.len : '-') + ' cx=' + (cx ? cx.len : '-') + '  depth=' + r.depth);
-    if (cut.dir === 'y') { stack.push({ x0: r.x0, y0: r.y0, x1: r.x1, y1: cut.mid, depth: r.depth + 1 }); stack.push({ x0: r.x0, y0: cut.mid, x1: r.x1, y1: r.y1, depth: r.depth + 1 }); }
-    else { stack.push({ x0: r.x0, y0: r.y0, x1: cut.mid, y1: r.y1, depth: r.depth + 1 }); stack.push({ x0: cut.mid, y0: r.y0, x1: r.x1, y1: r.y1, depth: r.depth + 1 }); }
-  }
-  return out;
-}
 function tighten(S, W, b) {
   let x0 = b.x0, y0 = b.y0, x1 = b.x1, y1 = b.y1;
   while (y0 < y1 - 1 && rectSum(S, W, x0, y0, x1, y0 + 1) === 0) y0++;
@@ -80,18 +66,82 @@ function tighten(S, W, b) {
   return { x0, y0, x1, y1 };
 }
 
-for (const num of nums) {
-  const p = load(num);
+// ---- 变体 A：现状 ----
+function xyCutA(S, W, H, minGap, log) {
+  const out = [], stack = [{ x0: 0, y0: 0, x1: W, y1: H, depth: 0 }];
+  while (stack.length) {
+    const r = stack.pop();
+    if (r.x1 - r.x0 < 3 || r.y1 - r.y0 < 3 || r.depth > 22) { out.push(r); continue; }
+    const cy = bestGap(S, W, r, 'y', minGap), cx = bestGap(S, W, r, 'x', minGap);
+    let cut = null;
+    if (cy && cx) cut = cy.len >= cx.len ? { dir: 'y', mid: cy.mid } : { dir: 'x', mid: cx.mid };
+    else if (cy) cut = { dir: 'y', mid: cy.mid };
+    else if (cx) cut = { dir: 'x', mid: cx.mid };
+    if (!cut) { out.push(r); continue; }
+    if (cut.dir === 'y') { stack.push({ x0: r.x0, y0: r.y0, x1: r.x1, y1: cut.mid, depth: r.depth + 1 }); stack.push({ x0: r.x0, y0: cut.mid, x1: r.x1, y1: r.y1, depth: r.depth + 1 }); }
+    else { stack.push({ x0: r.x0, y0: r.y0, x1: cut.mid, y1: r.y1, depth: r.depth + 1 }); stack.push({ x0: cut.mid, y0: r.y0, x1: r.x1, y1: r.y1, depth: r.depth + 1 }); }
+  }
+  return out;
+}
+
+// ---- 变体 B：每层先收紧到内容，再找缝（tol 按「真正有内容的宽度」算，不再被大片空白灌水）----
+function xyCutB(S, W, H, minGap, log) {
+  const out = [], stack = [{ x0: 0, y0: 0, x1: W, y1: H, depth: 0 }];
+  while (stack.length) {
+    let r = stack.pop();
+    if (rectSum(S, W, r.x0, r.y0, r.x1, r.y1) === 0) { if (log) log('   丢弃空白区 ' + JSON.stringify(r)); continue; }
+    r = tighten(S, W, r);
+    if (r.x1 - r.x0 < 3 || r.y1 - r.y0 < 3 || r.depth > 22) { out.push(r); continue; }
+    const cy = bestGap(S, W, r, 'y', minGap), cx = bestGap(S, W, r, 'x', minGap);
+    let cut = null;
+    if (cy && cx) cut = cy.len >= cx.len ? { dir: 'y', mid: cy.mid } : { dir: 'x', mid: cx.mid };
+    else if (cy) cut = { dir: 'y', mid: cy.mid };
+    else if (cx) cut = { dir: 'x', mid: cx.mid };
+    if (!cut) { out.push(r); if (log) log('   叶子(无缝隙) ' + [r.x0, r.y0, r.x1, r.y1].join(',')); continue; }
+    if (log) log('   切 ' + cut.dir + ' mid=' + cut.mid + '  region=' + [r.x0, r.y0, r.x1, r.y1].join(',') + '  cy=' + (cy ? cy.len : '-') + ' cx=' + (cx ? cx.len : '-'));
+    if (cut.dir === 'y') { stack.push({ x0: r.x0, y0: r.y0, x1: r.x1, y1: cut.mid, depth: r.depth + 1 }); stack.push({ x0: r.x0, y0: cut.mid, x1: r.x1, y1: r.y1, depth: r.depth + 1 }); }
+    else { stack.push({ x0: r.x0, y0: r.y0, x1: cut.mid, y1: r.y1, depth: r.depth + 1 }); stack.push({ x0: cut.mid, y0: r.y0, x1: r.x1, y1: r.y1, depth: r.depth + 1 }); }
+  }
+  return out;
+}
+
+function runSplit(p, variant) {
   const S = buildIntegral(p.mask, p.W, p.H);
   const pxPerMm = (p.maskScale * 25.4) / 72;
   const minGap = Math.max(2, Math.round(p.gapMm * pxPerMm));
   const minPx = Math.max(3, Math.round(p.minSizeMm * pxPerMm));
-  console.log('\n===== 第 ' + num + ' 页 =====  掩膜 ' + p.W + 'x' + p.H + ' / minGap=' + minGap + 'px / minPx=' + minPx + 'px (gapMm=' + p.gapMm + ')');
-  const raw = xyCut(S, p.W, p.H, minGap, s => console.log(s));
-  const tightened = raw.map(b => tighten(S, p.W, b));
-  const kept = tightened.filter(b => (b.x1 - b.x0) >= minPx && (b.y1 - b.y0) >= minPx);
-  console.log('  xyCut 叶子 ' + raw.length + ' → 过滤后 ' + kept.length);
-  kept.forEach(b => console.log('    [' + b.x0 + ',' + b.y0 + ',' + b.x1 + ',' + b.y1 + ']  ' + (b.x1 - b.x0) + 'x' + (b.y1 - b.y0)));
-  const drop = tightened.filter(b => !kept.includes(b));
-  if (drop.length) console.log('  被丢弃的 ' + drop.length + ' 块：' + drop.map(b => (b.x1 - b.x0) + 'x' + (b.y1 - b.y0)).join(' '));
+  const fn = variant === 'B' ? xyCutB : xyCutA;
+  const log = variant === 'LOG' ? s => console.log(s) : null;
+  const raw = (variant === 'LOG' ? xyCutB : fn)(S, p.W, p.H, minGap, log);
+  const kept = raw.map(b => tighten(S, p.W, b)).filter(b => (b.x1 - b.x0) >= minPx && (b.y1 - b.y0) >= minPx);
+  return { raw: raw.length, kept, minGap, minPx };
+}
+
+const re = new RegExp('^boxmask-' + PREFIX + 'p(\\d+)\\.json$');
+const files = fs.readdirSync(path.join(__dirname, 'probe-out')).filter(f => re.test(f))
+  .map(f => Number(f.match(re)[1])).sort((a, b) => a - b);
+
+if (all) {
+  console.log('页  现状        收紧后先找缝      期望');
+  let badA = 0, badB = 0;
+  for (const num of files) {
+    const p = load(num);
+    const A = runSplit(p, 'A'), B = runSplit(p, 'B');
+    const want = 2 + (num <= 13 ? 1 : 0); // 前 13 页 3 个，第 14 页 2 个
+    const okA = A.kept.length === want, okB = B.kept.length === want;
+    if (!okA) badA++;
+    if (!okB) badB++;
+    console.log(String(num).padStart(2) + '  ' + ((A.kept.length + (okA ? ' ✓' : ' ✗')).padEnd(12)) + ' ' + ((B.kept.length + (okB ? ' ✓' : ' ✗')).padEnd(17)) + ' ' + want);
+  }
+  console.log('\n现状错 ' + badA + ' 页 / 收紧后错 ' + badB + ' 页');
+} else {
+  for (const num of (nums.length ? nums : files)) {
+    const p = load(num);
+    if (!p) { console.log('缺第 ' + num + ' 页掩膜'); continue; }
+    console.log('\n===== 第 ' + num + ' 页 =====');
+    for (const v of ['A', 'B']) {
+      const r = runSplit(p, v);
+      console.log(' 变体 ' + v + '：' + r.raw + ' 叶子 → ' + r.kept.length + ' 块  ' + r.kept.map(b => (b.x1 - b.x0) + 'x' + (b.y1 - b.y0)).join(' '));
+    }
+  }
 }

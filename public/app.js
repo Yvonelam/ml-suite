@@ -1213,7 +1213,16 @@ function bestGap(S, W, r, dir, minGap) {
 function xyCut(S, W, H, minGap) {
   const out = [], stack = [{ x0: 0, y0: 0, x1: W, y1: H, depth: 0 }];
   while (stack.length) {
-    const r = stack.pop();
+    let r = stack.pop();
+    // 整块空白直接扔掉，否则「被切成 1 块空白」也会混进结果
+    if (rectSum(S, W, r.x0, r.y0, r.x1, r.y1) === 0) continue;
+    // 每层先收紧到真正有内容的范围，再找缝。
+    // 不收紧的话，区域里的大片留白会把 bestGap 的 tol（按区域宽度算）灌成大数：
+    // 最后一页只有 2 个箱唛、右边半页是空白，区域 442px 宽 → tol = 2px，
+    // 而箱唛自己的左右两条 1px 边框线正好每行贡献 2px 墨 → tol 判它「这行是空的」，
+    // 于是一个箱唛被横着竖着切成了 23 块（实测）。收紧后 tol 按 203px 算 = 1px，
+    // 两条边框线（2px）就挡住了这一刀。
+    r = tighten(S, W, r);
     if (r.x1 - r.x0 < 3 || r.y1 - r.y0 < 3 || r.depth > 22) { out.push(r); continue; }
     const cy = bestGap(S, W, r, 'y', minGap), cx = bestGap(S, W, r, 'x', minGap);
     let cut = null;
