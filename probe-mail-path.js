@@ -56,8 +56,38 @@ function clashMode() {
     s.on('data', d => buf += d.toString('utf8'));
     s.on('end', () => {
       const i = buf.indexOf('\r\n\r\n');
-      try { const j = JSON.parse(buf.slice(i + 4)); fin({ mode: j.mode, tun: !!(j.tun && j.tun.enable) }); }
-      catch (e) { fin(null); }
+      try {
+        const j = JSON.parse(buf.slice(i + 4));
+        fin({ mode: j.mode, tun: !!(j.tun && j.tun.enable) });
+      } catch (e) { fin(null); }
+    });
+    s.on('error', () => fin(null));
+    s.setTimeout(4000, () => fin(null));
+  });
+}
+
+// 全局模式下「所有流量」走 GLOBAL 组里选中的那个节点——邮件能不能发，完全取决于那个节点
+// 封不封 465/587。实测（2026-10-27，34 个节点里抽样的 6 个）：
+//   美国西雅图2 / 香港精品2 / 英国 / 法国 → 封；日本[CM] / 德国 → 通。
+function globalNode() {
+  return new Promise(res => {
+    const cfgPath = path.join(process.env.APPDATA || '', 'io.github.clash-verge-rev.clash-verge-rev', 'config.yaml');
+    if (!fs.existsSync(cfgPath)) return res(null);
+    let txt = '';
+    try { txt = fs.readFileSync(cfgPath, 'utf8'); } catch (e) { return res(null); }
+    const pipeLine = (txt.match(/external-controller-pipe:\s*(\S+)/) || [])[1];
+    const secret = (txt.match(/^secret:\s*(\S+)/m) || [])[1] || '';
+    if (!pipeLine) return res(null);
+    const pipe = pipeLine.replace(/^"|"$/g, '');
+    const s = net.connect(pipe);
+    let chunk = [], done = false;
+    const fin = v => { if (done) return; done = true; try { s.destroy(); } catch (e) { } res(v); };
+    s.on('connect', () => s.write(`GET /proxies/GLOBAL HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ${secret}\r\nConnection: close\r\n\r\n`));
+    s.on('data', d => chunk.push(d));
+    s.on('end', () => {
+      const buf = Buffer.concat(chunk);
+      const i = buf.indexOf('\r\n\r\n');
+      try { fin(JSON.parse(buf.slice(i + 4).toString('utf8')).now || null); } catch (e) { fin(null); }
     });
     s.on('error', () => fin(null));
     s.setTimeout(4000, () => fin(null));
@@ -80,16 +110,16 @@ function clashMode() {
 
   console.log('\n=== 2. 代理有没有插手（Clash） ===');
   const cm = await clashMode();
+  let node = null;
   if (!cm) { W('读不到 Clash 状态（没装 Clash Verge，或控制管道变了）'); }
-  else {
-    if (cm.mode === 'global') {
-      fail++;
-      console.log('  ✗ Clash 处于「全局」模式（mode = global）—— 所有流量都会走去机场节点，' +
-        '国内邮箱端口必挂');
-      console.log('    → 在 Clash Verge 里点「规则」，或给 ' + host + ' 加一条 DIRECT 规则');
-    } else {
-      ok(true, 'Clash 模式 = ' + cm.mode + (cm.tun ? '（TUN 开启）' : '（TUN 关闭）'));
-    }
+  else if (cm.mode === 'global') {
+    node = await globalNode();
+    W('Clash 是「全局」模式 —— 所有流量（含国内邮箱、国内 API）都走 ' + (node || 'GLOBAL 组选中的节点'));
+    console.log('    → 全局模式本身没问题，但邮件能不能发**完全取决于这个节点**是否封 465/587。');
+    console.log('      实测封端口：美国西雅图2 / 香港精品2 / 英国 / 法国；能发：日本[CM] / 德国。');
+    console.log('      下面第 3 步的结果说了算。');
+  } else {
+    ok(true, 'Clash 模式 = ' + cm.mode + (cm.tun ? '（TUN 开启）' : '（TUN 关闭）'));
   }
 
   console.log('\n=== 3. SMTP 端口与 TLS 握手 ===');
@@ -100,7 +130,12 @@ function clashMode() {
     if (r587 && r587.ok) {
       W('但 587 端口是通的（' + r587.ms + 'ms）→ 把「SMTP 端口」改成 587（STARTTLS）就能发', undefined);
     } else if (r587) {
-      console.log('    587 也不通（' + r587.info + '）→ 基本可以断定是本机到邮件端口的链路被拦（代理/防火墙）');
+      console.log('    587 也不通（' + r587.info + '）');
+      if (cm && cm.mode === 'global') {
+        console.log('    → 全局模式下就是这个节点封了邮件端口。要么在 Clash 里把 GLOBAL 组换成日本/德国节点，要么切回「规则」模式。');
+      } else {
+        console.log('    → 规则模式下还这样，说明直连也被拦（防火墙/运营商），试试把 Clash 切到全局再换个不封 SMTP 的节点。');
+      }
     }
   }
 
