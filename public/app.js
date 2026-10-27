@@ -1185,11 +1185,17 @@ function buildIntegral(mask, W, H) {
   return S;
 }
 function rectSum(S, W, x0, y0, x1, y1) { const a = W + 1; return S[y1 * a + x1] - S[y0 * a + x1] - S[y1 * a + x0] + S[y0 * a + x0]; }
+// GAP_TOL：一行/一列最多允许多少墨迹还算「空白」。
+// 这个数只留抗锯齿噪点的余地，绝不能大 —— 箱唛自己的外框线在掩膜里是 1px，
+// 一行扫过去正好留下 2px 墨；tol 一旦 ≥ 2，整条「框内空白带」就会被判成缝隙，
+// 一个箱唛被切成十几块（2026-10 第 14 页切出 23 块就是栽在这）。
+// 所以按「每 833px 宽度容许 1px 噪点」取，A4 横向 674px 掩膜 → tol = 1。
+const GAP_TOL_PER_PX = 1 / 833;
 function bestGap(S, W, r, dir, minGap) {
   let best = null;
   if (dir === 'y') {
     const len = r.y1 - r.y0; if (len < 3) return null;
-    const tol = Math.max(1, Math.round((r.x1 - r.x0) * 0.004));
+    const tol = Math.max(1, Math.round((r.x1 - r.x0) * GAP_TOL_PER_PX));
     const rowSum = new Int32Array(len);
     for (let i = 0; i < len; i++) rowSum[i] = rectSum(S, W, r.x0, r.y0 + i, r.x1, r.y0 + i + 1);
     let i = 0;
@@ -1199,7 +1205,7 @@ function bestGap(S, W, r, dir, minGap) {
     }
   } else {
     const len = r.x1 - r.x0; if (len < 3) return null;
-    const tol = Math.max(1, Math.round((r.y1 - r.y0) * 0.004));
+    const tol = Math.max(1, Math.round((r.y1 - r.y0) * GAP_TOL_PER_PX));
     const colSum = new Int32Array(len);
     for (let i = 0; i < len; i++) colSum[i] = rectSum(S, W, r.x0 + i, r.y0, r.x0 + i + 1, r.y1);
     let i = 0;
