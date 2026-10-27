@@ -142,11 +142,14 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
 
     // 把掩膜导出来，离线复算切分过程（浏览器里不好逐层打印 xyCut 的递归）
     if (process.env.DUMP_MASK) {
-      const masks = await ev(`(() => boxState.pages.map(p => {
-        let s = '';
-        for (let i = 0; i < p.mask.length; i += 8192) s += String.fromCharCode.apply(null, p.mask.subarray(i, i + 8192));
-        return { num: p.num, w: p.maskW, h: p.maskH, scale: p.maskScale, gap: boxState.params.gapMm, minSize: boxState.params.minSizeMm, data: btoa(s) };
-      }))()`);
+      const want = (process.env.MASK_PAGES || '1,13,14').split(',').map(Number);
+      const masks = await ev(`(() => { const want = ${JSON.stringify(want)}; const out = [];
+        for (const p of boxState.pages) { if (want.indexOf(p.num) < 0) continue;
+          let s = '';
+          for (let i = 0; i < p.mask.length; i += 8192) s += String.fromCharCode.apply(null, p.mask.subarray(i, i + 8192));
+          out.push({ num: p.num, w: p.maskW, h: p.maskH, scale: p.maskScale, gap: boxState.params.gapMm, minSize: boxState.params.minSizeMm, data: btoa(s) });
+        }
+        return out; })()`);
       for (const m of masks) {
         fs.writeFileSync(path.join(outDir, 'boxmask-p' + m.num + '.json'), JSON.stringify(m));
       }
