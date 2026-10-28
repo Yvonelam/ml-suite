@@ -49,7 +49,17 @@ app.use((req, res, next) => {
 });
 
 // JSON body 解析
+// ⚠️ 只挂 express.json() 但不管它的报错时，畸形 JSON 会掉进 Express 默认错误页，
+//    返回 400 + 一整段 HTML 堆栈（前端 JSON.parse 直接失败，且对外泄漏文件路径）。
+//    下面这个中间件专门接住 body 解析错误，统一按 JSON 回，前端就能拿到可读的 error。
 app.use(express.json());
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const isParseErr = err && (err.type === 'entity.parse.failed' || (err instanceof SyntaxError && 'body' in err));
+  if (isParseErr) return res.status(400).json({ ok: false, error: '请求体不是合法的 JSON' });
+  if (err && err.type === 'entity.too.large') return res.status(413).json({ ok: false, error: '请求体过大' });
+  next(err);
+});
 
 
 const LEGACY_CONFIG_PATH = path.join(__dirname, 'daily-search-config.json');
@@ -1201,6 +1211,7 @@ app.get('/api/ml/sales', async (req, res) => {
     let to = isDateStr(req.query.to) ? String(req.query.to) : today;
     let from = isDateStr(req.query.from) ? String(req.query.from) : to;
     if (from > to) { const t = from; from = to; to = t; }
+    if (rejectTooWideRange(res, from, to, MAX_ORDER_SPAN_DAYS, '销售日期')) return;
     const siteCode = String(mlEffectiveSite(cfg.mlSite) || u.site_id || 'MLB').toUpperCase();
     const site = mlSite(siteCode);
     const uid = u.id;
@@ -1858,6 +1869,24 @@ function addDaysStr(dateStr, n) {
 }
 function daysBetween(a, b) {
   return Math.round((new Date(b + 'T12:00:00Z') - new Date(a + 'T12:00:00Z')) / 86400000);
+}
+
+/* 订单是「按天切片 + 逐页翻页」的全量抓取，跨度不设限时一个
+   from=1990-01-01&to=2030-12-31 的请求会变成上万次 API 调用，进程和配额一起拖死
+   （探针 probe-api-fuzz.js 实测：该请求 25 秒仍无响应）。
+   正常使用最长看季度，180 天足够宽松。 */
+const MAX_ORDER_SPAN_DAYS = 180;
+function rejectTooWideRange(res, from, to, maxDays, label) {
+  const span = daysBetween(from, to) + 1;
+  if (span > maxDays) {
+    res.status(400).json({
+      ok: false,
+      error: `${label || '日期'}跨度最多 ${maxDays} 天（当前 ${span} 天），请缩小范围后重试`,
+      maxDays, span,
+    });
+    return true;
+  }
+  return false;
 }
 
 // Advertiser IDs are private to the connected ML account; never reuse across users.
@@ -4059,6 +4088,15 @@ app.get('/api/report/status', (req, res) => {
     nextRunAt: reportSchedule.computeNextRun(config, new Date(), state.lastDate || ''),
     serverNow: reportSchedule.beijingLabel(new Date()),
   });
+});
+
+// 全局兜底错误处理：必须放在所有路由之后。
+// 没有它时任何未捕获异常都会走 Express 默认错误页 —— 返回 HTML + 完整堆栈，
+// 前端拿到的是 HTML 而不是 JSON，报错信息只剩「HTTP 500」，排查全靠翻日志。
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  console.error('[未捕获异常] ' + req.method + ' ' + req.originalUrl + ' → ' + ((err && err.stack) || err));
+  res.status(500).json({ ok: false, error: (err && err.message) || '服务器内部错误' });
 });
 
 // 静态文件

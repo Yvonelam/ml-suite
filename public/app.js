@@ -730,7 +730,6 @@ function showRankError(msg) {
   if (!msg) el.style.display = 'none';
   else { el.textContent = msg; el.style.display = 'block'; }
 }
-function escHtml(t) { if (!t) return ''; const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
 function priceStr(r) { const sym = r.currencySymbol || CURRENCY_SYMBOLS[r.currency] || ''; const s = r.priceDisplay || (r.price > 0 ? r.price.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '-'); return sym + ' ' + s; }
 function rankClass(n) { return n === 1 ? 't1' : n <= 3 ? 't3' : n <= 10 ? 't10' : ''; }
 
