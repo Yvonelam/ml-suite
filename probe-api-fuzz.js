@@ -122,16 +122,26 @@ function judge(label, r, { allow = [200, 400, 404, 422] } = {}) {
     } catch (e) { ok(false, method + ' ' + p + ' 畸形 JSON 异常', e.message); }
   }
 
-  console.log('\n=== 6. PUT 自动回复：脏数据是否被挡住 ===');
-  const putBad = [
-    { rules: 'not-array' },
-    { rules: [{ id: '', keywords: 'not-array', reply: {} }] },
-    { rules: [{ keywords: ['a'.repeat(200)], reply: 'x'.repeat(3000) }] },
-    { enabled: true, rules: [] },
-    { rules: [{ keywords: ['ok'], reply: 'ok', enabled: 'truthy' }] },
-  ];
-  for (const b of putBad) {
-    try { judge('PUT 脏数据 ' + JSON.stringify(b).slice(0, 60), await req(ck, '/api/ml/questions/auto-reply', 'PUT', b)); } catch (e) { ok(false, 'PUT 异常', e.message); }
+  /* ⚠️ 这里原本有一组「PUT 脏数据」测试，是**直接写真实账号**的 ——
+     2026-10-28 它把用户 4 条真实自动回复规则覆盖成了 1 条测试数据，且关闭了总开关。
+     PUT /api/ml/questions/auto-reply 会立刻落库（服务端没有 dry-run 通道），
+     所以任何针对它的写测试都不该放进「体检」脚本。
+     脏数据的健壮性改由这两处覆盖：
+       ① 前端纯内存路径 → probe-auto-reply-edit.js（只改内存，不点「保存并应用」）
+       ② 服务端 sanitizeRules 的纯函数单测 + 第 5b 段的畸形 JSON（在路由前就被 400 挡掉）
+     真正的写入验证只能在人工确认后手工做，且必须先把原值备份出来再写回。 */
+  console.log('\n=== 6. 写接口（PUT 自动回复）不做自动测试 ===');
+  console.log('  ⚠ 跳过：该接口会直接改写账号里的真实规则，探针不能碰。');
+  console.log('    要验证写入请手工操作，或先 GET 备份原值再恢复。');
+
+  console.log('\n=== 6b. READ 接口对脏 query 的健壮性 ===');
+  for (const p of [
+    '/api/ml/questions/auto-reply',
+    '/api/ml/questions?limit=abc',
+    '/api/ml/claims?limit=-1',
+    '/api/push/status',
+  ]) {
+    try { judge('GET ' + p, await req(ck, p)); } catch (e) { ok(false, p + ' 异常', e.message); }
   }
 
   console.log('\n=== 7. 未登录访问（应 401，不能漏数据也不能 500） ===');
