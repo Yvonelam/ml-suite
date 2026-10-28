@@ -310,6 +310,11 @@ node probe-theme-shot.js gold shot-gold   # 设计用截图：概览顶部 / 概
 
 7. **注意 `.tb` 顶栏的背景色是硬编码的 `#09090bf0`**，不是变量。整体换深浅色时记得同步处理它（改版顺手把它也换成变量是好习惯）。
 
+8. **用事件委托渲染出来的按钮，`data-id` 必须跟渲染一起给。**
+   代码里有多处 `container.addEventListener('click', e => { const b = e.target.closest('button[data-id]'); if (!b) return; ... })`。
+   如果渲染时某个按钮只写了 `data-act="edit"` 而漏了 `data-id`，`closest()` 返回 `null`，**第一行就 `return`，点击完全没反应、控制台也没有任何报错** —— 2026-10-28 的「自动回复点编辑没反应」就是这么来的（编辑/删除按钮漏了 `data-id`，只有 ↑↓ 有）。
+   规矩：① 渲染时 id 挂 `data-id`，动作只挂 `data-act`；② 委托里用 `closest('button')` 再兜底取 id，别把筛选写进选择器；③ 加了操作按钮就跑一遍对应探针（如 `probe-auto-reply-edit.js`）。
+
 ---
 
 ## 5. 推荐的改版流程

@@ -569,6 +569,7 @@ node dm-mcp.js call search_product_snapshots '{"market_code":"MLB","keyword":"he
 | `probe-boxmark-cut-debug.js` | 离线复算切分：拿导出的掩膜，把 `xyCut` 的递归过程逐层打出来，定位「是哪一刀切歪的」。`--all` 跑全部页 |
 | `probe-boxmark-shot.js` | 箱唛识别结果截图（`probe-out/boxmark-fixed.png`），人工看一眼最后几页有没有碎块 |
 | `probe-mail-path.js` | **邮件链路体检**（`node probe-mail-path.js`）：读配置 → 读 Clash 当前模式（规则/全局） → SMTP 端口 TLS 握手 → nodemailer 认证。定时邮件发不出去时先跑它，3 秒定位断在哪一层 |
+| `probe-auto-reply-edit.js` | **自动回复规则的编辑/删除/上移/新增**（24 项，真浏览器）：按钮结构（每条规则的编辑/删除必须带 `data-id`，缺了点击委托会在 `closest()` 那行静默 return）+ 编辑回填 + 保存草稿走更新而不是新增 + 关闭重开恢复服务端原值 + 删除 + ↑ 交换顺序 + 新增空表单 + 取消复位。全程只改内存、不点「保存并应用」，不污染账号规则 |
 | `probe-report-status.js` | 打开关键词排名页，把「定时发送运行状态」面板的文字摊出来 + 截图 `probe-out/report-status.png` |
 | `sync-status.js` | **同步体检**（双击 `同步状态.bat`）：自动同步进程在不在 / 未提交几个 / 未推送几个（→ GitHub 是旧的）/ 未合入几个（→ 本地没跟上远端），并打印最近 8 条记录 |
 | `git-autosync.js --once` | 手动跑一轮同步并强制 fetch+rebase 一次，排查用 |
