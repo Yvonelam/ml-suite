@@ -1302,6 +1302,20 @@ const profitOrderCache = new Map();
 const shipmentCostCache = new Map();
 const warehouseStockCache = new Map();
 
+/* shipmentCostCache 以运费单号为键（一单一个），原来只写不删：
+   跑得越久 Map 越大，历史订单的运费条目会一直堆在内存里。
+   攒到 3000 条时清一次过期项（1 小时外的条目本来就不会再命中，删掉无损失）。 */
+const SHIPMENT_CACHE_SOFT_MAX = 3000;
+function pruneShipmentCostCache() {
+  if (shipmentCostCache.size < SHIPMENT_CACHE_SOFT_MAX) return;
+  const now = Date.now();
+  let removed = 0;
+  for (const [k, v] of shipmentCostCache) {
+    if (!v || now - v.at > 3600000) { shipmentCostCache.delete(k); removed++; }
+  }
+  if (removed) console.log(`[运费缓存] 清理过期条目 ${removed} 个，剩余 ${shipmentCostCache.size} 个`);
+}
+
 // ---- 运费成本持久缓存 ----
 // 一单的运费在发货之后就不再变了，但原来只放在内存 Map（1 小时 TTL）：
 // 服务重启、或者换一个日期范围，就得把几百个 shipment 重新拉一遍 —— 实测 408 个要 59 秒。
@@ -1508,6 +1522,7 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     async function getShipmentCost(id,fallbackCurrency){
       const key=String(id);
       const mem=shipmentCostCache.get(key);if(mem&&Date.now()-mem.at<3600000)return mem.data;
+      pruneShipmentCostCache();
       const disk=shipCostGet(key);if(disk){shipmentCostCache.set(key,{at:Date.now(),data:disk});return disk;}
       let d=null;
       // 新接口：一小时内已知 403/404 的话直接跳过，别每个 shipment 都白试一次
