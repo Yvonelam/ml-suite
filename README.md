@@ -551,6 +551,16 @@ node dm-mcp.js call search_product_snapshots '{"market_code":"MLB","keyword":"he
 
 都是纯 Node，不需要额外依赖；涉及浏览器的会自己拉一个 headless Chrome。
 
+> ### 🚨 写探针第一条铁律：只能读，不能写
+>
+> **任何 `POST / PUT / DELETE` 都不能放进自动探针。** 这个项目没有 dry-run 通道，写接口一调就落库。
+>
+> 2026-10-28 就栽过：`probe-api-fuzz.js` 里加了一组「PUT 脏数据」测试，直接把账号里 4 条真实自动回复规则覆盖成 1 条测试数据，总开关被关，`processedIds` / `autoReplied` 一并清空。而 `auth-data/` 不在 git 里（被 .gitignore 排除），**没有任何版本兜底** —— 3 条规则的回复正文永久丢失了。
+>
+> 要测写接口，只能这样：① 先 GET 把原值完整备份到文件；② 人工确认后再写；③ 测完立刻写回并比对。或者干脆别测，留给人手工点。
+>
+> 正确示范看 `probe-auto-reply-edit.js` —— 它测的正是自动回复规则，但全程只改前端内存、**绝不点「保存并应用」**，注释里写明了原因。
+
 | 脚本 | 干什么 |
 |---|---|
 | `probe-resilience.js` | **连接韧性单测**：指数退避序列（3s→300s 封顶、500 次不放弃）、`probeUrl` 对 200/403/530/超时/连不上的判定。函数是从 `start-public.js` 里抠真身，不复制代码 |
