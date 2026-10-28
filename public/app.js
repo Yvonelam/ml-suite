@@ -3163,14 +3163,9 @@ const CLAIM_CAT_META = {
   buyer: { label: '买家咨询', ico: '💬', cls: 'buy', desc: '买家主动联系，等你回复' },
   auto: { label: '无需操作', ico: '📦', cls: 'auto', desc: '买家已自行处理退货退款，无需你操作' },
 };
-const CLAIM_TABS = [
-  { k: 'todo', label: '待我处理' },
-  { k: 'mediation', label: '平台调解' },
-  { k: 'buyer', label: '买家咨询' },
-  { k: 'auto', label: '无需操作' },
-  { k: 'ignored', label: '已忽略' },
-  { k: 'closed', label: '已关闭' },
-];
+// 注：售后 tab 的按钮文案与顺序写在 index.html 的 #claimTabs 里，
+// 计数由 renderClaimTabs() 直接遍历 DOM 回填，所以这里不需要 CLAIM_TABS 常量
+// （原来那份列表从没被读取过，已删）。
 
 function filterClaims(all, cat) {
   if (cat === 'ignored') return all.filter(c => c.ignored);

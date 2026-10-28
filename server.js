@@ -4130,6 +4130,12 @@ app.get('/api/report/status', (req, res) => {
   });
 });
 
+// 退役的独立页：/search/ 和 /boxmark/ 早已合并进主工作台的 #rank / #box 视图，
+// 目录里只剩「跳回主应用」的一行脚本 + 一份重复的 pdf-lib/pdf.js（2 MB）。
+// 目录已删除，这里补等价的 302，老书签和外部链接照样能落地。
+app.get(['/search', '/search/*'], (req, res) => res.redirect(302, '/index.html#rank'));
+app.get(['/boxmark', '/boxmark/*'], (req, res) => res.redirect(302, '/index.html#box'));
+
 // 全局兜底错误处理：必须放在所有路由之后。
 // 没有它时任何未捕获异常都会走 Express 默认错误页 —— 返回 HTML + 完整堆栈，
 // 前端拿到的是 HTML 而不是 JSON，报错信息只剩「HTTP 500」，排查全靠翻日志。
