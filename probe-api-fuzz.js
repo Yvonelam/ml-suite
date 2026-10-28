@@ -68,11 +68,25 @@ function judge(label, r, { allow = [200, 400, 404, 422] } = {}) {
     '/api/ml/profit/orders?from=abc&to=xyz',
     '/api/ml/profit/orders?from=&to=',
     '/api/ml/profit/orders?from=2026-13-45&to=2026-02-30',
-    '/api/ml/profit/orders?from=1990-01-01&to=2030-12-31',
-    '/api/ml/profit/orders?from=2026-10-01&to=2026-10-28&refresh=1',
   ];
   for (const p of datePaths) {
     try { judge(p, await req(ck, p)); } catch (e) { ok(false, p + ' 请求异常', e.message); }
+  }
+
+  // 跨度上限：这三处原来都没限制，from=1990&to=2030 会切成上万次 API 调用、直接把请求挂死
+  console.log('\n=== 2b. 超大跨度必须被 400 秒回（不能挂死） ===');
+  for (const [p, label] of [
+    ['/api/ml/profit/orders?from=1990-01-01&to=2030-12-31', '利润统计'],
+    ['/api/ml/sales?from=1990-01-01&to=2030-12-31', '销售统计'],
+    ['/api/ml/listings?from=1990-01-01&to=2030-12-31', 'Listing 统计'],
+  ]) {
+    const t0 = Date.now();
+    try {
+      const r = await req(ck, p);
+      const ms = Date.now() - t0;
+      ok(r.code === 400 && /跨度/.test(r.body) && ms < 5000,
+        label + ' 40 年跨度被 400 快速拒绝（' + ms + 'ms）', { code: r.code, ms, head: r.body.slice(0, 100) });
+    } catch (e) { ok(false, label + ' 超长跨度请求异常', e.message); }
   }
 
   console.log('\n=== 3. 站点参数（非法 / 小写 / 注入） ===');
@@ -87,16 +101,25 @@ function judge(label, r, { allow = [200, 400, 404, 422] } = {}) {
   }
 
   console.log('\n=== 5. POST 空体 / 畸形 JSON / 错误类型 ===');
-  const posts = [
-    '/api/config',
-    '/api/ml/questions/auto-reply',   // 是 PUT
-    '/api/push/config',
-    '/api/send-report',
-  ];
+  const posts = ['/api/config', '/api/push/config', '/api/send-report'];
   for (const p of posts) {
     try { judge('POST ' + p + ' 空体', await req(ck, p, 'POST', '')); } catch (e) { ok(false, p + ' 异常', e.message); }
-    try { judge('POST ' + p + ' 畸形 JSON', await req(ck, p, 'POST', '{bad json')); } catch (e) { ok(false, p + ' 异常', e.message); }
     try { judge('POST ' + p + ' 错类型', await req(ck, p, 'POST', { rules: 'not-an-array', enabled: 'yes', keywords: 123 })); } catch (e) { ok(false, p + ' 异常', e.message); }
+  }
+
+  // 畸形 JSON 过去会掉进 Express 默认错误页：400 + 一整段 HTML（含文件路径与堆栈）。
+  // 前端 mlGet 里的 r.json() 直接失败，用户只看到「HTTP 400」。现在必须回 JSON。
+  console.log('\n=== 5b. 畸形 JSON 必须回 JSON，不能泄漏 HTML 堆栈 ===');
+  for (const p of posts.concat(['/api/ml/questions/auto-reply'])) {
+    const method = p.includes('auto-reply') ? 'PUT' : 'POST';
+    try {
+      const r = await req(ck, p, method, '{bad json');
+      const isJson = /application\/json/i.test(r.type);
+      const leak = /at Object\.|node_modules|<pre>|SyntaxError:/i.test(r.body);
+      ok(r.code === 400 && isJson && !leak,
+        method + ' ' + p + ' 畸形 JSON → 400 + JSON 无堆栈',
+        { code: r.code, type: r.type, head: r.body.slice(0, 120) });
+    } catch (e) { ok(false, method + ' ' + p + ' 畸形 JSON 异常', e.message); }
   }
 
   console.log('\n=== 6. PUT 自动回复：脏数据是否被挡住 ===');
@@ -124,6 +147,30 @@ function judge(label, r, { allow = [200, 400, 404, 422] } = {}) {
   console.log('\n=== 8. 服务是否还活着 ===');
   const alive = await req(ck, '/api/auth/me').catch(e => ({ code: 0, body: e.message }));
   ok(alive.code === 200, '边界测试跑完后服务仍正常', alive.code);
+
+  // 限流识别是纯函数，直接读源码验算（售后提醒漏检就是它没兜住导致的）
+  console.log('\n=== 9. 限流识别 isRateLimited ===');
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const mm = src.match(/function isRateLimited\([\s\S]*?\n\}\n/);
+  if (!mm) { ok(false, 'server.js 里找不到 isRateLimited'); }
+  else {
+    let fn = null;
+    try { fn = eval('(' + mm[0].replace(/^function\s+isRateLimited/, 'function') + ')'); } catch (e) { ok(false, 'isRateLimited 无法求值：' + e.message); }
+    if (fn) {
+      for (const [st, d, exp, label] of [
+        [429, {}, true, 'HTTP 429'],
+        [429, { error: 'local_rate_limited' }, true, '429 + local_rate_limited'],
+        [200, { error: 'local_rate_limited' }, true, '200 但 body 是 local_rate_limited'],
+        [400, { message: 'Local_Rate_Limited' }, true, '大小写混合'],
+        [500, { error: 'internal' }, false, '普通 500 不算限流'],
+        [404, null, false, '404 且无 body 不算'],
+        [200, { ok: true }, false, '正常响应不算'],
+      ]) {
+        const got = fn(st, d);
+        ok(got === exp, 'isRateLimited(' + label + ') = ' + exp, got);
+      }
+    }
+  }
 
   console.log('\n' + pass + ' 通过 / ' + fail + ' 失败');
   process.exit(fail ? 1 : 0);

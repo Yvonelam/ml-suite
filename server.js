@@ -699,7 +699,7 @@ async function mlToken() {
 }
 
 // 统一请求：自动带 token，401 时刷新一次并重试
-async function mlRequest(pathname, options = {}, retry = true) {
+async function mlRequest(pathname, options = {}, retry = true, attempt = 0) {
   const token = await mlToken();
   const headers = { Accept: 'application/json', ...(options.headers || {}), Authorization: `Bearer ${token}` };
   // 硬超时：美客多接口偶尔会「连接建上了但一直不返回」，没有超时的话整条请求链会永远等下去，
@@ -721,14 +721,31 @@ async function mlRequest(pathname, options = {}, retry = true) {
   try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
   if (r.status === 401 && retry) {
     await refreshMlToken();
-    return mlRequest(pathname, options, false);
+    return mlRequest(pathname, options, false, attempt);
+  }
+  /* 限流必须退避重试，不能直接抛。
+     美客多返回 HTTP 429（body 里 error/message 常是 local_rate_limited）。
+     售后/提问监控是每分钟一轮的定时器，撞上限流就直接把整轮检查丢掉 ——
+     日志里 [微信提醒] 售后检查失败：local_rate_limited 出现过 14 次，
+     那些轮次的售后提醒是真漏了，而用户完全无感。
+     退避 0.9s → 1.8s，最多再试 2 次；仍失败才抛，交给上层记错误。 */
+  if (isRateLimited(r.status, data) && attempt < 2) {
+    await new Promise(res => setTimeout(res, 900 * Math.pow(2, attempt)));
+    return mlRequest(pathname, options, retry, attempt + 1);
   }
   if (!r.ok) {
     const msg = (data && (data.message || data.error)) || `HTTP ${r.status}`;
     const e = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
-    e.status = r.status; e.data = data; throw e;
+    e.status = r.status; e.data = data; e.rateLimited = isRateLimited(r.status, data); throw e;
   }
   return data;
+}
+
+// 美客多的限流有两种表现：HTTP 429，或 2xx/4xx 但 body 里带 local_rate_limited。
+function isRateLimited(status, data) {
+  if (status === 429) return true;
+  const t = String((data && (data.error || data.message)) || '').toLowerCase();
+  return t.includes('rate_limit') || t.includes('rate limit') || t.includes('too_many_requests');
 }
 
 // 依次尝试多个候选路径，返回第一个成功的（应对同一能力存在新旧两版接口）
@@ -3443,12 +3460,31 @@ function schedulePushMonitor(uid) {
   // 一轮 = 售前提问 + 售后，各自独立 try，一个挂了不影响另一个。
   // 必须包在 runAsUser 里：定时器回调没有请求上下文，否则 loadConfig / pushState / privateDataFile
   // 都会落到默认账号 admin 上，等于替别人检查。
+  // coolUntil：被美客多限流后冷却一段时间，别每分钟硬撞（mlRequest 内部已退避 2 次，
+  // 到这里还失败说明限流比较重，硬撞只会一直失败并且刷日志）。
+  let coolUntil = 0;
+  const looksRateLimited = (e) => !!(e && (e.rateLimited || /rate_limit|rate limit|too many requests/i.test(String(e.message || ''))));
   const tick = () => auth.runAsUser(targetId, async () => {
+    if (Date.now() < coolUntil) return;
+    let limited = false;
     try { await checkNewQuestions(); }
-    catch (e) { pushState.lastCheckAt = Date.now(); pushState.lastError = e.message; savePushState(); console.warn(`[微信提醒] ${targetId} 提问检查失败：`, e.message); }
-    if (!claimsOn) return;
-    try { await checkNewClaims(); }
-    catch (e) { pushState.lastClaimCheckAt = Date.now(); pushState.lastClaimError = e.message; savePushState(); console.warn(`[微信提醒] ${targetId} 售后检查失败：`, e.message); }
+    catch (e) {
+      pushState.lastCheckAt = Date.now(); pushState.lastError = e.message; savePushState();
+      console.warn(`[微信提醒] ${targetId} 提问检查失败：`, e.message);
+      if (looksRateLimited(e)) limited = true;
+    }
+    if (claimsOn) {
+      try { await checkNewClaims(); }
+      catch (e) {
+        pushState.lastClaimCheckAt = Date.now(); pushState.lastClaimError = e.message; savePushState();
+        console.warn(`[微信提醒] ${targetId} 售后检查失败：`, e.message);
+        if (looksRateLimited(e)) limited = true;
+      }
+    }
+    if (limited) {
+      coolUntil = Date.now() + 2 * 60000;
+      console.warn(`[微信提醒] ${targetId} 被美客多限流，本轮起暂停检查 2 分钟（${new Date(Date.now() + 2 * 60000).toLocaleTimeString('zh-CN')} 恢复）`);
+    }
   });
   const slot = {};
   slot.tick = setInterval(tick, min * 60000);
