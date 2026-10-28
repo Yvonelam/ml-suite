@@ -1458,6 +1458,9 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
   try{
     const u=await mlUser(),today=tzToday();let from=isDateStr(req.query.from)?String(req.query.from):today,to=isDateStr(req.query.to)?String(req.query.to):today;
     if(from>to){const t=from;from=to;to=t;}
+    // 90 天是硬上限：广告指标平台侧只能回溯 90 天，超过时后面算利润仍然会抛错。
+    // 在这里就挡掉，避免先抓完几万条订单再失败（原来会白跑几十秒然后 500）。
+    if (rejectTooWideRange(res, from, to, ADS_MAX_DAYS, '利润统计日期')) return;
     const cacheKey=`ads-v2-total|${auth.currentUserId()}|${u.id}|${from}|${to}`,cached=profitOrderCache.get(cacheKey);
     const summaryOnly=req.query.summary==='1';
     const toSummary=(data,cachedValue)=>({
@@ -1782,6 +1785,7 @@ app.get('/api/ml/listings', async (req, res) => {
     let to = isDateStr(req.query.to) ? String(req.query.to) : today;
     let from = isDateStr(req.query.from) ? String(req.query.from) : to;
     if (from > to) { const t = from; from = to; to = t; }
+    if (rejectTooWideRange(res, from, to, MAX_ORDER_SPAN_DAYS, '统计日期')) return;
     const siteCode = String(mlEffectiveSite(cfg.mlSite) || u.site_id || 'MLB').toUpperCase();
     const site = mlSite(siteCode);
     const uid = u.id;
