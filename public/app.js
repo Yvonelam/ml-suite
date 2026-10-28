@@ -3011,8 +3011,9 @@ function renderQuestionAutoReplyRules() {
       + '<button class="ghost" type="button" data-qauto-move="up" data-id="' + id + '" aria-label="上移规则"' + (index === 0 ? ' disabled' : '') + '>↑</button>'
       + '<button class="ghost" type="button" data-qauto-move="down" data-id="' + id + '" aria-label="下移规则"' + (index === rules.length - 1 ? ' disabled' : '') + '>↓</button>'
       + '<label class="qauto-toggle"><input type="checkbox" data-qauto-toggle="' + id + '"' + (rule.enabled ? ' checked' : '') + '>启用</label>'
-      + '<button class="ghost" type="button" data-qauto-edit="' + id + '">编辑</button>'
-      + '<button class="ghost" type="button" data-qauto-delete="' + id + '">删除</button>'
+      // ⚠️ data-id 必须有：下方点击委托靠 button[data-id] 取规则 id，缺了会导致编辑/删除静默失效
+      + '<button class="ghost" type="button" data-id="' + id + '" data-qauto-edit="1">编辑</button>'
+      + '<button class="ghost" type="button" data-id="' + id + '" data-qauto-delete="1">删除</button>'
       + '</div></div>';
   }).join('');
   renderQuestionAutoReplySummary();
@@ -3064,8 +3065,11 @@ function editQuestionAutoReplyRule(id) {
   $('#questionAutoReplyEditorTitle').textContent = rule ? '编辑回复规则' : '新增回复规则';
   $('#questionAutoReplyKeywords').value = rule ? rule.keywords.join('，') : '';
   $('#questionAutoReplyText').value = rule ? rule.reply : '';
-  $('#questionAutoReplyEditor').hidden = false;
-  $('#questionAutoReplyKeywords').focus();
+  const editor = $('#questionAutoReplyEditor');
+  editor.hidden = false;
+  // 编辑器在规则列表下方，规则多时会在视口外，滚上去否则用户以为没反应
+  if (editor.scrollIntoView) editor.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  $('#questionAutoReplyKeywords').focus({ preventScroll: true });
 }
 function saveQuestionAutoReplyRuleDraft() {
   const keywords = [...new Set($('#questionAutoReplyKeywords').value.split(/[,，;；]/).map(word => word.trim()).filter(Boolean))];
@@ -3107,9 +3111,11 @@ function bindQuestionAutoReplyEvents() {
     if (rule) { rule.enabled = input.checked; markQuestionAutoReplyDirty(); renderQuestionAutoReplyRules(); }
   });
   rules.addEventListener('click', event => {
-    const button = event.target.closest('button[data-id]');
+    const button = event.target.closest('button');
     if (!button) return;
-    const id = button.dataset.id;
+    // 优先 data-id；退化到 data-qauto-edit / data-qauto-delete 的值，避免漏写 data-id 时静默失效
+    const id = button.dataset.id || button.dataset.qautoEdit || button.dataset.qautoDelete || '';
+    if (!id) return;
     if (button.dataset.qautoEdit) { editQuestionAutoReplyRule(id); return; }
     if (button.dataset.qautoDelete) {
       if (!window.confirm('确定删除这条关键词回复规则吗？')) return;
