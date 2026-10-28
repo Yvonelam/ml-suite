@@ -1620,8 +1620,20 @@ function timeStr(ts) {
 }
 function fmtDate(s) {
   if (!s) return '-';
-  const d = new Date(s);
-  if (isNaN(d.getTime())) return String(s);
+  const str = String(s).trim();
+  /* 纯日期（YYYY-MM-DD）没有时刻信息，绝不能直接丢给 new Date()：
+     它按 UTC 解析，再换算到巴西时区（-03:00）就退成前一天 21:00，
+     看板上表现为「日期差一天」——这类错最难被发现，因为只有跨时区的日期才对不上。 */
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  /* 带时刻但没有时区标记的（"2026-10-27T12:00:00"）同样有坑：
+     浏览器会按本机时区（中国 UTC+8）解析，再换成巴西时间又要减 11 小时。
+     美客多返回的 date_created 都带偏移，这里是兜底，统一按巴西时间理解。 */
+  let iso = str;
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(str) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(str)) {
+    iso = str.replace(' ', 'T') + '-03:00';
+  }
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return str;
   const o = brParts(d);
   return o.year + '-' + o.month + '-' + o.day + ' ' + o.hour + ':' + o.minute;
 }

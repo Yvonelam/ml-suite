@@ -16,8 +16,8 @@
 | 位置 | 状态 | 说明 |
 |---|---|---|
 | `public/index.html`<br>`public/style.css`（约 500 行）<br>`public/app.js` | ✅ **在用** | 主工作台。7 个视图共用这一套结构，配色由三层主题表叠加 |
-| `public/search/*`（独立的 1500 行 CSS + app.js） | ⚠️ **已退役** | 打开 `/search/` 会立刻执行 `location.replace('../index.html#rank')` 跳回工作台的「关键词排名」视图 |
-| `public/boxmark/*`（独立的 300 行 CSS + app.js） | ⚠️ **已退役** | 同理，`/boxmark/` 会跳到 `#box` |
+| `public/search/*`（独立的 1500 行 CSS + app.js） | ✅ **已删除**（2026-10-28） | 曾会 `location.replace` 跳回 `#rank`；目录已删，现由 `server.js` 的 302 承担同样职责 |
+| `public/boxmark/*`（独立的 300 行 CSS + app.js） | ✅ **已删除**（2026-10-28） | 同上，`/boxmark/` 现由 302 送到 `#box` |
 
 也就是说：**那两个独立页的 CSS，目前在任何一个真实页面上都不会生效**。
 
