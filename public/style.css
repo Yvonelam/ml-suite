@@ -8,6 +8,20 @@
 html{background:#000;scroll-padding-top:env(safe-area-inset-top,0px)}
 body{font-family:var(--f);font-size:13.5px;background:var(--bg);color:var(--ink);line-height:1.55;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;min-height:100vh;isolation:isolate}
 button,input,select,textarea{font:inherit;color:inherit}
+
+/* ---- 原生 <select> 展开列表的颜色 ----
+   坑：`.fld select` 给了深色背景 + 浅色文字（--ink），但**弹层不跟随 select 的背景**。
+   Windows Chrome 会用系统默认的白色渲染下拉列表，而选项文字继承 select 的 color（浅色），
+   于是白底白字，展开后什么也看不清。
+   两个动作缺一不可：① select 声明 color-scheme:dark，让浏览器按深色绘制原生控件（含弹层、
+   滚动条、日期选择器）；② 显式给 option 设背景和文字色，兜住不认 color-scheme 的浏览器。
+   ⚠ option 的背景不能用 --s2/--s3：mist 和 gold 主题下它们是半透明的（rgba(...,.14)），
+   原生弹层底下没有毛玻璃层，半透明会直接透出白色，还是会看不清。这里用不透明的深色。 */
+select{color-scheme:dark}
+select option,select optgroup{background:#1a1a1f;color:var(--ink)}
+select option:checked{background:var(--ac);color:#fff}
+/* 日期/时间输入的原生选择器同样是白色弹层，一起交给 color-scheme 处理 */
+input[type=date],input[type=time],input[type=datetime-local],input[type=month]{color-scheme:dark}
 a{color:inherit;text-decoration:none}
 
 /* 液态玻璃背景 */
