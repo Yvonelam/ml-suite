@@ -34,12 +34,18 @@ function createWatcher(opts) {
   const shouldStop = opts.shouldStop || function () { return false; };
 
   // 收集目录下所有 .js 的 mtime
+  /* 探针 / 审计脚本不参与热重载：
+     它们和 server.js 一样躺在根目录，但改它们跟线上代码毫无关系。
+     不排除的话，调一次探针就重启一次服务 —— 正在跑的探针会被自己打断，
+     刚建立的会话、正在发的美客多请求全丢，排查时会误判成「探针把服务搞崩了」。 */
+  const IGNORE = /^(?:probe-|audit-).*\.js$/i;
   function scan() {
     const out = new Map();
     let names = [];
     try { names = fs.readdirSync(root); } catch (e) { return out; }
     for (const n of names) {
       if (!/\.js$/i.test(n)) continue;
+      if (IGNORE.test(n)) continue;
       try { out.set(n, fs.statSync(path.join(root, n)).mtimeMs); } catch (e) { /* 文件正被写入时可能 stat 失败，忽略 */ }
     }
     return out;

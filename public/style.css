@@ -25,6 +25,19 @@ select option,select optgroup{background:#1a1a1f;color:var(--ink)}
 select option:checked{background:#2e2e38;color:var(--ink)}
 /* 日期/时间输入的原生选择器同样是白色弹层，一起交给 color-scheme 处理 */
 input[type=date],input[type=time],input[type=datetime-local],input[type=month]{color-scheme:dark}
+
+/* ---- 非登录场景的密钥 / 令牌输入：不参与浏览器密码管理器 ----
+   症状：SMTP 授权码、Secret Key、Access/Refresh Token、PushPlus Token 这些框填完，
+   Chrome 会弹「保存密码？」并问要不要更新已保存的密码；切换账户弹窗也一样。
+   根因：Chrome 密码管理器的识别依据就是 `input[type=password]`，而它对
+   `autocomplete="off"` 是**明确忽略**的（这几个框原来全写着 off，照弹不误）。
+   做法：这些字段不用 password 类型，改 `type="text"` + 本行的掩码样式。
+   掩码靠 `-webkit-text-security:disc`，Chrome / Edge / Safari 都支持；
+   不支持的浏览器（Firefox）由 app.js 的 maskSecretInputs() 改回 type=password，
+   那边本来也没有 Chrome 这套提示，优先保证「看得清是密文」。
+   ⚠ 只有 login.html 的登录表单保留真正的 type=password —— 那是唯一该让浏览器
+   记密码的地方，不要顺手把它也改掉。 */
+input[data-secret]{-webkit-text-security:disc}
 a{color:inherit;text-decoration:none}
 
 /* 液态玻璃背景 */

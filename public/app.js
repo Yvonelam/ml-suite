@@ -720,6 +720,18 @@ function bindThemeMenu() {
 }
 bindThemeMenu();
 
+/* ---- 密钥输入框的掩码兜底 ----
+   这些框在 HTML 里是 `type="text" data-secret`，靠 CSS 的 -webkit-text-security 画圆点，
+   目的是让 Chrome 的密码管理器认不出来（它只认 input[type=password]），从而不再弹
+   「保存密码？」。代价是：-webkit-text-security 只有 WebKit 系支持，Firefox 不认 ——
+   那边会把这些字段原样显示成明文，比弹提示糟得多。所以不支持就退回 type=password。
+   这是唯一一处允许把类型改回 password 的地方，别在别处图省事这么干。 */
+function maskSecretInputs() {
+  const ok = typeof CSS === 'object' && CSS && typeof CSS.supports === 'function' && CSS.supports('-webkit-text-security', 'disc');
+  if (ok) return;
+  $$('input[data-secret]').forEach(el => { el.type = 'password'; });
+}
+
 function showProg(pct) {
   const pr = $('#prog');
   if (pct == null) { pr.style.display = 'none'; pr.firstElementChild.style.width = '0'; }
@@ -3761,6 +3773,7 @@ function bindAccountEvents(){
    6. 启动
    ========================================================= */
 function init() {
+  maskSecretInputs();
   // 先绑定各视图的事件/默认范围，再做路由跳转——否则 #ads 直达时会在默认范围设好前就发起请求
   bindConfigEvents();
   bindBoxEvents();

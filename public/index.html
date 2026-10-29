@@ -9,7 +9,7 @@
 <link rel="icon" href="favicon-16.png" type="image/png" sizes="16x16">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#09090b">
-<link rel="stylesheet" href="style.css?v=68">
+<link rel="stylesheet" href="style.css?v=69">
 <!-- 主题层：F 柔雾玻璃是最底层材质，G 彩色毛玻璃 / H 典藏金都建立在它之上，三张表按顺序加载；disabled 即可整层关掉 -->
 <link rel="stylesheet" href="theme-mist.css?v=2" id="themeMist">
 <link rel="stylesheet" href="theme-color.css?v=5" id="themeColor">
@@ -227,7 +227,7 @@
           </div>
           <div class="row">
             <label class="fld">SMTP 账号<input type="text" id="cfgSmtpUser" placeholder="your@email.com" autocomplete="off"></label>
-            <label class="fld grow">SMTP 授权码 <small id="smtpPassHint">（已设置，留空则不修改）</small><input type="password" id="cfgSmtpPass" placeholder="留空则保留原有授权码" autocomplete="off"></label>
+            <label class="fld grow">SMTP 授权码 <small id="smtpPassHint">（已设置，留空则不修改）</small><input type="text" id="cfgSmtpPass" data-secret spellcheck="false" placeholder="留空则保留原有授权码" autocomplete="off"></label>
           </div>
 
           <div class="settings-section-title">定时发送配置</div>
@@ -553,7 +553,7 @@
     <div class="modal-body">
       <div class="note">在美客多开发者后台创建应用后获取。<b>推荐用「一键授权」</b>：填好 App ID 与 Secret Key 后点授权按钮，系统会自动拿回令牌并长期自动续期，无需手动更换。</div>
       <label class="fld">App ID / Client ID<input id="mlAppId" placeholder="如 372553508992860" autocomplete="off"></label>
-      <label class="fld">Secret Key <small id="mlSecretHint"></small><input id="mlSecret" type="password" placeholder="留空则保留原值" autocomplete="off"></label>
+      <label class="fld">Secret Key <small id="mlSecretHint"></small><input id="mlSecret" type="text" data-secret spellcheck="false" placeholder="留空则保留原值" autocomplete="off"></label>
       <label class="fld">主站点<select id="mlSite"><option value="MLM">MLM 墨西哥</option><option value="MLB" selected>MLB 巴西</option><option value="MLA">MLA 阿根廷</option><option value="CBT">CBT 跨境（global-selling 建的应用选这个）</option></select></label>
       <div class="oauth-box">
         <div class="oauth-t">一键授权（OAuth 2.0）</div>
@@ -577,8 +577,8 @@
       </details>
       <details class="oauth-more">
         <summary>或手动填写令牌（高级）</summary>
-        <label class="fld">Access Token <small id="mlTokenHint"></small><input id="mlToken" type="password" placeholder="APP_USR-开头，留空则保留原值" autocomplete="off"></label>
-        <label class="fld">Refresh Token <small id="mlRefreshHint"></small><input id="mlRefresh" type="password" placeholder="TG-开头，留空则保留原值" autocomplete="off"></label>
+        <label class="fld">Access Token <small id="mlTokenHint"></small><input id="mlToken" type="text" data-secret spellcheck="false" placeholder="APP_USR-开头，留空则保留原值" autocomplete="off"></label>
+        <label class="fld">Refresh Token <small id="mlRefreshHint"></small><input id="mlRefresh" type="text" data-secret spellcheck="false" placeholder="TG-开头，留空则保留原值" autocomplete="off"></label>
       </details>
       <details class="oauth-more" id="pushSection">
         <summary>🔔 微信提醒 · 售前提问 + 售后（推送到手机微信）</summary>
@@ -589,7 +589,7 @@
           <b>怎么拿 token：</b>手机微信搜公众号「<b>pushplus 推送加</b>」并关注 → 进去点菜单登录 → 在「一对一推送」页面复制 <b>token</b> → 粘贴到下面。
           <a href="https://www.pushplus.plus/" target="_blank" rel="noopener" style="color:#7dd3fc">官网 pushplus.plus</a>
         </div>
-        <label class="fld">PushPlus Token <small id="pushTokenHint"></small><input id="pushToken" type="password" placeholder="粘贴 32 位 token，留空则保留原值" autocomplete="off"></label>
+        <label class="fld">PushPlus Token <small id="pushTokenHint"></small><input id="pushToken" type="text" data-secret spellcheck="false" placeholder="粘贴 32 位 token，留空则保留原值" autocomplete="off"></label>
         <div class="push-row">
           <label class="oauth-chk"><input type="checkbox" id="pushEnabled"> 开启新提问提醒</label>
           <label class="oauth-chk"><input type="checkbox" id="pushClaims"> 同时推送售后（纠纷 / 平台调解）</label>
@@ -616,8 +616,8 @@
   <section class="account-dialog" role="dialog" aria-modal="true" aria-labelledby="accountDialogTitle">
     <h2 id="accountDialogTitle">切换账户</h2><p>输入另一个 ML Suite 账号。验证成功后会切换当前会话。</p>
     <form id="accountSwitchForm">
-      <label class="account-field">账号<input id="accountSwitchUser" autocomplete="username" placeholder="输入账号名" required></label>
-      <label class="account-field">密码<input id="accountSwitchPass" type="password" autocomplete="current-password" placeholder="输入密码" required></label>
+      <label class="account-field">账号<input id="accountSwitchUser" autocomplete="off" placeholder="输入账号名" required></label>
+      <label class="account-field">密码<input id="accountSwitchPass" type="text" data-secret autocomplete="off" spellcheck="false" placeholder="输入密码" required></label>
       <div class="account-status" id="accountSwitchStatus" aria-live="polite"></div>
       <div class="account-dialog-actions"><button class="ghost" id="accountSwitchCancel" type="button">取消</button><button class="btn" id="accountSwitchSubmit" type="submit">验证并切换</button></div>
     </form>
@@ -636,6 +636,6 @@
   <button class="theme-item" data-t="gold" type="button" role="menuitem"><span class="dot d-gold"></span><span class="nm"><b>典藏金</b><small>暖金天光 · 层叠山脊 · 细金描边</small></span><span class="ck">✓</span></button>
   <button class="theme-item" data-t="motion" type="button" role="menuitem"><span class="dot d-motion"></span><span class="nm"><b>动态玻璃</b><small>动态渐变 · 流动波纹 · 通透玻璃</small></span><span class="ck">✓</span></button>
 </div>
-<script src="app.js?v=65"></script>
+<script src="app.js?v=66"></script>
 </body>
 </html>
