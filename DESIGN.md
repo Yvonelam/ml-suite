@@ -322,6 +322,14 @@ node probe-theme-shot.js gold shot-gold   # 设计用截图：概览顶部 / 概
    - `option:checked` 的底色**不能是 `--ac`**：gold 的 `--ac` 是浅金、motion 是浅紫，白字对比度只有 2.2 → 用与主题无关的固定灰 + `--ink`。
    这类问题截图看不出来（`Page.captureScreenshot` 截不到原生弹层），只能断言计算样式，改完跑 `probe-select-theme.js`。
 
+10. **除了登录页，任何框都不许用 `type="password"`。**
+    Chrome 密码管理器只认这个类型，`autocomplete="off"` 对它**无效**（这是规范里写明的忽略行为，不是 bug）。
+    业务页的密钥/令牌框统一写成 `<input type="text" data-secret spellcheck="false" autocomplete="off">`，
+    掩码由 CSS 的 `input[data-secret]{-webkit-text-security:disc}` 负责；
+    不支持的浏览器由 `app.js` 的 `maskSecretInputs()` 特性检测后改回 `type=password`（宁可弹提示，不能明文）。
+    新增一个「要人填密钥」的输入框时，照这个写法抄，不要图省事直接写 `type="password"` ——
+    少写一个 `data-secret` 就等于把授权码明文晾在屏幕上。改完跑 `probe-password-manager.js`。
+
 ---
 
 ## 5. 推荐的改版流程

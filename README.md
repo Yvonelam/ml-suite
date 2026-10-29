@@ -560,6 +560,8 @@ node dm-mcp.js call search_product_snapshots '{"market_code":"MLB","keyword":"he
 > 要测写接口，只能这样：① 先 GET 把原值完整备份到文件；② 人工确认后再写；③ 测完立刻写回并比对。或者干脆别测，留给人手工点。
 >
 > 正确示范看 `probe-auto-reply-edit.js` —— 它测的正是自动回复规则，但全程只改前端内存、**绝不点「保存并应用」**，注释里写明了原因。
+>
+> 顺带一条：`hot-reload.js` **不监听 `probe-*.js` / `audit-*.js`**。它们和 `server.js` 一起躺在根目录，但改它们跟线上代码无关；不排除的话，调试时每改一次探针就重启一次服务，正在跑的那一轮会被自己打断，看起来活像「探针把服务搞崩了」。
 
 | 脚本 | 干什么 |
 |---|---|
@@ -586,6 +588,7 @@ node dm-mcp.js call search_product_snapshots '{"market_code":"MLB","keyword":"he
 | `probe-api-fuzz.js` | **接口边界体检**（60 项）：数字/日期/站点/路径参数灌畸形值（负数、字母、1e9、40 年跨度、`../`、`%00`）断言不出 500、不吐 HTML；畸形 JSON 必须回 JSON 且不泄漏堆栈；未登录必须 401 且响应不含敏感字段；跑完服务仍活 |
 | `probe-auto-reply-edit.js` | **自动回复规则的编辑/删除/上移/新增**（24 项，真浏览器）：按钮结构（每条规则的编辑/删除必须带 `data-id`，缺了点击委托会在 `closest()` 那行静默 return）+ 编辑回填 + 保存草稿走更新而不是新增 + 关闭重开恢复服务端原值 + 删除 + ↑ 交换顺序 + 新增空表单 + 取消复位。全程只改内存、不点「保存并应用」，不污染账号规则 |
 | `probe-select-theme.js` | **原生控件的深色适配**（11 项，真浏览器）：5 套主题 × 9 个 `<select>` 的 73 个 `<option>` 全部断言「深底 + 浅字 + 对比度 ≥ 4.5」（含选中项 `:checked`），并断言 `select` / `input[type=date]` 的 `color-scheme` 是 `dark`。原生弹层由系统绘制、`Page.captureScreenshot` 截不到，只能靠计算样式断言 —— 这是「点开一片白」唯一的自动化防线 |
+| `probe-password-manager.js` | **Chrome 密码管理器的触发面**（32 项，真浏览器）：两头都要断言 —— ① 工作台 + 管理员页必须**一个** `input[type=password]` 都不剩（否则 Chrome 又认出来弹「保存密码」），且 5 个凭据框的 `-webkit-text-security` 必须是 `disc`（改类型不能把掩码搞丢）、`.value` 照常可读写；② `login.html` 的登录框必须**还是** `type=password` + `current-password`（那是唯一该记密码的地方）。⚠ 只读：配置区每个框都挂了 `scheduleAutoSave`，探针里**绝不能**派发 `input` 事件，只许直接写 `.value` |
 | `probe-report-status.js` | 打开关键词排名页，把「定时发送运行状态」面板的文字摊出来 + 截图 `probe-out/report-status.png` |
 | `sync-status.js` | **同步体检**（双击 `同步状态.bat`）：自动同步进程在不在 / 未提交几个 / 未推送几个（→ GitHub 是旧的）/ 未合入几个（→ 本地没跟上远端），并打印最近 8 条记录 |
 | `git-autosync.js --once` | 手动跑一轮同步并强制 fetch+rebase 一次，排查用 |
@@ -639,6 +642,20 @@ node probe-mail-path.js      # 读配置 → 读 Clash 模式与节点 → SMTP 
 原生 `<select>` 的**展开弹层不是 DOM**，由系统绘制，所以 `select` 自己的 `background` 管不到它。以前 `.fld select` 只给了 `select` 深色底 + 浅色字（`--ink`），Windows Chrome 用系统白色画弹层，选项文字继承浅色 → 白底白字。2026-10-29 修法两条一起上：`select{color-scheme:dark}`（让浏览器按深色绘制原生控件，含弹层、滚动条、日期选择器）+ 给 `option` 显式设不透明底色。
 
 两个坑记一下：① `option` 的底色**不能用 `--s2`/`--s3`** —— mist/gold 主题下它们是半透明 rgba，弹层底下没有毛玻璃层，会直接透出白色；② 选中项 `option:checked` **不能拿 `--ac` 当底** —— gold 主题的 `--ac` 是浅金、motion 是浅紫，白字压上去对比度只有 2.2。改这块跑 `node probe-select-theme.js`（5 套主题 × 73 个 option × 对比度断言，弹层截不到图，只能靠计算样式）。
+
+**Q：填 SMTP 授权码 / Secret Key / Token 的时候，Chrome 老弹「保存密码？」，怎么关掉？**
+改 `type`，不要指望 `autocomplete`。Chrome 密码管理器的识别依据就是 `input[type=password]`，而它对 `autocomplete="off"` 是**明确忽略**的 —— 这几个框原来全写着 `off`，照弹不误。2026-10-29 起统一改成「不是 password 类型 + CSS 掩码」：
+
+```html
+<input type="text" data-secret spellcheck="false" autocomplete="off">
+```
+```css
+input[data-secret]{-webkit-text-security:disc}
+```
+
+`-webkit-text-security` 只有 WebKit 系（Chrome / Edge / Safari）认，不认的浏览器会把这些框显示成**明文**，所以 `app.js` 的 `maskSecretInputs()` 会做特性检测，不支持就退回 `type="password"`（Firefox 本来也没有 Chrome 这套提示，优先保证看得清是密文）。
+
+范围：工作台的 5 个凭据框（SMTP 授权码 / Secret Key / Access Token / Refresh Token / PushPlus Token）+ 工作台和管理员页的两个「切换账户」弹窗。**只有 `login.html` 的登录/注册表单保留真正的 `type=password`** —— 那是唯一该让浏览器记密码的地方，改这块别顺手把它也改掉。改完跑 `node probe-password-manager.js`。
 
 **Q：公网 530 / 1033，但本地 `127.0.0.1:3000` 好好的？**
 这是隧道到 Cloudflare 边缘的连接断了，不是本地服务的问题。现在的自愈链路是：每分钟查 `/ready` + `/metrics` 连接数 + 真打一次公网地址，连续 3~5 分钟不健康就强杀隧道重连（指数退避）。先看 `运行日志.txt` 有没有这三行：`健康异常`（在抖）、`强制重启`（触发了自愈）、`健康探测已接管 ✓`（正常基线）。手动救急仍然是重跑 `启动公网服务.bat`。
