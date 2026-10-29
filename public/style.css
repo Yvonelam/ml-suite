@@ -16,10 +16,13 @@ button,input,select,textarea{font:inherit;color:inherit}
    两个动作缺一不可：① select 声明 color-scheme:dark，让浏览器按深色绘制原生控件（含弹层、
    滚动条、日期选择器）；② 显式给 option 设背景和文字色，兜住不认 color-scheme 的浏览器。
    ⚠ option 的背景不能用 --s2/--s3：mist 和 gold 主题下它们是半透明的（rgba(...,.14)），
-   原生弹层底下没有毛玻璃层，半透明会直接透出白色，还是会看不清。这里用不透明的深色。 */
+   原生弹层底下没有毛玻璃层，半透明会直接透出白色，还是会看不清。这里用不透明的深色。
+   ⚠ 当前选中项（:checked）也不能拿 --ac 当底色：gold 主题的 --ac 是浅金、motion 是浅紫，
+   白字压上去对比度只有 2.2，比不改还难看。选中项改用一层比底色亮一点的固定灰，
+   在 5 套主题下都和 --ink（浅字）保持 10:1 以上。 */
 select{color-scheme:dark}
 select option,select optgroup{background:#1a1a1f;color:var(--ink)}
-select option:checked{background:var(--ac);color:#fff}
+select option:checked{background:#2e2e38;color:var(--ink)}
 /* 日期/时间输入的原生选择器同样是白色弹层，一起交给 color-scheme 处理 */
 input[type=date],input[type=time],input[type=datetime-local],input[type=month]{color-scheme:dark}
 a{color:inherit;text-decoration:none}

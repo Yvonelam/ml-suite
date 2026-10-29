@@ -30,18 +30,23 @@ let pass = 0, fail = 0;
 const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label); } else { fail++; console.log('  ✗ ' + label + '   → ' + JSON.stringify(extra)); } };
 
 // 在页面里跑：读 option 的计算样式并算对比度
+// 注意要扫「所有」option，不能只看第一个 —— 第一个通常就是当前选中项，:checked 的配色
+// 和普通项不一样，只看它会漏掉普通项白底白字的老问题。
 const READ = `(() => {
   const sels = [...document.querySelectorAll('select')];
   const out = [];
   for (const sel of sels) {
-    const opt = sel.querySelector('option');
-    if (!opt) continue;
-    const so = getComputedStyle(opt);
+    const opts = [...sel.querySelectorAll('option')];
+    if (!opts.length) continue;
+    const worst = [];
+    for (const opt of opts) {
+      const so = getComputedStyle(opt);
+      worst.push({ bg: so.backgroundColor, fg: so.color, contrast: __ct(so.backgroundColor, so.color), checked: opt.selected, text: (opt.textContent || '').trim().slice(0, 12) });
+    }
     out.push({
       id: sel.id || '(无 id)',
       scheme: getComputedStyle(sel).colorScheme,
-      bg: so.backgroundColor,
-      fg: so.color,
+      opts: worst,
     });
   }
   return out;
@@ -78,6 +83,8 @@ const CONTRAST = `(function(bg, fg){
     for (let i = 0; i < 60; i++) { await sleep(300); if (await ev('document.title||""')) break; }
     for (let i = 0; i < 60; i++) { if (await ev('typeof go === "function"')) break; await sleep(200); }
     await ev("(function(){var s=document.getElementById('splash');if(s)s.style.setProperty('display','none','important');return true})()");
+    // 对比度函数装进页面，避免每个 option 一次 CDP 往返（9 个 select × 8 个选项 × 5 主题）
+    await ev('window.__ct = ' + CONTRAST + '; true');
 
     // 把带 select 的视图都渲染出来，确保 querySelectorAll('select') 能拿到全部
     for (const v of ['rank', 'hub', 'profit']) { await ev(`go('${v}'); true`); await sleep(600); }
@@ -91,27 +98,38 @@ const CONTRAST = `(function(bg, fg){
     ];
 
     for (const [key, label] of themes) {
-      await ev(`setTheme('${key}'); true`);
+      // 函数名是 applyTheme（主题 = 四张可开关的样式表），不是 setTheme
+      await ev(`applyTheme('${key}'); true`);
       await sleep(500);
       const rows = await ev(READ);
       console.log('\n=== 主题 ' + key + '（' + label + '）· ' + rows.length + ' 个 select ===');
       if (!rows.length) { ok(false, '页面上找不到 select'); continue; }
-      let bad = 0;
+      // rgba 解构后的首通道：用来判定「底色够不够暗」，半透明会透白所以浅色一律不合格
+      const isDark = bg => {
+        const m = String(bg).match(/[\d.]+/g);
+        if (!m) return false;
+        const [r, g, b] = m.slice(0, 3).map(Number);
+        return Math.max(r, g, b) <= 130;
+      };
+      let bad = 0, total = 0;
       for (const r of rows) {
-        const c = await ev(`${CONTRAST}(${JSON.stringify(r.bg)}, ${JSON.stringify(r.fg)})`);
-        const darkBg = /^rgba?\((?:[0-3]?\d|1\d{2}),/.test(r.bg) || r.bg === 'rgb(26, 26, 31)';
-        const good = c >= 4.5 && darkBg;
-        if (!good) bad++;
-        if (!good) console.log('    ✗ ' + r.id + '  bg=' + r.bg + '  fg=' + r.fg + '  对比度=' + c);
+        for (const o of r.opts) {
+          total++;
+          const good = o.contrast >= 4.5 && isDark(o.bg);
+          if (!good) {
+            bad++;
+            console.log('    ✗ ' + r.id + (o.checked ? '(选中项)' : '') + '  ' + JSON.stringify(o.text) + '  bg=' + o.bg + '  fg=' + o.fg + '  对比度=' + o.contrast);
+          }
+        }
       }
-      ok(bad === 0, label + '：所有 select 的 option 都是深底浅字（对比度 ≥ 4.5）', bad + ' 个不合格');
+      ok(bad === 0, label + '：' + total + ' 个 option 全是深底浅字（对比度 ≥ 4.5、底色够暗）', bad + ' 个不合格');
       // color-scheme 必须让原生弹层走深色
       const schemes = [...new Set(rows.map(r => r.scheme))];
       ok(schemes.length === 1 && /dark/.test(schemes[0]), label + '：select 的 color-scheme = dark', schemes);
     }
 
     // 日期选择器
-    await ev("setTheme('classic'); true"); await sleep(300);
+    await ev("applyTheme('classic'); true"); await sleep(300);
     await ev("go('profit'); true"); await sleep(700);
     const dateScheme = await ev(`(() => { const d = document.querySelector('input[type=date]'); return d ? getComputedStyle(d).colorScheme : '(没有日期输入)'; })()`);
     ok(/dark/.test(dateScheme), '日期输入框的 color-scheme = dark（日历弹层不再白底）', dateScheme);
