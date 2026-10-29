@@ -315,6 +315,13 @@ node probe-theme-shot.js gold shot-gold   # 设计用截图：概览顶部 / 概
    如果渲染时某个按钮只写了 `data-act="edit"` 而漏了 `data-id`，`closest()` 返回 `null`，**第一行就 `return`，点击完全没反应、控制台也没有任何报错** —— 2026-10-28 的「自动回复点编辑没反应」就是这么来的（编辑/删除按钮漏了 `data-id`，只有 ↑↓ 有）。
    规矩：① 渲染时 id 挂 `data-id`，动作只挂 `data-act`；② 委托里用 `closest('button')` 再兜底取 id，别把筛选写进选择器；③ 加了操作按钮就跑一遍对应探针（如 `probe-auto-reply-edit.js`）。
 
+9. **原生控件（`<select>` 弹层、滚动条、日期选择器）由系统绘制，CSS 背景管不到它。**
+   深色皮肤下必须写 `select{color-scheme:dark}`，否则 Windows Chrome 用系统白底画弹层，而 `option` 文字继承了 `--ink`（浅色）→ 展开一片白。
+   配套的两条禁令：
+   - `option` 的底色**不能是半透明变量**（`--s2`/`--s3` 在 mist/gold 下是 rgba），弹层底下没有毛玻璃层，会直接透白 → 用不透明深色。
+   - `option:checked` 的底色**不能是 `--ac`**：gold 的 `--ac` 是浅金、motion 是浅紫，白字对比度只有 2.2 → 用与主题无关的固定灰 + `--ink`。
+   这类问题截图看不出来（`Page.captureScreenshot` 截不到原生弹层），只能断言计算样式，改完跑 `probe-select-theme.js`。
+
 ---
 
 ## 5. 推荐的改版流程
