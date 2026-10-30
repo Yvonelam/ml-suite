@@ -5,14 +5,16 @@
  * 用户反馈（2026-10-30）：在弹窗里编辑某条规则时，售前那 30 秒一次的自动刷新会把
  * 自动回复界面关掉，正在填的关键词/回复文本直接没了。
  *
- * 这个探针把「刷新」这件事拆成三层分别打一遍，定位到底哪一层动的：
- *   ① loadQuestions()      —— 30 秒定时器真正做的事
- *   ② loadQuestionAutoReply() —— 切回问答页时会做的事
- *   ③ 真实等待 35 秒，让 setInterval 自己触发一次
- * 每层之后都断言：弹窗还开着、编辑器还开着、已填的文字还在。
+ * 实测「刷新」本身并没有调用 closeQuestionAutoReply，但同一类问题是真的：
+ *   ① loadQuestionAutoReply() 会把服务端 rules **整个替换**本地数组 ——
+ *      用户在弹窗里刚加/改的规则，下一次切页或刷新就凭空消失；
+ *   ② 编辑器里的草稿没有任何保护，弹窗被任何原因关掉就静默丢了。
+ * 所以修法是三层：
+ *   A. 弹窗开着时，售前 30 秒定时器直接让路（不刷新列表）
+ *   B. 有未保存改动时，loadQuestionAutoReply() 不覆盖本地规则（force 才刷）
+ *   C. 编辑器一动手就置 editorDirty：关闭要 confirm，状态栏也会提示
  *
- * ⚠ 只读探针：不点「保存并应用」，不派发任何会触发写库的事件。
- *   （编辑器里的输入框本身没有 input 监听，写 .value 不会把 dirty 置位，也不会有自动保存）
+ * ⚠ 只读探针：全程不点「保存并应用」，也不会派发任何写库事件。
  */
 'use strict';
 const { spawn } = require('child_process');
@@ -42,14 +44,18 @@ const SNAP = `(() => {
   const ed = document.getElementById('questionAutoReplyEditor');
   const tx = document.getElementById('questionAutoReplyText');
   const kw = document.getElementById('questionAutoReplyKeywords');
+  const st = document.getElementById('questionAutoReplyState');
   return {
     modalOpen: !!m && !m.hidden,
     editorOpen: !!ed && !ed.hidden,
     text: tx ? tx.value : null,
     keywords: kw ? kw.value : null,
-    editingId: (window.questionAutoReplyView && questionAutoReplyView.editingId) || null,
-    focused: document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : null,
+    ruleCount: document.querySelectorAll('#questionAutoReplyRules .qauto-rule').length,
+    editorDirty: (typeof questionAutoReplyView !== 'undefined' ? questionAutoReplyView.editorDirty : null),
+    dirty: (typeof questionAutoReplyView !== 'undefined' ? questionAutoReplyView.dirty : null),
+    statusText: st ? st.textContent : '',
     confirms: window.__probeConfirms || 0,
+    loadQCalls: window.__probeLoadQ || 0,
   };
 })()`;
 
@@ -74,56 +80,101 @@ const SNAP = `(() => {
     for (let i = 0; i < 60; i++) { await sleep(300); if (await ev('document.title||""')) break; }
     for (let i = 0; i < 60; i++) { if (await ev('typeof go === "function"')) break; await sleep(200); }
     await ev("(function(){var s=document.getElementById('splash');if(s)s.style.setProperty('display','none','important');return true})()");
-    // confirm 打桩：真有东西想关弹窗时，dirty 保护会弹 confirm，这里统计次数而不是让人卡住
-    await ev(`(function(){ window.__probeConfirms = 0; window.confirm = function(){ window.__probeConfirms++; return false; }; return true; })()`);
+    // 打桩：confirm 计数（默认拒绝，模拟用户点「取消」）；loadQuestions 计数
+    await ev(`(function(){
+      window.__probeConfirms = 0; window.__probeAllowClose = false;
+      window.confirm = function(){ window.__probeConfirms++; return window.__probeAllowClose; };
+      window.__probeLoadQ = 0;
+      var orig = window.loadQuestions;
+      window.loadQuestions = function(){ window.__probeLoadQ++; return orig.apply(this, arguments); };
+      return true;
+    })()`);
     await ev("go('questions'); true"); await sleep(1500);
 
-    /* ---------- 打开弹窗 + 进入编辑 ---------- */
-    console.log('\n=== 打开自动回复弹窗，点「编辑」第一条规则 ===');
-    const opened = await ev(`(() => { const b = document.getElementById('questionAutoReplyOpen'); if (!b) return 'no-open-btn'; b.click(); return 'ok'; })()`);
-    ok(opened === 'ok', '打开按钮存在', opened);
+    /* ---------- 打开弹窗 + 进入编辑 + 真的打字 ---------- */
+    console.log('\n=== 打开弹窗，编辑第一条规则，模拟真实打字 ===');
+    await ev(`(function(){ document.getElementById('questionAutoReplyOpen').click(); return true; })()`);
     await sleep(1200);
     const editHit = await ev(`(() => { const b = document.querySelector('#questionAutoReplyRules button[data-qauto-edit]'); if (!b) return 'no-edit-btn'; b.click(); return 'ok'; })()`);
-    ok(editHit === 'ok', '第一条规则有「编辑」按钮', editHit);
+    ok(editHit === 'ok', '存在「编辑」按钮且点击生效', editHit);
     await sleep(500);
-    // 伪造一段正在填写的内容（只写 .value，不派发事件，避免任何自动保存）
-    await ev(`(function(){ document.getElementById('questionAutoReplyKeywords').value = 'PROBE-KW-A, PROBE-KW-B'; document.getElementById('questionAutoReplyText').value = 'PROBE-DRAFT-请勿保存'; return true; })()`);
-    await sleep(200);
+    // 用 input 事件模拟真实按键：这正是新加的 editorDirty 触发器
+    await ev(`(function(){
+      const kw = document.getElementById('questionAutoReplyKeywords'), tx = document.getElementById('questionAutoReplyText');
+      kw.value = 'PROBE-KW-A, PROBE-KW-B'; kw.dispatchEvent(new Event('input', { bubbles: true }));
+      tx.value = 'PROBE-DRAFT-请勿保存'; tx.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    await sleep(300);
 
     const base = await ev(SNAP);
     console.log('  基线：' + JSON.stringify(base));
     ok(base.modalOpen && base.editorOpen, '基线下弹窗和编辑器都是打开的', base);
-    ok(base.text === 'PROBE-DRAFT-请勿保存', '基线下已填的回复文本在', base.text);
+    ok(base.editorDirty === true, '打字后 editorDirty = true（新加的保护生效）', base.editorDirty);
+    ok(/保存规则/.test(base.statusText), '状态栏提示「正在编辑的规则还没保存」', base.statusText);
 
-    const check = async (label) => {
-      const s = await ev(SNAP);
-      ok(s.modalOpen, label + '：弹窗仍然开着', s);
-      ok(s.editorOpen, label + '：编辑器没有被收起', s);
-      ok(s.text === 'PROBE-DRAFT-请勿保存', label + '：已填的回复文本没被清掉', s.text);
-      ok(s.keywords === 'PROBE-KW-A, PROBE-KW-B', label + '：已填的关键词没被清掉', s.keywords);
-      ok(s.confirms === 0, label + '：没有触发「未保存就关闭」的确认框', s.confirms);
-      return s;
-    };
-
-    /* ---------- ① 定时器真正做的事 ---------- */
-    console.log('\n=== ① 触发 loadQuestions()（30 秒定时器做的事）===');
+    /* ---------- A. 手动刷新列表 ---------- */
+    console.log('\n=== A. 触发 loadQuestions()（30 秒定时器做的事）===');
     await ev('loadQuestions(); true'); await sleep(2500);
-    await check('loadQuestions');
+    let s = await ev(SNAP);
+    ok(s.modalOpen && s.editorOpen, 'A：弹窗和编辑器都还开着', s);
+    ok(s.text === 'PROBE-DRAFT-请勿保存' && s.keywords === 'PROBE-KW-A, PROBE-KW-B', 'A：已填的草稿一字没丢', s);
 
-    /* ---------- ② 切回问答页时做的事 ---------- */
-    console.log('\n=== ② 触发 loadQuestionAutoReply()（切回问答页做的事）===');
+    /* ---------- B. 重新拉服务端规则 ---------- */
+    console.log('\n=== B. 触发 loadQuestionAutoReply()（切回问答页做的事）===');
+    // 先在本地加一条规则（只改内存，不落库），看看会不会被服务端数据冲掉
+    await ev(`(function(){
+      document.getElementById('questionAutoReplyAdd').click();
+      const kw = document.getElementById('questionAutoReplyKeywords'), tx = document.getElementById('questionAutoReplyText');
+      kw.value = 'PROBE-LOCAL-ONLY'; tx.value = 'probe local draft';
+      document.getElementById('questionAutoReplySaveRule').click();
+      return true;
+    })()`);
+    await sleep(400);
+    const beforeB = await ev(SNAP);
+    ok(beforeB.ruleCount > base.ruleCount, 'B：本地新增的规则已进列表（内存里）', { before: base.ruleCount, after: beforeB.ruleCount });
+    // 保存规则会收起编辑器，这里重新打开并再打一遍草稿，好验证「草稿 + 本地新增」都能扛住刷新
+    await ev(`(function(){
+      document.querySelector('#questionAutoReplyRules button[data-qauto-edit]').click();
+      const kw = document.getElementById('questionAutoReplyKeywords'), tx = document.getElementById('questionAutoReplyText');
+      kw.value = 'PROBE-KW-A, PROBE-KW-B'; kw.dispatchEvent(new Event('input', { bubbles: true }));
+      tx.value = 'PROBE-DRAFT-请勿保存'; tx.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    await sleep(400);
     await ev('loadQuestionAutoReply(); true'); await sleep(1500);
-    const s2 = await check('loadQuestionAutoReply');
-    ok(s2.editingId === base.editingId, '②：editingId 没被重置（重新拉规则不能把编辑上下文冲掉）', { before: base.editingId, after: s2.editingId });
+    s = await ev(SNAP);
+    ok(s.ruleCount === beforeB.ruleCount, 'B：本地新增的规则没有被服务端数据冲掉', { before: beforeB.ruleCount, after: s.ruleCount });
+    ok(s.editorOpen && s.text === 'PROBE-DRAFT-请勿保存', 'B：编辑器与草稿仍在', s);
+    ok(s.dirty === true, 'B：dirty 没有被重置成 false（未保存状态要留住）', s.dirty);
 
-    /* ---------- ③ 真实等待定时器 ---------- */
-    console.log('\n=== ③ 真实等 35 秒，让 30 秒定时器自己触发一次 ===');
-    const before = await ev(SNAP);
+    /* ---------- C. 带草稿关闭要拦一下 ---------- */
+    console.log('\n=== C. 有草稿时点关闭，应该被 confirm 拦住 ===');
+    await ev(`(function(){ document.getElementById('questionAutoReplyClose').click(); return true; })()`);
+    await sleep(400);
+    s = await ev(SNAP);
+    ok(s.confirms >= 1, 'C：弹出了「有未保存修改」的确认框', s.confirms);
+    ok(s.modalOpen === true, 'C：用户在确认框上点取消后，弹窗不能关掉', s.modalOpen);
+
+    /* ---------- D. 弹窗开着时，定时器必须让路 ---------- */
+    console.log('\n=== D. 弹窗开着，等 35 秒看定时器会不会偷偷刷新 ===');
+    await ev('window.__probeLoadQ = 0; true');
     await sleep(35000);
-    const after = await ev(SNAP);
-    ok(after.modalOpen, '③：真实定时器触发后弹窗仍开着', after);
-    ok(after.editorOpen, '③：编辑器仍开着', after);
-    ok(after.text === before.text && after.text === 'PROBE-DRAFT-请勿保存', '③：回复文本仍是刚才填的', { before: before.text, after: after.text });
+    s = await ev(SNAP);
+    ok(s.loadQCalls === 0, 'D：35 秒内 loadQuestions 一次都没被定时器调用（让路生效）', s.loadQCalls);
+    ok(s.modalOpen && s.text === 'PROBE-DRAFT-请勿保存', 'D：弹窗和草稿都完好', s);
+
+    /* ---------- E. 关掉弹窗后，定时器要恢复工作 ---------- */
+    console.log('\n=== E. 关掉弹窗，再等 35 秒，定时器必须恢复刷新 ===');
+    await ev('window.__probeAllowClose = true; true');
+    await ev(`(function(){ document.getElementById('questionAutoReplyClose').click(); return true; })()`);
+    await sleep(600);
+    s = await ev(SNAP);
+    ok(s.modalOpen === false, 'E：允许关闭后弹窗确实关掉了', s.modalOpen);
+    await ev('window.__probeLoadQ = 0; true');
+    await sleep(35000);
+    s = await ev(SNAP);
+    ok(s.loadQCalls >= 1, 'E：关掉弹窗后定时器恢复刷新（没有把刷新永久掐死）', s.loadQCalls);
 
     console.log('\n' + pass + ' 通过 / ' + fail + ' 失败');
   } finally {
