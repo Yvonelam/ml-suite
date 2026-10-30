@@ -330,6 +330,13 @@ node probe-theme-shot.js gold shot-gold   # 设计用截图：概览顶部 / 概
     新增一个「要人填密钥」的输入框时，照这个写法抄，不要图省事直接写 `type="password"` ——
     少写一个 `data-secret` 就等于把授权码明文晾在屏幕上。改完跑 `probe-password-manager.js`。
 
+11. **后台轮询必须给「用户正在操作的弹窗」让路，而且不许覆盖本地未保存状态。**
+    这页有五个定时器（订单 30s、售前 30s、售后 120s、角标 60s、广告 60s）。它们都只该动自己的那块数据，但有两个坑反复踩：
+    - **别在弹窗开着的时候重绘它背后的列表**：`startQuestionsTimer` 里已有 `isQuestionAutoReplyOpen()` 判断。新增轮询时同样要判。
+    - **`loadXxx()` 里不要无条件用服务端数据覆盖本地数组**：`loadQuestionAutoReply()` 早期就是 `rules = data.rules` 一把梭，用户加的规则还没保存就被抹掉，且没有任何提示 —— 这类「静默丢数据」比报错难查得多。正确做法是 `loadXxx(force)`：有 `dirty`/草稿时默认不刷，由打开弹窗的动作显式传 `force=true`。
+    - 顺带：**编辑器里的草稿要单独有个 dirty 标记**，让「关闭」能被拦一次。只靠规则级 `dirty` 不够，因为打字本身不改规则。
+    改完跑 `probe-auto-reply-refresh.js`。
+
 ---
 
 ## 5. 推荐的改版流程

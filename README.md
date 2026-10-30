@@ -589,6 +589,7 @@ node dm-mcp.js call search_product_snapshots '{"market_code":"MLB","keyword":"he
 | `probe-auto-reply-edit.js` | **自动回复规则的编辑/删除/上移/新增**（24 项，真浏览器）：按钮结构（每条规则的编辑/删除必须带 `data-id`，缺了点击委托会在 `closest()` 那行静默 return）+ 编辑回填 + 保存草稿走更新而不是新增 + 关闭重开恢复服务端原值 + 删除 + ↑ 交换顺序 + 新增空表单 + 取消复位。全程只改内存、不点「保存并应用」，不污染账号规则 |
 | `probe-select-theme.js` | **原生控件的深色适配**（11 项，真浏览器）：5 套主题 × 9 个 `<select>` 的 73 个 `<option>` 全部断言「深底 + 浅字 + 对比度 ≥ 4.5」（含选中项 `:checked`），并断言 `select` / `input[type=date]` 的 `color-scheme` 是 `dark`。原生弹层由系统绘制、`Page.captureScreenshot` 截不到，只能靠计算样式断言 —— 这是「点开一片白」唯一的自动化防线 |
 | `probe-password-manager.js` | **Chrome 密码管理器的触发面**（32 项，真浏览器）：两头都要断言 —— ① 工作台 + 管理员页必须**一个** `input[type=password]` 都不剩（否则 Chrome 又认出来弹「保存密码」），且 5 个凭据框的 `-webkit-text-security` 必须是 `disc`（改类型不能把掩码搞丢）、`.value` 照常可读写；② `login.html` 的登录框必须**还是** `type=password` + `current-password`（那是唯一该记密码的地方）。⚠ 只读：配置区每个框都挂了 `scheduleAutoSave`，探针里**绝不能**派发 `input` 事件，只许直接写 `.value` |
+| `probe-auto-reply-refresh.js` | **自动回复弹窗抗刷新**（16 项，真浏览器）：模拟真实打字置 `editorDirty` → 分别触发 `loadQuestions()` / `loadQuestionAutoReply()` → 断言弹窗、编辑器、草稿、本地新增的规则全都还在；带草稿点关闭必须被 confirm 拦住；再**真实等 35 秒**验证两件事：弹窗开着时定时器一次都不许调 `loadQuestions`，关掉后必须恢复（别把刷新永久掐死）。⚠ 只读：全程不点「保存并应用」，本地新增的规则只活在前端内存里 |
 | `probe-report-status.js` | 打开关键词排名页，把「定时发送运行状态」面板的文字摊出来 + 截图 `probe-out/report-status.png` |
 | `sync-status.js` | **同步体检**（双击 `同步状态.bat`）：自动同步进程在不在 / 未提交几个 / 未推送几个（→ GitHub 是旧的）/ 未合入几个（→ 本地没跟上远端），并打印最近 8 条记录 |
 | `git-autosync.js --once` | 手动跑一轮同步并强制 fetch+rebase 一次，排查用 |
@@ -656,6 +657,21 @@ input[data-secret]{-webkit-text-security:disc}
 `-webkit-text-security` 只有 WebKit 系（Chrome / Edge / Safari）认，不认的浏览器会把这些框显示成**明文**，所以 `app.js` 的 `maskSecretInputs()` 会做特性检测，不支持就退回 `type="password"`（Firefox 本来也没有 Chrome 这套提示，优先保证看得清是密文）。
 
 范围：工作台的 5 个凭据框（SMTP 授权码 / Secret Key / Access Token / Refresh Token / PushPlus Token）+ 工作台和管理员页的两个「切换账户」弹窗。**只有 `login.html` 的登录/注册表单保留真正的 `type=password`** —— 那是唯一该让浏览器记密码的地方，改这块别顺手把它也改掉。改完跑 `node probe-password-manager.js`。
+
+**Q：正在编辑关键词自动回复，售前那边的自动刷新一刷，我的编辑就没了？**
+已修（2026-10-30）。原来的问题有两层，第二层比第一层更隐蔽：
+
+1. 售前列表每 30 秒自动刷新，弹窗开着的时候照样刷，后台一直在重绘问答列表，正在填规则的人会被打断。
+2. `loadQuestionAutoReply()` 会把服务端返回的 `rules` **整个替换**本地数组。所以只要在弹窗里加了/改了规则还**没点「保存并应用」**，任何一次重新拉配置（切到别的页面再切回来也一样）都会把这份改动**静默抹掉** —— 规则数变回去，看着像自己白填了。
+3. 编辑器里的关键词/回复文本压根没有保护，弹窗被任何原因关掉就直接丢。
+
+现在的规矩是三条，改这块务必同时守住：
+
+- **弹窗开着，售前 30 秒定时器直接让路**（`startQuestionsTimer` 里 `isQuestionAutoReplyOpen()`）。
+- **有未保存改动时 `loadQuestionAutoReply()` 不覆盖本地**，只有 `openQuestionAutoReply()` 传 `force=true` 才刷。
+- **编辑器里一动键盘就置 `editorDirty`**：状态栏提示「正在编辑的规则还没点保存规则」，关闭/取消会弹确认；确认放弃后自动从服务端拉回真实状态。
+
+改完跑 `node probe-auto-reply-refresh.js`（16 项，含两次 35 秒真实等待：弹窗开着时定时器一次都不许触发，关掉后必须恢复）。
 
 **Q：公网 530 / 1033，但本地 `127.0.0.1:3000` 好好的？**
 这是隧道到 Cloudflare 边缘的连接断了，不是本地服务的问题。现在的自愈链路是：每分钟查 `/ready` + `/metrics` 连接数 + 真打一次公网地址，连续 3~5 分钟不健康就强杀隧道重连（指数退避）。先看 `运行日志.txt` 有没有这三行：`健康异常`（在抖）、`强制重启`（触发了自愈）、`健康探测已接管 ✓`（正常基线）。手动救急仍然是重跑 `启动公网服务.bat`。
