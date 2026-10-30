@@ -2099,6 +2099,8 @@ function startQuestionsTimer() {
   questionView.timer = setInterval(() => {
     if (currentView !== 'questions' || document.hidden) return;
     if (hasDirtyInput('#questionBody')) return;
+    // 自动回复弹窗开着就让路：后台还在重绘问答列表的话，用户正在填的规则会被打断
+    if (isQuestionAutoReplyOpen()) return;
     loadQuestions();
   }, 30000);
 }
@@ -2906,7 +2908,14 @@ function renderOrders(d) {
 
 /* ---- 商品问答（售前） ---- */
 const questionView = { state: 'UNANSWERED', limit: 20, offset: 0, total: 0, demo: false, timer: null };
-const questionAutoReplyView = { enabled: false, rules: [], status: {}, dirty: false, editingId: null };
+const questionAutoReplyView = { enabled: false, rules: [], status: {}, dirty: false, editorDirty: false, editingId: null };
+/* 弹窗是否正开着。售前那 30 秒一次的自动刷新要据此让路：
+   用户在弹窗里填规则时，后台还在重绘问答列表，轻则滚走位置，重则把没保存的草稿冲掉 ——
+   用户的体感就是「一刷新我的自动回复就被关了」。 */
+function isQuestionAutoReplyOpen() {
+  const m = $('#questionAutoReplyModal');
+  return !!m && !m.hidden;
+}
 async function loadQuestions() {
   const body = $('#questionBody');
   setStateEl($('#questionState'), 'warn', '加载中');
@@ -3013,7 +3022,8 @@ function renderQuestionAutoReplySummary() {
   if (status) {
     const state = questionAutoReplyView.status || {};
     status.className = 'qauto-status' + (state.lastError ? ' error' : (state.lastReplyAt ? ' success' : ''));
-    if (questionAutoReplyView.dirty) status.textContent = '有未保存的修改，保存并应用后才会生效。';
+    if (questionAutoReplyView.editorDirty) status.textContent = '正在编辑的规则还没点「保存规则」，离开或关闭会丢。';
+    else if (questionAutoReplyView.dirty) status.textContent = '有未保存的修改，保存并应用后才会生效。';
     else if (state.lastError) status.textContent = state.lastError;
     else if (state.lastSummary) status.textContent = state.lastSummary;
     else status.textContent = enabled ? '规则已保存，等待自动检查。' : '规则已保存，自动回复当前关闭。';
@@ -3041,7 +3051,12 @@ function renderQuestionAutoReplyRules() {
   }).join('');
   renderQuestionAutoReplySummary();
 }
-async function loadQuestionAutoReply() {
+async function loadQuestionAutoReply(force) {
+  /* 默认不动正在编辑的东西。这个函数会把服务端返回的 rules **整个替换**掉本地数组，
+     所以只要用户手上有没保存的改动（规则级 dirty 或编辑器里的草稿），或者弹窗还开着，
+     就别刷 —— 否则本地刚加的规则会在下一次切页/刷新时凭空消失。
+     只有 openQuestionAutoReply() 主动要拿最新值时传 force=true。 */
+  if (!force && (questionAutoReplyView.dirty || questionAutoReplyView.editorDirty || isQuestionAutoReplyOpen())) return;
   try {
     const data = await mlGet('/api/ml/questions/auto-reply');
     questionAutoReplyView.enabled = data.enabled === true;
@@ -3060,13 +3075,14 @@ function openQuestionAutoReply() {
   const modal = $('#questionAutoReplyModal');
   if (!modal) return;
   modal.hidden = false;
-  loadQuestionAutoReply();
+  // 刚打开时手上不可能有草稿，强制拉一次最新
+  loadQuestionAutoReply(true);
   $('#questionAutoReplyAdd')?.focus();
 }
 function closeQuestionAutoReply() {
   const modal = $('#questionAutoReplyModal');
   if (!modal) return;
-  if (questionAutoReplyView.dirty && !window.confirm('有尚未保存的自动回复修改，确定关闭吗？')) return;
+  if ((questionAutoReplyView.dirty || questionAutoReplyView.editorDirty) && !window.confirm('有尚未保存的自动回复修改，确定关闭吗？')) return;
   modal.hidden = true;
   cancelQuestionAutoReplyEdit();
 }
@@ -3078,13 +3094,17 @@ function cancelQuestionAutoReplyEdit() {
   const editor = $('#questionAutoReplyEditor');
   if (editor) editor.hidden = true;
   questionAutoReplyView.editingId = null;
+  questionAutoReplyView.editorDirty = false;
   const keys = $('#questionAutoReplyKeywords'), reply = $('#questionAutoReplyText');
   if (keys) keys.value = '';
   if (reply) reply.value = '';
+  renderQuestionAutoReplySummary();
 }
 function editQuestionAutoReplyRule(id) {
   const rule = id ? questionAutoReplyView.rules.find(item => item.id === id) : null;
   questionAutoReplyView.editingId = rule ? rule.id : null;
+  // 刚打开编辑器，里面的内容是「原值」而不是草稿
+  questionAutoReplyView.editorDirty = false;
   $('#questionAutoReplyEditorTitle').textContent = rule ? '编辑回复规则' : '新增回复规则';
   $('#questionAutoReplyKeywords').value = rule ? rule.keywords.join('，') : '';
   $('#questionAutoReplyText').value = rule ? rule.reply : '';
@@ -3123,6 +3143,18 @@ function bindQuestionAutoReplyEvents() {
   $('#questionAutoReplyAdd').onclick = () => editQuestionAutoReplyRule(null);
   $('#questionAutoReplyCancelEdit').onclick = cancelQuestionAutoReplyEdit;
   $('#questionAutoReplySaveRule').onclick = saveQuestionAutoReplyRuleDraft;
+  /* 编辑器里一动手就算「有草稿」：
+     ① 关闭/取消时会被 confirm 拦住，不再静默吞掉刚填的关键词和回复；
+     ② loadQuestionAutoReply() 看到 editorDirty 就不覆盖本地规则。
+     取消编辑 / 保存规则时会把它清回 false，不会一直挂着。 */
+  ['questionAutoReplyKeywords', 'questionAutoReplyText'].forEach(elId => {
+    const el = $('#' + elId);
+    if (el) el.addEventListener('input', () => {
+      if (questionAutoReplyView.editorDirty) return;
+      questionAutoReplyView.editorDirty = true;
+      renderQuestionAutoReplySummary();
+    });
+  });
   $('#questionAutoReplyEnabled').onchange = event => {
     questionAutoReplyView.enabled = event.target.checked;
     markQuestionAutoReplyDirty();
