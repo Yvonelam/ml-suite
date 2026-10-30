@@ -3082,9 +3082,13 @@ function openQuestionAutoReply() {
 function closeQuestionAutoReply() {
   const modal = $('#questionAutoReplyModal');
   if (!modal) return;
-  if ((questionAutoReplyView.dirty || questionAutoReplyView.editorDirty) && !window.confirm('有尚未保存的自动回复修改，确定关闭吗？')) return;
+  const hadUnsaved = questionAutoReplyView.dirty || questionAutoReplyView.editorDirty;
+  if (hadUnsaved && !window.confirm('有尚未保存的自动回复修改，确定关闭吗？')) return;
   modal.hidden = true;
   cancelQuestionAutoReplyEdit();
+  // 确认放弃修改后要把本地状态拉回服务端的真实样子，
+  // 否则角标/规则数会一直显示「没保存的那份」，看着像已生效
+  if (hadUnsaved) loadQuestionAutoReply(true);
 }
 function markQuestionAutoReplyDirty() {
   questionAutoReplyView.dirty = true;
