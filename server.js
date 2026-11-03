@@ -762,6 +762,66 @@ async function mlRequestFirst(paths) {
   throw lastErr || new Error('请求失败');
 }
 
+// ---- 买家公开资料 ----
+/* 卖家能看到的买家信息只有 /users/{id} 这几个公开字段（昵称、国家、城市、是否也是卖家）。
+   真实姓名、电话、邮箱在买家侧受隐私保护，接口不会返回 —— 售后里要联系人只能靠站内消息。
+   缓存 6 小时：问答/售后每页都可能引用同一批买家，不缓存会把调用配额打光。 */
+const buyerCache = new Map();
+const BUYER_TTL = 6 * 3600 * 1000;
+function buyerCacheKey(id) { return auth.currentUserId() + ':' + String(id); }
+async function mlBuyer(id) {
+  const key = buyerCacheKey(id);
+  const hit = buyerCache.get(key);
+  if (hit && Date.now() - hit.at < BUYER_TTL) return hit.data;
+  const u = await mlRequest('/users/' + encodeURIComponent(id));
+  const rep = u.seller_reputation || {};
+  const addr = u.address || {};
+  const data = {
+    id: String(u.id || id),
+    nickname: u.nickname || '',
+    country: u.country_id || '',
+    city: addr.city || '',
+    state: addr.state || '',
+    permalink: u.permalink || '',
+    // 有些买家同时是卖家，这时能看出对方的卖家等级，判断是不是同行/专业买家
+    isSeller: !!(rep.level_id || rep.power_seller_status),
+    sellerLevel: rep.level_id || '',
+    powerSeller: rep.power_seller_status || '',
+    siteStatus: (u.status && u.status.site_status) || '',
+  };
+  buyerCache.set(key, { at: Date.now(), data });
+  return data;
+}
+
+// 批量取买家资料：单条失败不影响整页渲染
+app.get('/api/ml/buyers', async (req, res) => {
+  try {
+    const ids = [...new Set(String(req.query.ids || '').split(',').map(s => s.trim()).filter(Boolean))].slice(0, 20);
+    if (!ids.length) return res.json({ ok: true, buyers: {} });
+    const out = {};
+    await Promise.all(ids.map(async (id) => {
+      try { out[id] = await mlBuyer(id); } catch (e) { out[id] = { id, error: e.message }; }
+    }));
+    res.json({ ok: true, buyers: out });
+  } catch (e) { sendMlError(res, e); }
+});
+
+// 该买家在本店的下单情况（售后/售前判断是不是老客，点开才拉，别进列表就刷）
+app.get('/api/ml/buyers/:id/orders', async (req, res) => {
+  try {
+    const u = await mlUser();
+    const d = await mlRequest(`/orders/search?seller=${u.id}&buyer=${encodeURIComponent(req.params.id)}&sort=date_desc&limit=1`);
+    const total = (d && d.paging && d.paging.total) || 0;
+    const last = (d && d.results && d.results[0]) || null;
+    res.json({
+      ok: true, id: String(req.params.id), total,
+      lastOrderId: last ? String(last.id) : '',
+      lastOrderDate: (last && (last.date_closed || last.date_created)) || '',
+      lastStatus: (last && last.status) || '',
+    });
+  } catch (e) { sendMlError(res, e); }
+});
+
 // 当前授权卖家信息（缓存 1 小时）
 async function mlUser() {
   const accountId=auth.currentUserId(), cached=mlUserCache.get(accountId);
@@ -1115,19 +1175,6 @@ app.get('/api/ml/status', async (req, res) => {
     res.json({ configured: true, authorized: mlAuthorized(cfg), ok: false, needConfig: !!e.needConfig, needAuth: !!e.needAuth, message: e.message, status: e.status || 0 });
   }
 });
-
-// ==== TEMP-EXPLORE 临时探查路由（开发中，验证完立刻删除）====
-app.get('/api/ml/_explore', async (req, res) => {
-  try {
-    const p = String(req.query.p || '');
-    if (!p.startsWith('/')) return res.status(400).json({ ok: false, error: 'path 必须以 / 开头' });
-    const d = await mlRequest(p);
-    res.json({ ok: true, data: d });
-  } catch (e) {
-    res.json({ ok: false, status: e.status || 0, error: e.message, data: e.data || null });
-  }
-});
-// ==== /TEMP-EXPLORE ====
 
 // ---- 订单汇总（概览实时看板） ----
 app.get('/api/ml/orders/summary', async (req, res) => {
@@ -2875,6 +2922,29 @@ app.post('/api/ml/questions/:id/answer', async (req, res) => {
   }
 });
 
+// 删除提问（DELETE /questions/{id}）
+/* 官方支持：卖家可以删除买家提在自己商品下的问题，返回 ["Question deleted."]。
+   和回复不同，这个操作**不可撤销** —— 问题从商品页和买家侧一起消失，所以前端必须二次确认。
+   注意：已回复的提问也能删，删完连答案一起没了。 */
+app.delete('/api/ml/questions/:id', async (req, res) => {
+  try {
+    const raw = String(req.params.id);
+    if (/^demo/i.test(raw)) return res.json({ ok: true, demo: true, message: '示例模式：未真正删除' });
+    if (!/^\d+$/.test(raw)) return res.status(400).json({ ok: false, error: '提问 ID 不合法' });
+    await mlRequest('/questions/' + encodeURIComponent(raw), { method: 'DELETE' });
+    console.log('[问答] 已删除提问 #' + raw);
+    res.json({ ok: true, message: '提问已删除' });
+  } catch (e) {
+    const msg = String(e.message || '');
+    let hint = '';
+    if (/not_found|Question not found|404/i.test(msg)) hint = '这条提问已经不存在了（可能已被买家删除，或超过 7 个月自动清理），刷新列表即可。';
+    else if (/forbidden|403/i.test(msg)) hint = '没有权限删除这条提问：可能是 Model 6 卖家受限账户，或者这条提问不在你的商品下。';
+    else if (/already|deleted/i.test(msg)) hint = '这条提问已经被删掉了。';
+    if (hint) return res.json({ ok: false, error: msg, hint, status: e.status || 0 });
+    return sendMlError(res, e);
+  }
+});
+
 // ---- 示例数据：退货与投诉（覆盖三类：平台调解 / 买家咨询 / 无需操作） ----
 function demoClaims() {
   const now = Date.now();
@@ -3058,6 +3128,8 @@ app.get('/api/ml/claims/:id', async (req, res) => {
         ...nc, category, categoryLabel: meta.label, categoryDesc: meta.desc,
         needAction: !!meta.need && !ignored, ignored, awaitingSeller: t.awaitingSeller && nc.canSendNow,
       },
+      // 买家资料（昵称/城市/是否也是卖家）。拿不到不影响对话功能，所以失败就回 null
+      buyer: nc.buyerId ? await mlBuyer(nc.buyerId).catch(() => null) : null,
       messages: t.messages,
     });
   } catch (e) { sendMlError(res, e); }
@@ -3098,7 +3170,25 @@ app.post('/api/ml/claims/:id/reply', async (req, res) => {
         hint: '可用动作：' + (c.actions.length ? c.actions.join(' / ') : '无') + '。如果只剩退款或发起调解，需要先在美客多后台处理。',
       });
     }
-    const receiverRole = c.replyRole || (c.isMediation ? 'mediator' : 'complainant');
+    const receiverRole = (() => {
+      /* 前端可以指定收件方（complainant 买家 / mediator 调解员）：
+         同一条纠纷里美客多有可能同时下发这两个动作，原来的代码永远优先调解员，
+         卖家就再也没机会直接跟买家说话。指定的角色必须落在本轮回传的动作里，
+         否则宁可直接拒绝，也不要让用户写一大段再被平台打回。 */
+      const want = String((req.body && req.body.target) || '').toLowerCase();
+      const allowed = [];
+      if (c.actions.includes('send_message_to_complainant')) allowed.push('complainant');
+      if (c.actions.includes('send_message_to_mediator')) allowed.push('mediator');
+      if (want === 'complainant' || want === 'mediator') {
+        if (allowed.length && !allowed.includes(want)) {
+          const e = new Error('这条纠纷现在不能发给' + (want === 'mediator' ? '平台调解员' : '买家'));
+          e.hint = '美客多本轮回传的可发送对象只有：' + allowed.map(r => (r === 'mediator' ? '平台调解员' : '买家')).join(' / ');
+          throw e;
+        }
+        return want;
+      }
+      return c.replyRole || (c.isMediation ? 'mediator' : 'complainant');
+    })();
     const r = await mlRequest(`/post-purchase/v1/claims/${encodeURIComponent(id)}/actions/send-message`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ receiver_role: receiverRole, message: text }),
@@ -3108,6 +3198,7 @@ app.post('/api/ml/claims/:id/reply', async (req, res) => {
     res.json({ ok: true, result: r, target: receiverRole });
   } catch (e) {
     const msg = String(e.message || '');
+    if (e.hint) return res.json({ ok: false, error: msg, hint: e.hint, status: e.status || 0 });
     let hint = '';
     if (/send message is not allowed|not allowed/i.test(msg)) {
       hint = '美客多当前不允许在这条纠纷里发消息。常见原因：本轮你已经回复过（比如已提交退款/方案），现在轮到买家或调解员回应，等对方有动作后窗口会自动重新打开；也可能是该纠纷已进入调解、只能通过平台指定通道处理。';
