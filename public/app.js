@@ -2926,10 +2926,62 @@ async function loadQuestions() {
     const d = await mlGet('/api/ml/questions?limit=' + questionView.limit + '&offset=' + questionView.offset + st + dq);
     questionView.total = d.total || 0;
     setStateEl($('#questionState'), d.demo ? 'warn' : 'ok', d.demo ? '示例预览' : ('共 ' + fmt(questionView.total) + ' 条'));
-    renderQuestions(d);
+    // 买家资料是附属信息：拿不到也要把提问渲染出来，所以失败返回空对象
+    const buyers = await fetchBuyers((d.questions || []).map(q => q.fromId));
+    renderQuestions(d, buyers);
   } catch (e) { toolError($('#questionState'), body, e, loadQuestions); }
 }
-function renderQuestions(d) {
+
+/* ---- 买家资料：问答和售后共用 ----
+   卖家能拿到的只有公开字段（昵称、城市、是否也是卖家），真实姓名/电话受平台隐私保护。
+   一次最多 20 个 id，服务端还有 6 小时缓存，所以列表页直接批量取不会打爆配额。 */
+async function fetchBuyers(ids) {
+  const uniq = [...new Set((ids || []).filter(Boolean).map(String))].slice(0, 20);
+  if (!uniq.length) return {};
+  try {
+    const d = await mlGet('/api/ml/buyers?ids=' + uniq.join(','));
+    return (d && d.buyers) || {};
+  } catch { return {}; }
+}
+/* 买家卡片上那一行身份信息 */
+function buyerLine(b, fromId) {
+  const name = (b && b.nickname) ? b.nickname : ('买家 ' + (fromId || '-'));
+  const loc = b ? [b.city, b.state, b.country].filter(Boolean).join(' · ') : '';
+  return '👤 <b>' + escHtml(name) + '</b>'
+    + (loc ? '<span>' + escHtml(loc) + '</span>' : '')
+    + (b && b.isSeller ? '<span class="btag">也是卖家</span>' : '')
+    + (b && b.permalink ? '<a href="' + escHtml(b.permalink) + '" target="_blank" rel="noreferrer">主页</a>' : '');
+}
+/* 该买家在本店下过几单 —— 点开才查，避免一进列表就打一批订单接口 */
+async function showBuyerOrders(buyerId, btn) {
+  if (!buyerId) { toast('这条记录没有买家 ID', 'err'); return; }
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = '查询中…';
+  try {
+    const d = await mlGet('/api/ml/buyers/' + encodeURIComponent(buyerId) + '/orders');
+    btn.textContent = d.total ? ('本店下单 ' + d.total + ' 笔 · 最近 ' + fmtDate(d.lastOrderDate)) : '本店还没有下过单';
+    if (d.lastOrderId) btn.title = '最近订单 ' + d.lastOrderId;
+  } catch (e) {
+    btn.disabled = false; btn.textContent = old;
+    const p = e.payload || {};
+    toast('❌ 查询买家订单失败：' + (p.error || e.message), 'err');
+  }
+}
+/* 删除提问：美客多支持卖家删自己商品下的提问，但**不可撤销**，买家那边也会一起消失 */
+async function deleteQuestion(id, btn) {
+  if (!window.confirm('确定删除这条提问吗？\n\n删除后买家那边也会一起消失，且无法恢复。')) return;
+  btn.disabled = true; btn.textContent = '删除中…';
+  try {
+    const d = await mlGet('/api/ml/questions/' + encodeURIComponent(id), { method: 'DELETE' });
+    toast(d && d.demo ? '示例模式：未真正删除' : '🗑 提问已删除');
+    loadQuestions();
+  } catch (e) {
+    const p = e.payload || {};
+    toast('❌ ' + (p.error || e.message) + (p.hint ? ' ｜ ' + p.hint : ''), 'err');
+    btn.disabled = false; btn.textContent = '🗑 删除提问';
+  }
+}
+function renderQuestions(d, buyers = {}) {
   const body = $('#questionBody');
   const list = d.questions || [];
   if (!list.length) {
@@ -2961,10 +3013,15 @@ function renderQuestions(d) {
         + '</div>';
     }
     const tag = un ? '⏳ 待回复' : (q.status === 'ANSWERED' ? '✅ 已回复' : escHtml(q.status));
+    // 买家身份 + 两个只读/删除操作。删除是问答里唯一会破坏数据的动作，单独放最右
+    const who = '<div class="qwho">' + buyerLine(buyers[String(q.fromId)] || null, q.fromId)
+      + (q.fromId ? '<button class="btn ghost sm" data-qbuyer="' + escHtml(q.fromId) + '">看下单情况</button>' : '')
+      + '</div>';
+    const ops = '<div class="qops"><button class="btn ghost sm" data-qdel="' + escHtml(q.id) + '">🗑 删除提问</button></div>';
     return '<div class="qcard' + (un ? ' un' : '') + '">'
       + '<div class="qhead"><span>' + tag + '</span><span>' + fmtDate(q.date) + ' · 提问 #' + escHtml(q.id) + '</span></div>'
       + '<div class="qtext">' + escHtml(q.text) + '</div>'
-      + '<div class="qitem">关联商品：' + item + '</div>' + foot + '</div>';
+      + '<div class="qitem">关联商品：' + item + '</div>' + who + foot + ops + '</div>';
   }).join('');
   const pages = Math.max(1, Math.ceil(questionView.total / questionView.limit));
   const cur = Math.floor(questionView.offset / questionView.limit) + 1;
@@ -2978,6 +3035,8 @@ function renderQuestions(d) {
     });
   });
   body.querySelectorAll('button[data-send]').forEach(b => b.onclick = () => sendAnswer(b, body));
+  body.querySelectorAll('button[data-qdel]').forEach(b => b.onclick = () => deleteQuestion(b.dataset.qdel, b));
+  body.querySelectorAll('button[data-qbuyer]').forEach(b => b.onclick = () => showBuyerOrders(b.dataset.qbuyer, b));
   const ex = $('#qDemoExit');
   if (ex) ex.onclick = () => { questionView.demo = false; questionView.offset = 0; loadQuestions(); };
   bindPager(body, n => { questionView.offset = n * questionView.limit; loadQuestions(); });
@@ -3250,7 +3309,8 @@ async function loadClaims() {
     const db = $('#claimDemoBtn');
     if (db) db.textContent = claimView.demo ? '退出示例' : '👀 示例预览';
     renderClaimTabs();
-    renderClaims(d, filterClaims(claimView.all, claimView.cat));
+    const buyers = await fetchBuyers(claimView.all.map(c => c.buyerId));
+    renderClaims(d, filterClaims(claimView.all, claimView.cat), buyers);
   } catch (e) { toolError($('#claimState'), body, e, loadClaims); }
 }
 
@@ -3271,7 +3331,7 @@ function renderClaimTabs() {
   });
 }
 
-function claimCard(c) {
+function claimCard(c, buyers = {}) {
   const open = String(c.status).toLowerCase() === 'opened';
   const meta = CLAIM_CAT_META[c.category] || CLAIM_CAT_META.auto;
   const acts = [];
@@ -3302,13 +3362,16 @@ function claimCard(c) {
     + '<div>数量：<b>' + (c.quantity || '-') + '</b></div>'
     + '</div>'
     + '<div class="cacts">' + acts.join('') + wait + ignBadge + msgInfo + '</div>'
+    + '<div class="qwho">' + buyerLine(buyers[String(c.buyerId)] || null, c.buyerId)
+    + (c.buyerId ? '<button class="btn ghost sm" data-cbuyer="' + escHtml(c.buyerId) + '">看下单情况</button>' : '')
+    + '</div>'
     + noReplyTip
     + '<div class="cfoot"><button class="' + (c.needAction ? 'btn y' : 'btn') + '" data-talk="' + escHtml(c.id) + '">' + talkLabel + '</button>' + ignBtn + '</div>'
     + '<div class="cpanel" data-panel="' + escHtml(c.id) + '" style="display:none"></div>'
     + '</div>';
 }
 
-function renderClaims(d, list) {
+function renderClaims(d, list, buyers = {}) {
   const body = $('#claimBody');
   const demoBar = d.demo
     ? '<div class="demo-bar"><span>当前为 <b>示例数据</b>，只用于预览界面效果，回复不会真正发出</span><button class="ghost" id="cDemoExit">退出示例</button></div>'
@@ -3332,11 +3395,12 @@ function renderClaims(d, list) {
     return;
   }
 
-  const cards = list.map(claimCard).join('');
+  const cards = list.map(c => claimCard(c, buyers)).join('');
   body.innerHTML = demoBar + '<div class="clist">' + cards + '</div>';
   body.querySelectorAll('button[data-talk]').forEach(b => b.onclick = () => toggleClaimPanel(b.dataset.talk, b.closest('.ccard'), b));
   body.querySelectorAll('button[data-ignore]').forEach(b => b.onclick = () => toggleIgnore(b.dataset.ignore, true, b));
   body.querySelectorAll('button[data-unignore]').forEach(b => b.onclick = () => toggleIgnore(b.dataset.unignore, false, b));
+  body.querySelectorAll('button[data-cbuyer]').forEach(b => b.onclick = () => showBuyerOrders(b.dataset.cbuyer, b));
   const ex = $('#cDemoExit');
   if (ex) ex.onclick = () => { claimView.demo = false; claimView.cat = 'todo'; loadClaims(); };
 }
