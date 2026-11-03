@@ -2921,7 +2921,8 @@ async function loadQuestions() {
   setStateEl($('#questionState'), 'warn', '加载中');
   body.innerHTML = '<div class="empty">正在加载问答…</div>';
   try {
-    const st = questionView.state === 'all' ? '' : ('&status=' + encodeURIComponent(questionView.state));
+    // 「全部」必须显式给 ALL：以前传空串，服务端会退化成 UNANSWERED，两个 tab 内容一模一样
+    const st = '&status=' + encodeURIComponent(questionView.state === 'all' ? 'ALL' : questionView.state);
     const dq = questionView.demo ? '&demo=1' : '';
     const d = await mlGet('/api/ml/questions?limit=' + questionView.limit + '&offset=' + questionView.offset + st + dq);
     questionView.total = d.total || 0;

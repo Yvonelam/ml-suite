@@ -2887,8 +2887,11 @@ app.get('/api/ml/questions', async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
     const offset = Math.max(parseInt(req.query.offset) || 0, 0);
     const status = String(req.query.status || 'UNANSWERED').toUpperCase();
+    // ALL = 不筛状态。以前「全部」tab 传空串，被这里默认成 UNANSWERED，
+    // 于是和「未回复」长得一模一样（用户反馈过这个坑）。
+    const stq = status === 'ALL' ? '' : `&status=${status}`;
     // 美客多默认按创建时间「升序」翻页（offset 0 = 最旧），显式指定倒序，保证「最新在前」
-    const d = await mlRequest(`/questions/search?seller_id=${u.id}&status=${status}&limit=${limit}&offset=${offset}&sort_fields=date_created&sort_types=DESC`);
+    const d = await mlRequest(`/questions/search?seller_id=${u.id}${stq}&limit=${limit}&offset=${offset}&sort_fields=date_created&sort_types=DESC`);
     const list = (d && (d.questions || d.results)) || [];
     const titles = await mlItemTitles(list.map(q => q.item_id));
     res.json({ ok: true, total: (d && d.total) != null ? d.total : list.length, status, questions: list.map(q => normalizeQuestion(q, titles)) });
