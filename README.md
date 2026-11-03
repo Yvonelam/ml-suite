@@ -590,6 +590,7 @@ node dm-mcp.js call search_product_snapshots '{"market_code":"MLB","keyword":"he
 | `probe-select-theme.js` | **原生控件的深色适配**（11 项，真浏览器）：5 套主题 × 9 个 `<select>` 的 73 个 `<option>` 全部断言「深底 + 浅字 + 对比度 ≥ 4.5」（含选中项 `:checked`），并断言 `select` / `input[type=date]` 的 `color-scheme` 是 `dark`。原生弹层由系统绘制、`Page.captureScreenshot` 截不到，只能靠计算样式断言 —— 这是「点开一片白」唯一的自动化防线 |
 | `probe-password-manager.js` | **Chrome 密码管理器的触发面**（32 项，真浏览器）：两头都要断言 —— ① 工作台 + 管理员页必须**一个** `input[type=password]` 都不剩（否则 Chrome 又认出来弹「保存密码」），且 5 个凭据框的 `-webkit-text-security` 必须是 `disc`（改类型不能把掩码搞丢）、`.value` 照常可读写；② `login.html` 的登录框必须**还是** `type=password` + `current-password`（那是唯一该记密码的地方）。⚠ 只读：配置区每个框都挂了 `scheduleAutoSave`，探针里**绝不能**派发 `input` 事件，只许直接写 `.value` |
 | `probe-auto-reply-refresh.js` | **自动回复弹窗抗刷新**（16 项，真浏览器）：模拟真实打字置 `editorDirty` → 分别触发 `loadQuestions()` / `loadQuestionAutoReply()` → 断言弹窗、编辑器、草稿、本地新增的规则全都还在；带草稿点关闭必须被 confirm 拦住；再**真实等 35 秒**验证两件事：弹窗开着时定时器一次都不许调 `loadQuestions`，关掉后必须恢复（别把刷新永久掐死）。⚠ 只读：全程不点「保存并应用」，本地新增的规则只活在前端内存里 |
+| `probe-buyer-info.js` | **买家身份 + 删提问 + 收件方切换**（20 项，真浏览器）：① 售前卡片必须有 `👤 昵称 · 城市 · 州 + 主页 + 看下单情况`，点「看下单情况」后按钮要变成本店下单结论，`删除提问` 按钮要挂真 ID 且文字对比度 ≥ 4.5（不可撤销的动作不能长成灰字）；② 「全部」tab 必须回全量（以前传空 `status` 被服务端退化成 UNANSWERED，和「未回复」一模一样）；③ 售后卡片/展开面板要有买家条，展开后卡片那条要让位（不重影）；④ **双收件方切换用合成数据喂 `renderClaimPanel`** —— 真实纠纷里美客多极少同时下发「发买家 + 发调解员」，靠等数据等不到，而这段最容易写错默认高亮。⚠ 只读：**绝不点删除**（不可撤销），`window.confirm` 被替换成计数器 |
 | `probe-report-status.js` | 打开关键词排名页，把「定时发送运行状态」面板的文字摊出来 + 截图 `probe-out/report-status.png` |
 | `sync-status.js` | **同步体检**（双击 `同步状态.bat`）：自动同步进程在不在 / 未提交几个 / 未推送几个（→ GitHub 是旧的）/ 未合入几个（→ 本地没跟上远端），并打印最近 8 条记录 |
 | `git-autosync.js --once` | 手动跑一轮同步并强制 fetch+rebase 一次，排查用 |
@@ -673,7 +674,23 @@ input[data-secret]{-webkit-text-security:disc}
 
 改完跑 `node probe-auto-reply-refresh.js`（16 项，含两次 35 秒真实等待：弹窗开着时定时器一次都不许触发，关掉后必须恢复）。
 
-**Q：公网 530 / 1033，但本地 `127.0.0.1:3000` 好好的？**
+**Q：售前能看到的买家信息有哪些？能不能直接删掉买家的提问？**
+（2026-11-03）能，但**两边都有平台约束**，别把界面做得比接口更大：
+
+- **买家信息**：`GET /users/{id}` 只给公开字段 —— 昵称、国家、城市/州、主页链接、是否也是卖家。真实姓名、手机、邮箱美客多**不返回**，界面上也不要去猜（写着「买家 50123578」就是真的只有 ID）。
+- **看下单情况**：点「看下单情况」才去查 `/orders/search?seller=&buyer=`，只回一个「本店下单 N 笔 · 最近日期」。**默认不查**，一进列表就批量打订单接口会浪费配额。
+- **删除提问**：`DELETE /questions/{id}` 是官方接口，但**不可撤销**，买家那边也会一起消失。所以界面把它单独靠右、红色小按钮、点之前必须 confirm；`probe-buyer-info.js` 里**绝对不点它**，只用计数器确认没误触。
+- **「全部」tab**：以前前端传空 `status`，服务端 `String(... || 'UNANSWERED')` 就把它退化成「未回复」，两个 tab 内容一模一样。现在前端显式传 `ALL`，服务端见到 `ALL` 就不带 status 参数（`probe-buyer-info.js` 有一条专门盯这个）。
+
+**Q：售后想直接跟买家对话，为什么有的纠纷点开只能发给调解员？**
+（2026-11-03）因为**能不能发、发给谁，是美客多按纠纷阶段下发的动作**，不是我们能选的：
+
+- 卖家的私聊通道 `GET /messages/packs/{pack_id}/sellers/{seller_id}` 实测**全部是 blocked**（`blocked_by_fulfillment` / `blocked_by_mediation` / `blocked_by_conversation_initiated_by_seller_limited`），所以售后对话只能走 claims 的 `POST /post-purchase/v1/claims/{id}/actions/send-message`。
+- 该接口必填 `receiver_role`：`complainant`（买家）或 `mediator`（平台调解员）。**只有响应里同时出现 `send_message_to_complainant` 和 `send_message_to_mediator` 时**，面板才显示「发给」切换器；否则一律按平台判定的那个角色发，不显示切换（不显示 = 真的只有一条路，不是坏了）。
+- 面板顶部那条横幅会直说这条消息发给谁、是不是「对方在等你回复」、以及「本轮已回复，等对方回应」。**`canReply` 与 `canSendNow` 是两件事**：前者是接口允许，后者是这一轮窗口还开着；两者不一致时会先弹黄条警告，别让用户白打一大段再被平台拒。
+- 回归：`node probe-buyer-info.js`。真实纠纷里极少同时给两个动作，所以切换器那段用**合成数据**直接喂 `renderClaimPanel` 断言（默认高亮 → 点买家 → 按钮文案/占位文案全跟着变）。
+
+
 这是隧道到 Cloudflare 边缘的连接断了，不是本地服务的问题。现在的自愈链路是：每分钟查 `/ready` + `/metrics` 连接数 + 真打一次公网地址，连续 3~5 分钟不健康就强杀隧道重连（指数退避）。先看 `运行日志.txt` 有没有这三行：`健康异常`（在抖）、`强制重启`（触发了自愈）、`健康探测已接管 ✓`（正常基线）。手动救急仍然是重跑 `启动公网服务.bat`。
 
 **Q：`npm run public` 之后关掉黑窗口，站就下线了？**
