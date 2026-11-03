@@ -1116,6 +1116,19 @@ app.get('/api/ml/status', async (req, res) => {
   }
 });
 
+// ==== TEMP-EXPLORE 临时探查路由（开发中，验证完立刻删除）====
+app.get('/api/ml/_explore', async (req, res) => {
+  try {
+    const p = String(req.query.p || '');
+    if (!p.startsWith('/')) return res.status(400).json({ ok: false, error: 'path 必须以 / 开头' });
+    const d = await mlRequest(p);
+    res.json({ ok: true, data: d });
+  } catch (e) {
+    res.json({ ok: false, status: e.status || 0, error: e.message, data: e.data || null });
+  }
+});
+// ==== /TEMP-EXPLORE ====
+
 // ---- 订单汇总（概览实时看板） ----
 app.get('/api/ml/orders/summary', async (req, res) => {
   const cfg = loadConfig();
