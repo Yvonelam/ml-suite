@@ -3471,31 +3471,65 @@ function renderClaimPanel(panel, d, id) {
     ? '<button class="btn ghost sm" data-pign="' + escHtml(id) + '">↩️ 取消忽略</button>'
     : '<button class="btn ghost sm" data-pign="' + escHtml(id) + '">🚫 忽略这条</button>';
   const banner = '<div class="cban ' + catMeta.cls + '"><div class="cban-tx">' + catMeta.ico + ' <b>' + escHtml(catMeta.label) + '</b> · '
-    + escHtml(isM ? '这条消息会发给平台调解员' : '这条消息会发给买家')
+    + escHtml((function () {
+      const a = c.actions || [];
+      if (a.includes('send_message_to_complainant') && a.includes('send_message_to_mediator')) return '可发买家或平台调解员（下方可切换）';
+      return isM ? '这条消息会发给平台调解员' : '这条消息会发给买家';
+    })())
     + (c.awaitingSeller ? ' · <span class="cw">对方在等你回复</span>'
       : (c.canReply && !c.canSendNow ? ' · <span class="cw">本轮已回复，等对方回应</span>' : ''))
     + (c.ignored ? ' · <b>已忽略</b>' : '') + '</div>' + ignBtn + '</div>';
 
-  const toLabel = isM ? '发送给调解员' : '发送给买家';
-  const ph = isM
+  /* 收件方选择：美客多有时会在同一条纠纷里同时下发「发给买家」和「发给调解员」两个动作。
+     原来的代码永远优先调解员，卖家就永远没机会直接回买家。这里把选择权交给用户，
+     默认仍按平台判定（replyRole），只有两个动作都在时才出现切换。 */
+  const acts = c.actions || [];
+  const bothTargets = acts.includes('send_message_to_complainant') && acts.includes('send_message_to_mediator');
+  const initTarget = c.replyRole === 'mediator' ? 'mediator' : 'complainant';
+  panel.__target = initTarget;
+  const targetName = t => (t === 'mediator' ? '平台调解员' : '买家');
+  const phFor = t => (t === 'mediator'
     ? '回复平台调解员（如接受/拒绝方案、给出退款比例）… Ctrl / ⌘ + Enter 发送'
-    : '给买家发消息（美客多建议 350 字以内）… Ctrl / ⌘ + Enter 发送';
+    : '给买家发消息（美客多建议 350 字以内）… Ctrl / ⌘ + Enter 发送');
+  const toLabel = '发送给' + targetName(initTarget);
+  const ph = phFor(initTarget);
+  const tgtBox = bothTargets
+    ? '<div class="tgt"><span>发给</span><button type="button" class="on" data-t="complainant">买家</button><button type="button" data-t="mediator">平台调解员</button></div>'
+    : '';
+  const buyerBar = d.buyer
+    ? '<div class="qwho cwho">' + buyerLine(d.buyer, c.buyerId)
+      + (c.buyerId ? '<button class="btn ghost sm" data-cbuyer="' + escHtml(c.buyerId) + '">看下单情况</button>' : '')
+      + '</div>'
+    : '';
   // 美客多本轮没下发可回复动作：给出预警，避免用户输入一大段后被平台拒绝
   const closedTip = (c.canReply && !c.canSendNow)
     ? '<div class="note" style="margin:0 0 8px;color:var(--warn)">⚠️ 美客多本轮没有下发可回复动作：你很可能已经回复过，现在球在对方那边。此时发送大概率会被平台拒绝，等买家 / 调解员有新消息后窗口会自动重新打开。</div>'
     : '';
 
   panel.dataset.confirm = '';
-  panel.innerHTML = banner + '<div class="cthread">' + thread + '</div>'
+  panel.innerHTML = banner + buyerBar + '<div class="cthread">' + thread + '</div>'
     + (c.canReply
-      ? '<div class="qreply">' + closedTip
+      ? '<div class="qreply">' + closedTip + tgtBox
       + '<textarea rows="2" maxlength="2000" placeholder="' + ph + '" data-cta="' + escHtml(id) + '"></textarea>'
       + '<div class="qreply-b"><span class="qcount" data-ccnt="' + escHtml(id) + '">0 / 2000</span>'
       + '<button class="btn y" data-csend="' + escHtml(id) + '">' + toLabel + '</button></div>'
       + '<div class="qerr" data-cerr="' + escHtml(id) + '" style="display:none"></div>'
       + '</div>'
-      : '<div class="note" style="margin-top:10px">当前纠纷状态不允许发消息（可用动作：' + escHtml((c.actions || []).join(' / ') || '无') + '）。</div>')
+      : '<div class="note" style="margin-top:10px">当前纠纷状态不允许发消息（可用动作：' + escHtml(acts.join(' / ') || '无') + '）。</div>')
     + (d.demo ? '<div class="note" style="margin-top:10px">示例模式：这里发送不会真正发出。</div>' : '');
+
+  // 切换收件方：只改本地状态，真正发送时再带给服务端
+  panel.querySelectorAll('.tgt button').forEach(b => b.onclick = () => {
+    panel.__target = b.dataset.t;
+    panel.querySelectorAll('.tgt button').forEach(x => x.classList.toggle('on', x === b));
+    const t2 = panel.querySelector('textarea[data-cta]');
+    if (t2) t2.placeholder = phFor(b.dataset.t);
+    const s2 = panel.querySelector('[data-csend]');
+    if (s2) s2.textContent = '发送给' + targetName(b.dataset.t);
+    panel.dataset.confirm = '';
+  });
+  const pcb = panel.querySelector('[data-cbuyer]');
+  if (pcb) pcb.onclick = () => showBuyerOrders(pcb.dataset.cbuyer, pcb);
 
   const ta = panel.querySelector('textarea[data-cta]');
   if (ta) {
@@ -3515,9 +3549,10 @@ async function sendClaimReply(panel, id) {
   const err = panel.querySelector('[data-cerr]');
   const btn = panel.querySelector('[data-csend]');
   const cur = panel.__data || {};
-  const isM = !!((cur.claim || {}).isMediation);
-  const who = isM ? '平台调解员' : '买家';
-  const sendLabel = isM ? '发送给调解员' : '发送给买家';
+  // 收件方由面板上的选择器决定（默认取平台判定的 replyRole），没有选择器时退回平台判定
+  const target = panel.__target || (((cur.claim || {}).replyRole === 'mediator') ? 'mediator' : 'complainant');
+  const who = target === 'mediator' ? '平台调解员' : '买家';
+  const sendLabel = '发送给' + who;
   const text = ta ? ta.value.trim() : '';
   const say = (t, color) => { if (err) { err.textContent = t || ''; err.style.display = t ? 'block' : 'none'; err.style.color = color || 'var(--bad)'; } };
   if (!text) { say('请先输入要发给' + who + '的内容'); if (ta) ta.focus(); return; }
@@ -3537,11 +3572,11 @@ async function sendClaimReply(panel, id) {
   if (btn) { btn.disabled = true; btn.textContent = '发送中…'; }
   try {
     const d = await mlGet('/api/ml/claims/' + encodeURIComponent(id) + '/reply', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, target }),
     });
     toast(d && d.demo ? '示例模式：未真正发送' : ('✅ 消息已发送给' + who));
     if (ta) ta.value = '';
-    const next = { ...cur, messages: (cur.messages || []).concat([{ sender: 'respondent', receiver: isM ? 'mediator' : 'complainant', text, date: new Date().toISOString(), attachments: [] }]) };
+    const next = { ...cur, messages: (cur.messages || []).concat([{ sender: 'respondent', receiver: target === 'mediator' ? 'mediator' : 'complainant', text, date: new Date().toISOString(), attachments: [] }]) };
     panel.__data = next;
     renderClaimPanel(panel, next, id);
   } catch (e) {
