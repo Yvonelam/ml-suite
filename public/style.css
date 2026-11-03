@@ -378,8 +378,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
 .cpanel .cwho{margin:0 0 8px}
 /* 删除提问：问答里唯一会破坏数据的动作，单独一行靠右，别和「发送回复」挨着 */
 .qops{display:flex;justify-content:flex-end;margin-top:8px}
-.qops .btn.sm{color:var(--mut)}
-.qops .btn.sm:hover{color:var(--bad);border-color:var(--bad)}
+.qops .btn.sm{color:#f2a6a6;border-color:rgba(239,68,68,.30);background:rgba(239,68,68,.07)}
+.qops .btn.sm:hover{color:#fff;background:var(--bad);border-color:var(--bad)}
 /* 售后：收件方切换（买家 / 平台调解员） */
 .tgt{display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:12px;color:var(--mut)}
 .tgt button{border:1px solid var(--bd2);background:var(--s2);color:var(--tx2);border-radius:999px;padding:3px 11px;font-size:12px;cursor:pointer}

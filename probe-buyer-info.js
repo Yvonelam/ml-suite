@@ -90,6 +90,19 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
       const delBtn = await ev(`(() => { const b = document.querySelector('#questionBody button[data-qdel]'); return b ? { text: b.textContent.trim(), id: b.dataset.qdel } : null; })()`);
       ok(!!delBtn && /删除/.test(delBtn.text), '卡片上有「删除提问」按钮', delBtn);
       ok(!!delBtn && /^\d+$/.test(delBtn.id || ''), '删除按钮挂的是真提问 ID', delBtn && delBtn.id);
+      // 删除按钮是红色小按钮，底色半透明叠在卡片上 —— 直接读 computed 会拿到 rgba，要自己合成再算对比度
+      const dc = await ev(`(function(){
+        var b = document.querySelector('#questionBody button[data-qdel]'); if (!b) return null;
+        var parse = function(s){ var m = String(s).match(/[\\d.]+/g) || []; return [ +m[0]||0, +m[1]||0, +m[2]||0, m[3]===undefined?1:+m[3] ]; };
+        var over = function (fg, bg) { var a = fg[3]; return [ fg[0]*a+bg[0]*(1-a), fg[1]*a+bg[1]*(1-a), fg[2]*a+bg[2]*(1-a), 1 ]; };
+        var cur = b, bg = [9,9,11,1];
+        var stack = []; while (cur) { stack.unshift(cur); cur = cur.parentElement; }
+        stack.forEach(function (el) { var c = parse(getComputedStyle(el).backgroundColor); if (c[3] > 0) bg = over(c, bg); });
+        var lum = function (c) { var f = function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126*f(c[0]) + 0.7152*f(c[1]) + 0.0722*f(c[2]); };
+        var L1 = lum(parse(getComputedStyle(b).color)), L2 = lum(bg);
+        return { ratio: +(((Math.max(L1,L2)+0.05)/(Math.min(L1,L2)+0.05)).toFixed(2)), color: getComputedStyle(b).color };
+      })()`);
+      ok(dc && dc.ratio >= 4.5, '「删除提问」按钮文字对比度 ≥ 4.5:1（不可撤销的动作不能被看成灰字）', dc);
       // 懒加载订单数：点一下「看下单情况」（只读接口）
       await ev("(function(){var b=document.querySelector('#questionBody .qcard .qwho button[data-qbuyer]'); if(b) b.click(); return true;})()");
       await sleep(3000);
