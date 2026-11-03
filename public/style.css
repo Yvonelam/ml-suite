@@ -373,6 +373,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
 .qwho .btag{color:var(--violet);border:1px solid var(--bd2);border-radius:999px;padding:1px 7px;font-size:11px}
 .qwho .btn.sm{margin-left:auto}
 .ccard .qwho{margin-top:8px}
+/* 对话面板展开后，买家身份条由面板里那条负责，卡片这条先藏起来（否则两行买家信息贴在一起像重影） */
+.ccard.panel-open>.qwho{display:none}
+.cpanel .cwho{margin:0 0 8px}
 /* 删除提问：问答里唯一会破坏数据的动作，单独一行靠右，别和「发送回复」挨着 */
 .qops{display:flex;justify-content:flex-end;margin-top:8px}
 .qops .btn.sm{color:var(--mut)}

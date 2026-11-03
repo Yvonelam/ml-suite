@@ -2947,11 +2947,22 @@ async function fetchBuyers(ids) {
 /* 买家卡片上那一行身份信息 */
 function buyerLine(b, fromId) {
   const name = (b && b.nickname) ? b.nickname : ('买家 ' + (fromId || '-'));
-  const loc = b ? [b.city, b.state, b.country].filter(Boolean).join(' · ') : '';
+  const loc = buyerLoc(b);
   return '👤 <b>' + escHtml(name) + '</b>'
     + (loc ? '<span>' + escHtml(loc) + '</span>' : '')
     + (b && b.isSeller ? '<span class="btag">也是卖家</span>' : '')
     + (b && b.permalink ? '<a href="' + escHtml(b.permalink) + '" target="_blank" rel="noreferrer">主页</a>' : '');
+}
+/* 「 Porto Feliz · BR-SP · BR 」这种把国家码重复三遍的写法太丑，去个重 */
+function buyerLoc(b) {
+  if (!b) return '';
+  const cc = String(b.country || '').toUpperCase();
+  let st = String(b.state || '');
+  if (cc && st.toUpperCase().startsWith(cc + '-')) st = st.slice(cc.length + 1);
+  else if (cc && st.toUpperCase() === cc) st = '';
+  const parts = [b.city, st].filter(Boolean);
+  if (parts.length) return parts.join(' · ');
+  return cc ? cc : '';
 }
 /* 该买家在本店下过几单 —— 点开才查，避免一进列表就打一批订单接口 */
 async function showBuyerOrders(buyerId, btn) {
@@ -3430,10 +3441,13 @@ async function toggleClaimPanel(id, card, btn) {
   if (!panel) return;
   if (panel.style.display === 'block') {
     panel.style.display = 'none';
+    if (card) card.classList.remove('panel-open');
     if (btn) btn.textContent = btn.dataset.label || '💬 查看对话';
     return;
   }
   panel.style.display = 'block';
+  // 面板里会再画一条买家身份条；卡片自己那条先收起来，否则上下两行买家信息贴在一起像渲染错了
+  if (card) card.classList.add('panel-open');
   if (!btn.dataset.label) btn.dataset.label = btn.textContent;
   btn.textContent = '收起对话';
   panel.innerHTML = '<div class="empty" style="padding:18px 0">正在加载对话…</div>';
@@ -3495,7 +3509,9 @@ function renderClaimPanel(panel, d, id) {
   const toLabel = '发送给' + targetName(initTarget);
   const ph = phFor(initTarget);
   const tgtBox = bothTargets
-    ? '<div class="tgt"><span>发给</span><button type="button" class="on" data-t="complainant">买家</button><button type="button" data-t="mediator">平台调解员</button></div>'
+    ? '<div class="tgt"><span>发给</span>'
+    + '<button type="button" class="' + (initTarget === 'complainant' ? 'on' : '') + '" data-t="complainant">买家</button>'
+    + '<button type="button" class="' + (initTarget === 'mediator' ? 'on' : '') + '" data-t="mediator">平台调解员</button></div>'
     : '';
   const buyerBar = d.buyer
     ? '<div class="qwho cwho">' + buyerLine(d.buyer, c.buyerId)

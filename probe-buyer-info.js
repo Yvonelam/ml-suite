@@ -133,10 +133,54 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
         console.log('  （这条纠纷美客多只允许一个收件方，切换器不出现属于正常）');
       }
       ok(await ev('window.__confirmCalls === 0'), '售后全程没有触发任何确认框', await ev('window.__confirmCalls'));
+      ok(await ev("!document.querySelector('#claimBody .ccard.panel-open > .qwho') || getComputedStyle(document.querySelector('#claimBody .ccard.panel-open > .qwho')).display==='none'"), '展开后卡片那条买家信息让位给面板里那条（不重影）', true);
     } else {
       ok(false, '当前「待我处理」没有售后卡片，无法验证（可切到其它 tab）');
     }
     await shot('buyer-claims.png');
+
+    /* ---------- 合成数据：双收件方切换 ----------
+       真实数据里美客多很少同时下发「发买家」+「发调解员」，靠等是等不到的，
+       而这段逻辑恰恰最容易写错（target 归属、按钮文案、占位文案）。
+       这里直接喂一个两个动作都在的假 claim 进渲染函数，纯前端、不发任何请求。 */
+    console.log('\n=== 收件方切换（合成数据，不走网络）===');
+    const tgt = await ev(`(function(){
+      var box = document.createElement('div'); document.body.appendChild(box);
+      renderClaimPanel(box, {
+        buyer: { id: '42', nickname: 'TESTBUYER', city: 'Sao Paulo', state: 'BR-SP', country: 'BR', permalink: 'http://x/y' },
+        claim: { id: '999', isMediation: true, canReply: true, canSendNow: true, buyerId: '42',
+                 actions: ['send_message_to_complainant','send_message_to_mediator'], replyRole: 'mediator' },
+        messages: []
+      }, '999');
+      var t = box.querySelector('.tgt');
+      var send = box.querySelector('[data-csend]');
+      var ta = box.querySelector('textarea[data-cta]');
+      var out = { hasTgt: !!t, on: t && t.querySelector('button.on') ? t.querySelector('button.on').dataset.t : null,
+                  send: send ? send.textContent.trim() : '', ph: ta ? ta.placeholder : '' };
+      // 默认按平台判定（mediator），点买家应该整体切过去
+      var bc = t && t.querySelector('button[data-t="complainant"]');
+      if (bc) bc.click();
+      out.after = { on: t.querySelector('button.on').dataset.t, send: send.textContent.trim(), ph: ta.placeholder };
+      out.__box = box; window.__tgtBox = box;
+      return out;
+    })()`);
+    ok(tgt.hasTgt, '两个动作都在时出现「发给」切换器', tgt.hasTgt);
+    ok(tgt.on === 'mediator' && /调解员/.test(tgt.send), '默认按平台判定指向平台调解员', { on: tgt.on, send: tgt.send });
+    ok(tgt.after && tgt.after.on === 'complainant', '点「买家」后高亮切到 complainant', tgt.after && tgt.after.on);
+    ok(tgt.after && /买家/.test(tgt.after.send) && !/调解员/.test(tgt.after.send), '发送按钮文案跟着变成「发给买家」', tgt.after && tgt.after.send);
+    ok(tgt.after && /买家/.test(tgt.after.ph) && /350/.test(tgt.after.ph), '输入框占位文案跟着换成买家版（带 350 字建议）', tgt.after && tgt.after.ph);
+    await ev('(function(){ if(window.__tgtBox) window.__tgtBox.remove(); return true; })()');
+
+    /* ---------- 身份条去重 ---------- */
+    const loc = await ev(`(function(){
+      var a = buyerLoc({ city: 'Porto Feliz', state: 'BR-SP', country: 'BR' });
+      var b = buyerLoc({ state: 'BR-SP', country: 'BR' });
+      var c = buyerLoc({ city: 'Sao Paulo', country: 'BR' });
+      var d = buyerLoc(null);
+      return { a: a, b: b, c: c, d: d };
+    })()`);
+    ok(loc.a === 'Porto Feliz · SP', '地址行不再把国家码重复三遍', loc.a);
+    ok(loc.b === 'SP' && loc.c === 'Sao Paulo' && loc.d === '', '只有州 / 只有城市 / 没有资料 三种情况都对', loc);
 
     console.log('\n' + pass + ' 通过 / ' + fail + ' 失败');
   } finally {
