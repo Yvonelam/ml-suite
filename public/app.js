@@ -1904,7 +1904,7 @@ function renderHubListings(d) {
 
 function setHubRange(range, from, to, run=true) {
   const today=brToday();let f=from||today,t=to||today;
-  if(range!=='custom'){if(range==='7')f=addDays(today,-6);else if(range==='30')f=addDays(today,-29);else f=today;t=today;}
+  if(range!=='custom'){if(range==='7')f=addDays(today,-6);else if(range==='30')f=addDays(today,-29);else if(range==='month')f=today.slice(0,8)+'01';else f=today;t=today;}
   if(f>t){const z=f;f=t;t=z;}
   salesView.range=range;salesView.from=f;salesView.to=t;listingView.range=range;listingView.from=f;listingView.to=t;
   const af=$('#salesFrom'),at=$('#salesTo'),lf=$('#listingFrom'),lt=$('#listingTo'),hf=$('#hubFrom'),ht=$('#hubTo');if(af)af.value=f;if(at)at.value=t;if(lf)lf.value=f;if(lt)lt.value=t;if(hf)hf.value=f;if(ht)ht.value=t;
@@ -1913,6 +1913,8 @@ function setHubRange(range, from, to, run=true) {
   adsView.range=range;adsView.from=adsFrom;adsView.to=t;const adf=$('#adsFrom'),adt=$('#adsTo');if(adf)adf.value=adsFrom;if(adt)adt.value=t;const ar=$('#adsRange');if(ar)ar.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.r===range));
   const pf=$('#profitOrderFrom'),pt=$('#profitOrderTo');if(pf)pf.value=f;if(pt)pt.value=t;const pr=$('#profitOrderRange');if(pr)pr.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.range===range));
   const hr=$('#hubRange');if(hr)hr.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.range===range));
+  // 换区间先把旧汇率清掉，避免上一档的牌价挂在新区间上（profit 估算马上会重新填）
+  const fxn=$('#hubFxNote');if(fxn)fxn.textContent='—';
   if(run)refreshOverview();
 }
 function bindOverviewEvents(){
@@ -2034,6 +2036,23 @@ function bindSalesEvents() {
 
 /* 经营看板：三块（Listing 出单 / 实时订单 / 销售流水）吃的是同一份订单数据，
    所以共用一个刷新按钮、一次全刷 —— 并行发请求，比原来点三次快。 */
+/* 概览：把「这次利润核算用的汇率」直接摆在区间条上。
+   数据来自 /api/ml/profit/orders?summary=1 的 fx 字段，与逐单折算共用同一个 rates 对象，
+   所以界面显示的就是算利润时真正用的那一档，不会出现「显示一个、算另一个」。
+   汇率口径为中国银行网页牌价（现汇卖出价，无现汇时用中行折算价），单位是「每 100 当地币折合人民币」。 */
+function renderHubFx(fx, state) {
+  const box = $('#hubFxNote'); if (!box) return;
+  if (state === 'error') { box.innerHTML = '<i class="hub-fx-empty">暂不可用</i>'; return; }
+  const rows = Object.entries(fx || {}).filter(([code, row]) => code && row && Number(row.cnyPer100) > 0);
+  if (!rows.length) { box.innerHTML = '<i class="hub-fx-empty">中行暂无该币种牌价</i>'; return; }
+  const chips = rows.map(([code, row]) => {
+    const meta = [row.rateType, row.publishedAt].filter(Boolean).join(' · ');
+    return '<span class="hub-fx-chip" title="' + escHtml('中国银行 ' + (meta || '牌价') + ' · 每 100 ' + code + ' 折合人民币') + '">100 ' + escHtml(code) + ' = <b>¥' + Number(row.cnyPer100).toFixed(2) + '</b></span>';
+  }).join('');
+  const first = rows[0][1], meta = [first.rateType, first.publishedAt].filter(Boolean).join(' · ');
+  box.innerHTML = chips + (meta ? '<i class="hub-fx-src">' + escHtml(meta) + '</i>' : '');
+}
+
 async function loadHubProfitEstimate(force=false) {
   const value=$('#hubProfitEstimate'),note=$('#hubProfitNote');
   if(!value||!note||!salesView.from||!salesView.to)return;
@@ -2047,6 +2066,7 @@ async function loadHubProfitEstimate(force=false) {
       const query='?summary=1&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+(force?'&refresh=1':'');
       const data=await mlGet('/api/ml/profit/orders'+query);
       if(key!==salesView.from+'|'+salesView.to)return;
+      renderHubFx(data.fx);
       const totals=data.totals||{},ads=data.ads||{},net=totals.profitAfterAdsCny;
       hubProfitView.key=key;hubProfitView.at=Date.now();
       if(!ads.available||net==null||!Number.isFinite(Number(net))){
@@ -2063,6 +2083,7 @@ async function loadHubProfitEstimate(force=false) {
     }catch(err){
       if(key!==salesView.from+'|'+salesView.to)return;
       hubProfitView.key=key;hubProfitView.at=Date.now();
+      renderHubFx(null,'error');
       value.textContent='待核对';value.classList.add('pending');
       const payload=err.payload||{};
       note.textContent=payload.needAuth?'请先完成美客多账号授权':payload.needConfig?'请先配置美客多 API':'利润暂不可用 · '+err.message;

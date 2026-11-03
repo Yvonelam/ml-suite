@@ -1554,8 +1554,8 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     if (rejectTooWideRange(res, from, to, ADS_MAX_DAYS, '利润统计日期')) return;
     const cacheKey=`ads-v2-total|${auth.currentUserId()}|${u.id}|${from}|${to}`,cached=profitOrderCache.get(cacheKey);
     const summaryOnly=req.query.summary==='1';
-    const toSummary=(data,cachedValue)=>({
-      ok:true,range:data.range,updatedAt:data.updatedAt,cached:!!cachedValue,ads:data.ads,
+    const     toSummary=(data,cachedValue)=>({
+      ok:true,range:data.range,updatedAt:data.updatedAt,cached:!!cachedValue,ads:data.ads,fx:data.fx,
       totals:{profitCny:data.totals?.profitCny,profitAfterAdsCny:data.totals?.profitAfterAdsCny,
         matched:data.totals?.matched,validLines:data.totals?.validLines,unmatched:data.totals?.unmatched,
         orders:data.totals?.orders,validUnits:data.totals?.validUnits,profitUnits:data.totals?.profitUnits},
@@ -1709,6 +1709,15 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
       adStatus.fxCnyPer100=Number(adRates[adStatus.currency]?.cnyPer100||0);
       adStatus.fxPublishedAt=adRates[adStatus.currency]?.publishedAt||'';
     }catch(e){adStatus={...adStatus,available:false,error:String(e.message||e)};}
+    // 概览页要直说「这次利润核算用的是哪一档汇率」：把实际参与折算的币种牌价一起回传。
+    // 口径与 lines 里的 fxRate 完全一致（同一个 rates 对象），避免界面显示的和算出来的两套数。
+    // 没有牌价的币种不返回 —— 前端据此提示「该币种待核对」，而不是显示成 0。
+    const fxUsed={};
+    for(const code of new Set([...currencies,adStatus.currency].filter(Boolean))){
+      const row=rates[code];
+      if(code==='CNY'||!row||!(Number(row.cnyPer100)>0))continue;
+      fxUsed[code]={cnyPer100:r2(row.cnyPer100),localPerCny:Number(row.localPerCny)||0,rateType:row.rateType||'',publishedAt:row.publishedAt||'',source:'中国银行牌价'};
+    }
     let itemInfo={};
     try{itemInfo=await mlItemInfo([...byItem.values()].map(p=>p.itemId).filter(Boolean));}catch{/* 图取不到不影响数字 */}
     const products=[...byItem.values()].map(p=>{
@@ -1724,7 +1733,7 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     const data={ok:true,range:{from,to},currency:'CNY',taxRate,defaultTaxRate:DEFAULT_TAX_RATE,
       truncated:rawOrders.length<apiTotal,
       apiTotal,pulled:rawOrders.length,cancelled:cancelledOrders.length,strategy:pulled.strategy,
-      orders:lines,products,ads:adStatus,
+      orders:lines,products,ads:adStatus,fx:fxUsed,
       totals:{allOrders:rawOrders.length,orders:validOrders.length,cancelledOrders:cancelledOrders.length,
         ordersWithMultiItem:rawOrders.filter(o=>(o.order_items||[]).length>1).length,
         lines:lines.length,validLines:active.length,matched:complete.length,unmatched:active.length-complete.length,

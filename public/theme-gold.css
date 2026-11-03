@@ -93,6 +93,7 @@ input:focus,select:focus,textarea:focus{border-color:rgba(232,190,124,.55);box-s
 /* ---- 概览里写死的冷色半透明白统一回暖，否则放到金皮上会发灰 ---- */
 .hub-period{background:rgba(240,214,170,.05)}
 .hub-ads-grid>div{border-color:rgba(222,178,110,.11);background:rgba(240,214,170,.045)}
+.hub-fx-chip{border-color:rgba(222,178,110,.14);background:rgba(240,214,170,.05)}
 .hub-trend .hub-gridline{stroke:rgba(226,186,120,.10)}
 .hub-list-table th,.hub-list-table td{border-bottom-color:rgba(222,178,110,.10)}
 .hub-hot-foot{border-top-color:rgba(222,178,110,.10)}

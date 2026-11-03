@@ -9,11 +9,11 @@
 <link rel="icon" href="favicon-16.png" type="image/png" sizes="16x16">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#09090b">
-<link rel="stylesheet" href="style.css?v=72">
+<link rel="stylesheet" href="style.css?v=73">
 <!-- 主题层：F 柔雾玻璃是最底层材质，G 彩色毛玻璃 / H 典藏金都建立在它之上，三张表按顺序加载；disabled 即可整层关掉 -->
 <link rel="stylesheet" href="theme-mist.css?v=2" id="themeMist">
 <link rel="stylesheet" href="theme-color.css?v=5" id="themeColor">
-<link rel="stylesheet" href="theme-gold.css?v=1" id="themeGold">
+<link rel="stylesheet" href="theme-gold.css?v=2" id="themeGold">
 <link rel="stylesheet" href="theme-motion.css?v=1" id="themeMotion">
 <script>
 /* 主题提前应用：在 body 渲染前按上次选择开关主题层，避免刷新时闪一下旧皮肤 */
@@ -100,7 +100,7 @@
     <!-- 概览：订单、销售、广告与待办合并为经营视图 -->
     <section class="view on" id="v-hub">
       <div class="hub-heading"><div class="ph2"><h1>经营总览</h1><p>销售、广告、Listing 表现与待处理事项 · 巴西时间 GMT−3</p></div><div class="hub-toolbar"><span class="st" id="mlState"><i class="off"></i>未连接</span><label class="sales-auto" title="开启后每 30 秒自动同步订单和销售数据"><input type="checkbox" id="salesAuto" checked><span>自动刷新</span></label><button class="ghost" id="mlCfgBtn" title="配置美客多 API 凭证">API 设置</button><button class="btn y" id="ovRefresh" type="button">↻ 刷新数据</button><button class="ghost hub-head-link" data-go="profit" type="button">利润核算 ↗</button></div></div>
-      <div class="hub-period"><div class="seg" id="hubRange"><button class="on" data-range="today">今天</button><button data-range="7">近 7 天</button><button data-range="30">近 30 天</button></div><div class="hub-dates"><input type="date" id="hubFrom" aria-label="开始日期"><span>至</span><input type="date" id="hubTo" aria-label="结束日期"><button class="btn" id="hubApply" type="button">应用</button></div><small>广告接口最多查询 90 天</small></div>
+      <div class="hub-period"><div class="seg" id="hubRange"><button class="on" data-range="today">今天</button><button data-range="7">近 7 天</button><button data-range="30">近 30 天</button><button data-range="month">本月</button></div><div class="hub-dates"><input type="date" id="hubFrom" aria-label="开始日期"><span>至</span><input type="date" id="hubTo" aria-label="结束日期"><button class="btn" id="hubApply" type="button">应用</button></div><small>广告接口最多查询 90 天</small><span class="hub-fx" id="hubFx" title="本区间利润核算所用的中国银行牌价"><em>利润核算汇率</em><b id="hubFxNote">—</b></span></div>
       <div class="hub-notices"><div class="note" id="mlHint" style="display:none"></div><div class="note" id="salesNote" style="display:none"></div><div class="note" id="listingNote" style="display:none"></div></div>
       <section class="hub-metrics">
         <article class="card hub-metric"><span>销售额</span><b id="sk-amount">—</b><small id="sk-amount-sub">—</small></article>
@@ -636,6 +636,6 @@
   <button class="theme-item" data-t="gold" type="button" role="menuitem"><span class="dot d-gold"></span><span class="nm"><b>典藏金</b><small>暖金天光 · 层叠山脊 · 细金描边</small></span><span class="ck">✓</span></button>
   <button class="theme-item" data-t="motion" type="button" role="menuitem"><span class="dot d-motion"></span><span class="nm"><b>动态玻璃</b><small>动态渐变 · 流动波纹 · 通透玻璃</small></span><span class="ck">✓</span></button>
 </div>
-<script src="app.js?v=70"></script>
+<script src="app.js?v=71"></script>
 </body>
 </html>
