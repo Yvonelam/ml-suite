@@ -3308,7 +3308,7 @@ function bindQuestionAutoReplyEvents() {
   document.addEventListener('keydown', event => { if (event.key === 'Escape' && !modal.hidden) closeQuestionAutoReply(); });
 }
 /* ---- 退货与投诉（售后） ---- */
-const claimView = { cat: 'todo', limit: 50, offset: 0, total: 0, demo: false, counts: {}, all: [], timer: null };
+const claimView = { cat: 'todo', limit: 50, offset: 0, total: 0, demo: false, counts: {}, all: [], postSale: [], timer: null };
 const CLAIM_STAGE = { claim: '纠纷协商', dispute: '平台调解', mediations: '平台调解', recontact: '结案后再联系', none: '-' };
 const CLAIM_CAT_META = {
   mediation: { label: '平台调解', ico: '⚖️', cls: 'med', desc: '平台调解员在等你回复' },
@@ -3327,6 +3327,14 @@ function filterClaims(all, cat) {
   return base.filter(c => c.category === cat);
 }
 
+/* Pós-venda 未读私信（第二个通道）：只在「待我处理 / 买家咨询 / 已忽略」里出现。
+   已关闭 tab 是纠纷归档，不该把私信混进去。 */
+function filterPostSale(list, cat) {
+  if (cat === 'ignored') return list.filter(x => x.ignored);
+  if (cat === 'todo' || cat === 'buyer') return list.filter(x => !x.ignored);
+  return [];
+}
+
 async function loadClaims() {
   const body = $('#claimBody');
   setStateEl($('#claimState'), 'warn', '加载中');
@@ -3338,12 +3346,14 @@ async function loadClaims() {
     claimView.counts = d.counts || {};
     claimView.total = d.total || 0;
     claimView.all = d.claims || [];
+    claimView.postSale = d.postSale || [];
     setStateEl($('#claimState'), d.demo ? 'warn' : 'ok', d.demo ? '示例预览' : ('共 ' + fmt(claimView.total) + ' 条'));
     const db = $('#claimDemoBtn');
     if (db) db.textContent = claimView.demo ? '退出示例' : '👀 示例预览';
     renderClaimTabs();
-    const buyers = await fetchBuyers(claimView.all.map(c => c.buyerId));
-    renderClaims(d, filterClaims(claimView.all, claimView.cat), buyers);
+    const ids = claimView.all.map(c => c.buyerId).concat(claimView.postSale.map(c => c.buyerId));
+    const buyers = await fetchBuyers(ids);
+    renderClaims(d, filterClaims(claimView.all, claimView.cat), buyers, filterPostSale(claimView.postSale, claimView.cat));
   } catch (e) { toolError($('#claimState'), body, e, loadClaims); }
 }
 
@@ -3404,18 +3414,53 @@ function claimCard(c, buyers = {}) {
     + '</div>';
 }
 
-function renderClaims(d, list, buyers = {}) {
+/* Pós-venda 未读私信卡片。
+   这条不是纠纷：它来自 /messages/packs（买家自己在订单/售后页发起的私信），
+   纠纷关掉之后仍然存在，claims/search 里根本看不到 —— 界面上必须说清楚走的是哪条通道，
+   否则用户会以为「纠纷已关闭 = 事情结束了」。回复只能在美客多做（会话多半被平台锁住）。 */
+function postSaleCard(c, buyers = {}) {
+  const blocked = /blocked/.test(String(c.status || '')) || /blocked/.test(String(c.substatus || ''));
+  const convState = blocked
+    ? (c.substatus === 'blocked_by_cancelled_order' ? '订单已取消，会话被平台锁定' : '平台已锁定该会话，只能查看')
+    : '可继续对话（请在美客多回复）';
+  const tail = escHtml((c.text || '').slice(0, 400)) || '（对方发来一条非文字消息）';
+  const att = (c.attachments || []).length ? '<div>附件：<b>' + escHtml((c.attachments || []).join('、')) + '</b></div>' : '';
+  const ignBtn = c.ignored
+    ? '<button class="btn ghost" data-unignore="' + escHtml(c.id) + '">↩️ 取消忽略</button>'
+    : '<button class="btn ghost" data-ignore="' + escHtml(c.id) + '" title="收进「已忽略」，不再计入待我处理">🚫 忽略</button>';
+  return '<div class="ccard buy postsale' + (c.ignored ? ' ignored' : '') + '">'
+    + '<div class="qhead"><span class="cbag buy">💬 买家咨询</span>'
+    + '<span>' + fmtDate(c.date) + ' · 订单 #' + escHtml(c.orderId || '-')
+    + (c.claimId ? ' · 纠纷 #' + escHtml(c.claimId) : '') + '</span></div>'
+    + '<div class="creason">' + tail + '</div>'
+    + '<div class="cinfo">'
+    + '<div>通道：<b>Pós-venda 私信</b></div>'
+    + '<div>未读：<b>' + (c.count || 1) + ' 条</b></div>'
+    + '<div>会话：<b>' + escHtml(convState) + '</b></div>'
+    + att
+    + '</div>'
+    + '<div class="cacts"><span class="cwait">⚠️ 等你回复</span>'
+    + '<span class="cact warn">回复需在美客多完成</span>'
+    + (c.ignored ? '<span class="cign">🚫 已忽略</span>' : '') + '</div>'
+    + '<div class="qwho">' + buyerLine(buyers[String(c.buyerId)] || null, c.buyerId)
+    + (c.buyerId ? '<button class="btn ghost sm" data-cbuyer="' + escHtml(c.buyerId) + '">看下单情况</button>' : '')
+    + '</div>'
+    + '<div class="cfoot"><a class="btn y" href="https://www.mercadolivre.com.br/vendas" target="_blank" rel="noreferrer">去美客多回复 ↗</a>'
+    + ignBtn + '</div></div>';
+}
+
+function renderClaims(d, list, buyers = {}, psList = []) {
   const body = $('#claimBody');
   const demoBar = d.demo
     ? '<div class="demo-bar"><span>当前为 <b>示例数据</b>，只用于预览界面效果，回复不会真正发出</span><button class="ghost" id="cDemoExit">退出示例</button></div>'
     : '';
 
-  if (!list.length) {
+  if (!list.length && !psList.length) {
     const isEmptyAll = !claimView.all.length;
     const tip = claimView.cat === 'todo'
       ? '太好了，当前没有需要你处理的售后 🎉'
       : (claimView.cat === 'mediation' ? '当前没有平台调解'
-        : (claimView.cat === 'buyer' ? '当前没有买家主动咨询的售后'
+        : (claimView.cat === 'buyer' ? '当前没有买家主动咨询的售后（纠纷 + Pós-venda 私信都比对过了）'
           : '当前没有需要归档的售后'));
     body.innerHTML = demoBar + '<div class="empty">' + tip
       + (isEmptyAll ? '<br><button class="btn" id="cDemo" style="margin-top:16px">👀 查看示例效果</button>'
@@ -3428,7 +3473,7 @@ function renderClaims(d, list, buyers = {}) {
     return;
   }
 
-  const cards = list.map(c => claimCard(c, buyers)).join('');
+  const cards = psList.map(c => postSaleCard(c, buyers)).join('') + list.map(c => claimCard(c, buyers)).join('');
   body.innerHTML = demoBar + '<div class="clist">' + cards + '</div>';
   body.querySelectorAll('button[data-talk]').forEach(b => b.onclick = () => toggleClaimPanel(b.dataset.talk, b.closest('.ccard'), b));
   body.querySelectorAll('button[data-ignore]').forEach(b => b.onclick = () => toggleIgnore(b.dataset.ignore, true, b));
