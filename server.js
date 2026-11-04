@@ -1122,6 +1122,80 @@ async function mlClaimThread(id) {
   return data;
 }
 
+/* ---- 售后「Pós-venda 消息」——第二个通道，和 claims 不是一回事 ----
+   买家在订单页 / 售后页发的私信走 /messages/packs，**不进** claims 的消息线程；
+   纠纷一旦 closed，claims/search 也不再返回它，于是「明明有买家消息，工具一条都不提示」。
+   这就是 2026-11-04 那条投诉的根因（订单 2000019147507672，买家 10-29 的留言躺在已关闭纠纷的消息包里）。
+   两条铁律：
+   1) **只读**：取详情必须带 mark_as_read=false。官方文档写明 GET 不带它会把消息标记成已读，
+      等于我们一刷新就把用户在美客多的未读清空了 —— 用户会以为消息丢了。
+   2) 拉取失败要显式标记（fetchError），绝不能把「没拉到」当成「没有消息」。 */
+const postSaleCache = new Map(); // `${uid}:unread` / `${uid}:pack:<id>` -> { at, data }
+async function mlUnreadPacks() {
+  const uid = String((await mlUser()).id);
+  const ck = uid + ':unread';
+  const hit = postSaleCache.get(ck);
+  if (hit && Date.now() - hit.at < 60000) return hit.data;
+  let packs = [], error = '';
+  try {
+    const d = await mlRequest('/messages/unread?role=seller&tag=post_sale');
+    packs = (Array.isArray(d && d.results) ? d.results : []).map(r => {
+      const m = /\/packs\/(\d+)\/sellers\/(\d+)/.exec(String((r && r.resource) || ''));
+      return m ? { packId: m[1], sellerId: m[2], count: Number(r.count) || 0 } : null;
+    }).filter(Boolean);
+  } catch (e) { error = String((e && e.message) || e); }
+  const data = { packs, error, total: packs.reduce((s, p) => s + p.count, 0) };
+  postSaleCache.set(ck, { at: Date.now(), data });
+  return data;
+}
+async function mlPackThread(packId) {
+  const uid = String((await mlUser()).id), pack = String(packId);
+  const ck = uid + ':pack:' + pack;
+  const hit = postSaleCache.get(ck);
+  if (hit && Date.now() - hit.at < 60000) return hit.data;
+  let data = { messages: [], conversation: {}, fetchError: true, error: '' };
+  try {
+    const d = await mlRequest(`/messages/packs/${encodeURIComponent(pack)}/sellers/${uid}?tag=post_sale&mark_as_read=false`);
+    const arr = Array.isArray(d && d.messages) ? d.messages : [];
+    const messages = arr.map(m => ({
+      id: String((m && m.id) || ''),
+      fromId: String((m && m.from && m.from.user_id) || ''),
+      fromMe: String((m && m.from && m.from.user_id) || '') === uid,
+      text: String((m && m.text) || ''),
+      date: (m && m.message_date && (m.message_date.created || m.message_date.received)) || '',
+      read: !!(m && m.message_date && m.message_date.read),
+      attachments: ((m && m.message_attachments) || []).map(a => a.original_filename || a.filename).filter(Boolean),
+    })).sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+    data = { messages, conversation: (d && d.conversation_status) || {}, fetchError: false, error: '' };
+  } catch (e) { data = { ...data, error: String((e && e.message) || e) }; }
+  postSaleCache.set(ck, { at: Date.now(), data });
+  return data;
+}
+/** 未读售后私信（只保留「最后一条是买家发的」＝球在我方） */
+async function mlPostSaleUnread(limit = 10) {
+  const unread = await mlUnreadPacks();
+  const items = [];
+  for (const p of unread.packs.slice(0, Math.max(1, limit))) {
+    const t = await mlPackThread(p.packId);
+    if (t.fetchError) continue;
+    const last = t.messages[t.messages.length - 1];
+    if (!last || last.fromMe) continue;   // 我方最后发言 → 不是「等你回复」
+    const conv = t.conversation || {};
+    items.push({
+      kind: 'pack', packId: p.packId, orderId: p.packId, buyerId: last.fromId || '',
+      claimId: (conv.claim_ids && conv.claim_ids.length) ? String(conv.claim_ids[0]) : '',
+      count: p.count, unread: true,
+      text: last.text, date: last.date, attachments: last.attachments || [],
+      status: conv.status || '', substatus: conv.substatus || '',
+      // 会话被平台锁住（取消单 / 履约中 / 调解中）时只能去美客多处理，本工具不给假回复框
+      canReply: false,
+      messages: t.messages.length,
+    });
+  }
+  return { items, error: unread.error, total: unread.total };
+}
+
+
 // 退货/投诉查询接口的多版本候选路径
 function mlClaimPaths(uid, { status, limit = 20, offset = 0 } = {}) {
   const base = `limit=${limit}&offset=${offset}`;
@@ -1220,13 +1294,24 @@ app.get('/api/ml/orders/summary', async (req, res) => {
       const reasons = await mlClaimReasons(list.map(c => c.reason_id));
       const norm = list.map(c => normalizeClaim(c, reasons));
       const th = await Promise.all(norm.map(nc => mlClaimThread(nc.id)));
-      return norm.filter((nc, i) => {
+      const counted = norm.filter((nc, i) => {
         if (isIgnored(nc.id)) return false;
         if (th[i] && th[i].fetchError) return false; // 线程没拉到 → 不误报成待处理
         const cat = classifyClaim(nc, th[i]);
         if (!(CLAIM_CAT[cat] || CLAIM_CAT.auto).need) return false;
         return claimAwaitingUs(cat, nc, th[i]);
-      }).length;
+      });
+      // Pós-venda 未读私信也算待处理：纠纷关掉后买家还能说话，只数 opened 会漏（2026-11-04 投诉）
+      let extra = 0;
+      try {
+        const ps = await mlPostSaleUnread(10);
+        const ids = new Set(counted.map(c => c.id)), orders = new Set(counted.map(c => String(c.resourceId || '')));
+        extra = ps.items.filter(it => {
+          if (isIgnored('pack-' + it.packId)) return false;
+          return !ids.has(it.claimId) && !orders.has(String(it.orderId));
+        }).length;
+      } catch { /* 私信通道失败不影响纠纷口径 */ }
+      return counted.length + extra;
     }, null);
     // 需要我动手发货的订单数（自发货/打面单；官方代发不算）
     const pendingTodo = await safe(async () => {
@@ -3105,18 +3190,54 @@ app.get('/api/ml/claims', async (req, res) => {
         lastSender: t.lastSender, lastReceiver: t.lastReceiver, awaitingSeller: t.awaitingSeller && nc.canSendNow,
       };
     });
+    // ---- 第二个通道：Pós-venda 未读私信 ----
+    // 纠纷关掉后买家仍然能说话，只查 status=opened 永远看不到（2026-11-04 的漏提醒就是这么来的）。
+    // 这里并入同一份结果：能对上纠纷的（claim_ids / 同订单）就地升级为「买家咨询」，
+    // 对不上的单独作为一条 postSale 卡片返回，前端在「买家咨询 / 待我处理」里一起显示。
+    const postSaleRaw = await (async () => { try { return await mlPostSaleUnread(10); } catch (e) { return { items: [], error: String((e && e.message) || e), total: 0 }; } })();
+    const mergedPackIds = new Set();
+    const postSale = (postSaleRaw.items || []).map(it => {
+      const id = 'pack-' + it.packId;
+      const ignored = isIgnored(id);
+      const hit = claims.find(c => (it.claimId && c.id === it.claimId) || (c.resourceId && String(c.resourceId) === String(it.orderId)));
+      if (hit && !hit.ignored) {
+        mergedPackIds.add(id);
+        hit.postSaleUnread = true;
+        hit.postSaleText = it.text;
+        hit.postSaleDate = it.date;
+        hit.postSalePack = it.packId;
+        if (hit.category !== 'buyer') {
+          hit.category = 'buyer'; hit.categoryLabel = CLAIM_CAT.buyer.label; hit.categoryDesc = CLAIM_CAT.buyer.desc;
+        }
+        hit.needAction = true;
+      }
+      return {
+        ...it, id, ignored,
+        category: 'buyer', categoryLabel: CLAIM_CAT.buyer.label, categoryDesc: CLAIM_CAT.buyer.desc,
+        needAction: !ignored, awaitingSeller: true, messageCount: it.messages || 1,
+        source: 'post-sale',
+      };
+    });
+
     // 各类计数（基于当前所取全部数据）；已忽略单独计数
-    const counts = { all: claims.length, mediation: 0, buyer: 0, auto: 0, todo: 0, ignored: 0 };
+    const counts = { all: claims.length, mediation: 0, buyer: 0, auto: 0, todo: 0, ignored: 0, postSale: 0 };
     claims.forEach(c => {
       if (c.ignored) { counts.ignored++; return; }
       counts[c.category] = (counts[c.category] || 0) + 1;
       if (c.needAction) counts.todo++;
     });
+    for (const p of postSale) {
+      counts.postSale++;
+      if (p.ignored) { counts.ignored++; continue; }
+      if (mergedPackIds.has(p.id)) continue;   // 已经并进对应纠纷，别重复计数
+      counts.buyer++; counts.todo++;
+    }
     res.json({
       ok: true, status,
       total: (d && d.paging && d.paging.total) != null ? d.paging.total : list.length,
       categories: CLAIM_CAT, counts,
-      claims,
+      claims, postSale,
+      postSaleError: postSaleRaw.error || '',
     });
   } catch (e) { sendMlError(res, e); }
 });
@@ -3464,6 +3585,23 @@ async function checkNewClaims({ manual = false } = {}) {
 
   pushState.lastClaimCheckAt = Date.now();
 
+  // Pós-venda 未读私信：走同一个推送通道。纠纷 closed 之后买家还会继续说话，
+  // 只在 opened 纠纷里找永远看不到（2026-11-04 「明明有买家咨询却不提示」就是这条漏的）。
+  let psErr = '';
+  try {
+    const ps = await mlPostSaleUnread(10);
+    psErr = ps.error || '';
+    for (const it of ps.items) {
+      const id = 'pack-' + it.packId;
+      if (isIgnored(id)) continue;
+      rows.push({
+        nc: { id, reason: '买家在 Pós-venda 发来消息', reasonId: '', resourceId: it.orderId, lastUpdated: it.date, canSendNow: false },
+        t: { messages: [{ sender: 'complainant', text: it.text, date: it.date }], awaitingSeller: true, lastSender: 'complainant', buyerMessages: 1, mediatorMessages: 0, total: 1 },
+        cat: 'buyer', postSale: it, signal: 'buyer|' + it.date,
+      });
+    }
+  } catch (e) { psErr = String((e && e.message) || e); }
+
   // 首轮只建基线：把存量纠纷记下来，避免服务一开就刷一堆历史
   if (!pushState.claimBaselineDone) {
     const m = {};
@@ -3495,7 +3633,10 @@ async function checkNewClaims({ manual = false } = {}) {
 
   if (!fresh.length) {
     pushState.lastClaimFresh = 0;
-    pushState.lastClaimError = threadErr ? `本轮 ${threadErr} 条消息线程拉取失败，已跳过不判定` : '';
+    pushState.lastClaimError = [
+      threadErr ? `本轮 ${threadErr} 条消息线程拉取失败，已跳过不判定` : '',
+      psErr ? 'Pós-venda 私信读取失败：' + psErr : '',
+    ].filter(Boolean).join('；');
     pushState.lastClaimSummary = `无售后新动向（当前待关注 ${rows.length} 条）`;
     savePushState();
     return { ok: true, fresh: 0, total: rows.length, pushed: 0, summary: pushState.lastClaimSummary };
@@ -3506,8 +3647,9 @@ async function checkNewClaims({ manual = false } = {}) {
   const payload = batch.map(r => {
     const list2 = r.t.messages || [];
     const last = list2[list2.length - 1];
-    const awaiting = !!(r.t.awaitingSeller && r.nc.canSendNow);
-    const badge = awaiting ? '⚡ 等你回复'
+    const awaiting = r.postSale ? true : !!(r.t.awaitingSeller && r.nc.canSendNow);
+    const badge = r.postSale ? '💬 买家在 Pós-venda 留言'
+      : awaiting ? '⚡ 等你回复'
       : (r.cat === 'mediation' ? '⚖️ 平台调解有新动向' : '💬 买家有新消息');
     return {
       id: r.nc.id,
