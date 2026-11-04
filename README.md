@@ -464,7 +464,7 @@ M public/index.html
 | GET | `/api/ml/ads`·`/api/ml/ads/hourly` | 广告数据 / 分时数据 |
 | GET | `/api/ml/questions` | 买家问答列表 |
 | POST | `/api/ml/questions/:id/answer` | 回复问答 |
-| GET | `/api/ml/claims`·`/api/ml/claims/:id` | 售后索赔列表 / 详情 |
+| GET | `/api/ml/claims`·`/api/ml/claims/:id` | 售后索赔列表 / 详情（**列表还会并回 `postSale`：Pós-venda 未读私信**） |
 | POST | `/api/ml/claims/:id/reply`·`/ignore` | 回复 / 忽略索赔 |
 | GET | `/api/dm/hot-keywords` | **真实热搜词**（只读缓存，`?force=1` 强制后台刷新） |
 | GET | `/api/dm/quota` | 大麦数据额度（免费接口） |
@@ -591,6 +591,7 @@ node dm-mcp.js call search_product_snapshots '{"market_code":"MLB","keyword":"he
 | `probe-password-manager.js` | **Chrome 密码管理器的触发面**（32 项，真浏览器）：两头都要断言 —— ① 工作台 + 管理员页必须**一个** `input[type=password]` 都不剩（否则 Chrome 又认出来弹「保存密码」），且 5 个凭据框的 `-webkit-text-security` 必须是 `disc`（改类型不能把掩码搞丢）、`.value` 照常可读写；② `login.html` 的登录框必须**还是** `type=password` + `current-password`（那是唯一该记密码的地方）。⚠ 只读：配置区每个框都挂了 `scheduleAutoSave`，探针里**绝不能**派发 `input` 事件，只许直接写 `.value` |
 | `probe-auto-reply-refresh.js` | **自动回复弹窗抗刷新**（16 项，真浏览器）：模拟真实打字置 `editorDirty` → 分别触发 `loadQuestions()` / `loadQuestionAutoReply()` → 断言弹窗、编辑器、草稿、本地新增的规则全都还在；带草稿点关闭必须被 confirm 拦住；再**真实等 35 秒**验证两件事：弹窗开着时定时器一次都不许调 `loadQuestions`，关掉后必须恢复（别把刷新永久掐死）。⚠ 只读：全程不点「保存并应用」，本地新增的规则只活在前端内存里 |
 | `probe-hub-fx.js` | **概览页「利润核算汇率」**（13 项，真浏览器）：区间条右侧必须渲染出「100 BRL = ¥131.20」格式胶囊（每 100 当地币折合人民币），title 标注中国银行牌价来源；渲染值与 `/api/ml/profit/orders?summary=1` 返回的 `fx` **逐币种逐数值**一致（界面显示的就是算利润用的那一档）；不把 CNY 自己列出来；点「本月」后区间变当月 1 号 → 今天、汇率跟着重算且不残留占位。⚠ 只读 |
+| `probe-claim-post-sale.js` | **Pós-venda 私信不会被漏掉**（14 项，真浏览器）：`/api/ml/claims` 必须返回 `postSale` 且 `counts.buyer/todo` 把它算进去；「买家咨询」「待我处理」两个 tab 都要渲染出 `.ccard.postsale`（正文是买家原话、标注 Pós-venda 通道、**不许出现假的站内回复框**）；静态断言服务端取消息包带 `mark_as_read=false`，并**等 62 秒**（服务端 unread 缓存过期）再取一次，确认该包仍未读 —— 真被标记已读的话它就会从 unread 列表消失。⚠ 只读 |
 | `probe-buyer-info.js` | **买家身份 + 删提问 + 收件方切换**（20 项，真浏览器）：① 售前卡片必须有 `👤 昵称 · 城市 · 州 + 主页 + 看下单情况`，点「看下单情况」后按钮要变成本店下单结论，`删除提问` 按钮要挂真 ID 且文字对比度 ≥ 4.5（不可撤销的动作不能长成灰字）；② 「全部」tab 必须回全量（以前传空 `status` 被服务端退化成 UNANSWERED，和「未回复」一模一样）；③ 售后卡片/展开面板要有买家条，展开后卡片那条要让位（不重影）；④ **双收件方切换用合成数据喂 `renderClaimPanel`** —— 真实纠纷里美客多极少同时下发「发买家 + 发调解员」，靠等数据等不到，而这段最容易写错默认高亮。⚠ 只读：**绝不点删除**（不可撤销），`window.confirm` 被替换成计数器 |
 | `probe-report-status.js` | 打开关键词排名页，把「定时发送运行状态」面板的文字摊出来 + 截图 `probe-out/report-status.png` |
 | `sync-status.js` | **同步体检**（双击 `同步状态.bat`）：自动同步进程在不在 / 未提交几个 / 未推送几个（→ GitHub 是旧的）/ 未合入几个（→ 本地没跟上远端），并打印最近 8 条记录 |
@@ -691,7 +692,27 @@ input[data-secret]{-webkit-text-security:disc}
 - 面板顶部那条横幅会直说这条消息发给谁、是不是「对方在等你回复」、以及「本轮已回复，等对方回应」。**`canReply` 与 `canSendNow` 是两件事**：前者是接口允许，后者是这一轮窗口还开着；两者不一致时会先弹黄条警告，别让用户白打一大段再被平台拒。
 - 回归：`node probe-buyer-info.js`。真实纠纷里极少同时给两个动作，所以切换器那段用**合成数据**直接喂 `renderClaimPanel` 断言（默认高亮 → 点买家 → 按钮文案/占位文案全跟着变）。
 
+**Q：美客多 Pós-venda 里明明有买家消息，工具为什么一条都不提示？**
+（2026-11-04 修）因为售后有**两条互不相通的通道**，之前只接了其中一条：
 
+| 通道 | 接口 | 内容 | 之前是否监控 |
+|---|---|---|---|
+| 纠纷 claims | `/post-purchase/v1/claims/*` | 退货/投诉流程、调解员消息 | ✅ 有（只看 `status=opened`） |
+| Pós-venda 私信 | `/messages/unread` + `/messages/packs/{pack}/sellers/{uid}` | 买家在订单页/售后页自己发来的私信 | ❌ **完全没有** |
+
+真实的漏单案例：买家 10-29 留言「要投诉配送员」，那条消息**只存在于消息包**（订单 2000019147507672），不进 claims 的消息线程；纠纷 10-30 结案（`closed`）后 `claims/search?status=opened` 也不再返回它 → 页面一直显示「当前没有买家主动咨询的售后」，微信也不推。
+
+现在的做法：
+
+- 每轮监控额外调 `GET /messages/unread?role=seller&tag=post_sale` 拿未读会话列表（一次请求），再逐个取消息包。
+- **取消息包必须带 `mark_as_read=false`**。官方文档写明不带这个参数会把消息标记成已读 —— 那等于我们一刷新就把用户在美客多的未读清空了。`probe-claim-post-sale.js` 里有静态断言 + 等 62 秒再取一次确认未读还在。
+- 能对上纠纷的（`conversation_status.claim_ids` 或同订单号）就地升级成「买家咨询」；对不上的作为独立卡片显示，`counts.buyer` / `counts.todo` / 概览角标 / 微信推送都算进去。
+- 卡片写明「Pós-venda 私信」通道与平台会话状态，**不给假的站内回复框**：这类会话多半被平台锁住（`blocked_by_cancelled_order` 等），回复只能去美客多。
+- 只读：本工具不会代你回复私信，也不会把消息标成已读。
+
+回归：`node probe-claim-post-sale.js`（14 项，含 62 秒未读保活验证）。
+
+**Q：公网 530 / 1033，但本地 `127.0.0.1:3000` 好好的？**
 这是隧道到 Cloudflare 边缘的连接断了，不是本地服务的问题。现在的自愈链路是：每分钟查 `/ready` + `/metrics` 连接数 + 真打一次公网地址，连续 3~5 分钟不健康就强杀隧道重连（指数退避）。先看 `运行日志.txt` 有没有这三行：`健康异常`（在抖）、`强制重启`（触发了自愈）、`健康探测已接管 ✓`（正常基线）。手动救急仍然是重跑 `启动公网服务.bat`。
 
 **Q：`npm run public` 之后关掉黑窗口，站就下线了？**
