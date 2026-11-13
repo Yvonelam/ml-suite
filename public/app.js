@@ -332,16 +332,21 @@ function renderQuantKpis() {
   $('#quantAdsCostDl').textContent = d.adsError ? d.adsError : (fx ? ('≈ ' + money(t.adsCostCny || 0, 'CNY') + ' · ' + fmt(t.adsDays || 0) + ' 天 · ' + fmt(t.adsItems || 0) + ' 个商品在投') : '—');
 }
 async function loadQuant(refresh = false) {
-  if (quantView.loading) return;
+  // 首次进页面会自动读「今天」，这时用户点「近 7 天」以前会被 if (loading) return 直接吞掉，
+  // 界面还是今天的数据 —— 看着像筛选没生效。现在改成排队：当前这轮结束后按最新条件再跑一次。
+  if (quantView.loading) { quantView.queued = true; return; }
   quantView.loading = true;
+  quantView.queued = false;
   const note = $('#quantNote'), state = $('#quantState'), btn = $('#quantRun');
   if (note) note.style.display = 'none';
-  if (state) state.textContent = '正在读取订单、广告与商品数据…（首次约 10-30 秒）';
+  if (state) state.textContent = '正在读取订单、广告与商品数据…（逐日查广告，约 10-30 秒）';
   if (btn) { btn.disabled = true; btn.textContent = '读取中…'; }
   try {
     const q = '?from=' + encodeURIComponent(quantView.from) + '&to=' + encodeURIComponent(quantView.to)
       + (quantView.item ? '&item=' + encodeURIComponent(quantView.item) : '') + (refresh ? '&refresh=1' : '');
     const d = await mlGet('/api/ml/product-quant' + q);
+    // 期间条件又被改过：这轮结果作废，finally 里会按新条件重跑
+    if (quantView.queued) return;
     if (!d.ok) throw Object.assign(new Error(d.message || '产品量化数据读取失败'), { payload: d });
     quantView.data = d;
     const sel = $('#quantItem');
@@ -360,12 +365,14 @@ async function loadQuant(refresh = false) {
       + (d.metaMissing ? ' · ' + d.metaMissing + ' 个商品的基础资料未取到（售价/库存为空，金额不受影响）' : '');
     if (note && d.adsError) { note.style.display = ''; note.textContent = '广告数据未取到：' + d.adsError + '（订单与商品数据不受影响）'; }
   } catch (e) {
+    if (quantView.queued) return;
     const payload = e.payload || {};
     $('#quantTable').innerHTML = '<div class="empty">' + escHtml(payload.needAuth ? '请先完成美客多账号授权' : payload.needConfig ? '请先配置美客多 API' : e.message) + '</div>';
     if (state) state.textContent = '读取失败：' + e.message;
   } finally {
     quantView.loading = false;
     if (btn) { btn.disabled = false; btn.textContent = '↻ 读取数据'; }
+    if (quantView.queued) { quantView.queued = false; loadQuant(); }
   }
 }
 function quantCsvCell(v) {

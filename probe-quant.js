@@ -93,10 +93,17 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
     ok(Number(adChk.adsItems) > 0, '在投商品数已统计', 'items=' + adChk.adsItems);
 
     console.log('\n--- 2. 页面渲染三个 tab ---');
-    // 页面默认「今天」，先切到近 7 天拿数据
+    // 页面默认「今天」，先切到近 7 天拿数据；进页面时自动读「今天」的那一轮还在跑，
+    // loadQuant 现在会把这次点击排队，所以要等状态变成「读取于」而不是只看有没有行。
     await ev("(function(){document.querySelector('#quantRange button[data-range=\"7\"]').click();})()");
-    let rows = 0;
-    for (let i = 0; i < 60; i++) { rows = await ev("document.querySelectorAll('#quantTable .quant-table tbody tr').length"); if (rows > 0) break; await sleep(2000); }
+    let rows = 0, stateTxt = '';
+    for (let i = 0; i < 60; i++) {
+      rows = await ev("document.querySelectorAll('#quantTable .quant-table tbody tr').length");
+      stateTxt = await ev("(document.getElementById('quantState')||{}).textContent||''");
+      if (rows > 0 && /读取于/.test(stateTxt)) break;
+      await sleep(2000);
+    }
+    ok(/读取于/.test(stateTxt), '切换区间后数据真的刷新了', stateTxt.slice(0, 40));
     ok(rows > 0, '按商品×天 tab 渲染出行', 'rows=' + rows);
     const itemdayHead = await ev("JSON.stringify([].slice.call(document.querySelectorAll('#quantTable th')).map(function(t){return t.textContent}))");
     const idh = JSON.parse(itemdayHead || '[]');
@@ -137,7 +144,7 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
       const lines = clean.split(/\r?\n/).filter(Boolean);
       ok(bom === '[239,187,191]', 'CSV 带 UTF-8 BOM（Excel 不乱码）', bom);
       ok(lines.length === expRows + 1, 'CSV 行数 = 表头 + 表格行数', lines.length + ' vs ' + (expRows + 1));
-      ok(/SKU/.test(lines[0]) && /Listing/.test(lines[0]), 'CSV 表头是字段名', lines[0].slice(0, 60));
+      ok(/SKU/.test(lines[0]) && /商品/.test(lines[0]) && /广告费/.test(lines[0]), 'CSV 表头是字段名', lines[0].slice(0, 60));
       ok(/广告费/.test(lines[0]) && /广告订单数/.test(lines[0]) && /ACOS/.test(lines[0]), 'CSV 表头含广告列', lines[0].slice(0, 100));
       const quoteOk = lines.every(l => (l.match(/"/g) || []).length % 2 === 0);
       ok(quoteOk, 'CSV 引号成对（含逗号的标题不串列）');
