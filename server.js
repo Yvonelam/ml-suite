@@ -3437,7 +3437,13 @@ app.get('/api/ml/product-quant', async (req, res) => {
     const toCny = (v) => localPerCny ? quantR2(Number(v) / localPerCny) : null;
 
     const adDailyMap = new Map(adsDaily.map(r => [r.date, r]));
-    const storeDaily = [...storeByDay.values()].map(r => {
+    // 店铺按天：订单天 ∪ 有广告的天。今天常常「还没出单但广告已经在烧钱」，
+    // 只按订单建日期会让这天的花费在店铺表里消失（商品×天却有），两张表对不上。
+    const storeDays = new Map(storeByDay);
+    for (const r of adsDaily) {
+      if (!storeDays.has(r.date)) storeDays.set(r.date, { date: r.date, orders: new Set(), units: 0, revenue: 0 });
+    }
+    const storeDaily = [...storeDays.values()].map(r => {
       const ads = adDailyMap.get(r.date) || null;
       return {
         date: r.date, orders: r.orders.size, units: r.units, revenue: quantR2(r.revenue), revenueCny: toCny(r.revenue),

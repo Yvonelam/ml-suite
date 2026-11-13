@@ -271,7 +271,7 @@ const QUANT_TABS = {
       { k: 'revenue', t: '总销售额(原币)', ty: 'money' }, { k: 'revenueCny', t: '销售额(¥)', ty: 'money' },
       { k: 'adsCost', t: '广告费(原币)', ty: 'money' }, { k: 'adsCostCny', t: '广告费(¥)', ty: 'money' },
       { k: 'adsSales', t: '广告销售额', ty: 'money' }, { k: 'adsUnits', t: '广告订单数', ty: 'int' },
-      { k: 'ctr', t: '点击率', ty: 'pct' }, { k: 'acos', t: 'ACOS', ty: 'pct' }, { k: 'cvr', t: '广告转化率', ty: 'pct' },
+      { k: 'ctr', t: '点击率', ty: 'pct' }, { k: 'cpc', t: 'CPC', ty: 'money' }, { k: 'acos', t: 'ACOS', ty: 'pct' }, { k: 'cvr', t: '广告转化率', ty: 'pct' },
       { k: 'available', t: '库存', ty: 'int' }, { k: 'sold', t: '累计已售', ty: 'int' },
       { k: 'rating', t: '评分', ty: 'num' }, { k: 'reviews', t: '评论数', ty: 'int' },
     ],
