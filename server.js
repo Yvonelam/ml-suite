@@ -3246,10 +3246,64 @@ async function quantAdsByItem(adv, from, to) {
   }
   return map;
 }
+// 商品 × 单日 的广告数据：美客多没有「一次查询就按 item + date 分组」的入参
+// （aggregation_type=DAILY 只回账户级一行，item_id 过滤参数也会被忽略），
+// 但**逐天查**可以：date_from=date_to=当天 时返回的是每个 ad 一行（带 item_id + metrics），
+// 把同一天里同一个 item 的多条 ad（目录广告 + 传统广告）加起来就是该商品当天的投放数据。
+// 实测：单日按 item 汇总的费用合计 = aggregation_type=DAILY 的账户级费用（2026-11-12：688.56 对 688.56）。
+async function quantAdsItemDaily(adv, from, to) {
+  const dates = [];
+  for (let d = from; d <= to && dates.length < ADS_MAX_DAYS; d = addDaysStr(d, 1)) dates.push(d);
+  const map = new Map(); // `${date}|${itemId}`
+  let errors = 0, cursor = 0;
+  const CONC = 3; // 并发太高会撞 local_rate_limited（mlRequest 虽会退避，但没必要）
+  const worker = async () => {
+    while (cursor < dates.length) {
+      const d = dates[cursor++];
+      try {
+        let offset = 0;
+        for (let page = 0; page < 20; page++) {
+          const qs = `date_from=${d}&date_to=${d}&metrics=${QUANT_ADS_FIELDS}&limit=50&offset=${offset}`;
+          const r = await mlRequest(`/advertising/${adv.site}/advertisers/${encodeURIComponent(adv.id)}/product_ads/ads/search?${qs}`, { headers: { 'api-version': '2' } });
+          const batch = Array.isArray(r && r.results) ? r.results : [];
+          for (const row of batch) {
+            const id = String((row && row.item_id) || '');
+            if (!id) continue;
+            const m = row.metrics || row;
+            const k = d + '|' + id;
+            const cur = map.get(k) || { date: d, itemId: id, prints: 0, clicks: 0, cost: 0, sales: 0, salesDirect: 0, units: 0, ads: 0 };
+            cur.prints += quantNum(m.prints); cur.clicks += quantNum(m.clicks); cur.cost += quantNum(m.cost);
+            cur.sales += quantNum(m.total_amount); cur.salesDirect += quantNum(m.direct_amount);
+            cur.units += quantNum(m.units_quantity); cur.ads += 1;
+            map.set(k, cur);
+          }
+          const total = Number((r && r.paging && r.paging.total) || batch.length);
+          offset += batch.length;
+          if (!batch.length || offset >= total) break;
+        }
+      } catch { errors++; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CONC, dates.length) }, worker));
+  // 全 0 的 ad 位（没曝光没花费）不进表，否则一天能塞几十行空数据
+  for (const [k, r] of [...map]) {
+    if (!(r.cost > 0 || r.clicks > 0 || r.prints > 0)) { map.delete(k); continue; }
+    map.set(k, {
+      ...r,
+      cost: quantR2(r.cost), sales: quantR2(r.sales), salesDirect: quantR2(r.salesDirect),
+      ctr: r.prints ? quantR2(r.clicks / r.prints * 100) : 0,
+      cpc: r.clicks ? quantR2(r.cost / r.clicks) : 0,
+      acos: r.sales ? quantR2(r.cost / r.sales * 100) : 0,
+      roas: r.cost ? quantR2(r.sales / r.cost) : 0,
+      cvr: r.clicks ? quantR2(r.units / r.clicks * 100) : 0,
+    });
+  }
+  return { map, errors, days: dates.length };
+}
+
 async function quantItemReviews(id) {
   const key = auth.currentUserId() + ':' + id;
   const hit = quantReviewCache.get(key);
-  if (hit && Date.now() - hit.at < 600000) return hit;
   let out = { at: Date.now(), rating: null, reviews: null };
   try {
     const d = await mlRequest(`/reviews/item/${encodeURIComponent(id)}`);
@@ -3311,6 +3365,22 @@ app.get('/api/ml/product-quant', async (req, res) => {
       }
     }
 
+    // ---- 广告 ----
+    // 三种口径都要：账户级按天（店铺表）、区间按商品（商品汇总）、**商品×天**（逐日 ads/search）。
+    // 商品×天必须是明细，不能再像以前那样「只到店铺级」——用户在广告投放页看得到的东西，导出表里也得有。
+    let adsDaily = [], adsByItem = {}, adsItemDaily = new Map(), adsError = '', adsDayErrors = 0;
+    try {
+      const adv = await mlAdvertiser(siteCode);
+      adsDaily = await quantAdsDaily(adv, from, to);
+      adsByItem = await quantAdsByItem(adv, from, to);
+      const idm = await quantAdsItemDaily(adv, from, to);
+      adsItemDaily = idm.map; adsDayErrors = idm.errors;
+    } catch (e) { adsError = String((e && e.message) || e); }
+    // 只投广告、区间内没出单的商品也要出现在表里（否则「花了钱没转化」的品会被藏起来）
+    for (const r of adsItemDaily.values()) {
+      if (!itemAgg.has(r.itemId)) itemAgg.set(r.itemId, { itemId: r.itemId, orders: new Set(), units: 0, revenue: 0, title: '' });
+    }
+
     const ids = [...itemAgg.keys()];
     // 商品元数据：seller_sku / 当前售价 / 可售库存 / 累计已售
     // 批量接口偶尔整条超时/500，会导致整张表「售价/库存全 0」且毫无提示，
@@ -3343,14 +3413,6 @@ app.get('/api/ml/product-quant', async (req, res) => {
     const metaMissing = ids.filter(id => !meta[id]).length;
     const reviewMap = {};
     for (const id of ids) reviewMap[id] = await quantItemReviews(id);
-
-    let adsDaily = [], adsByItem = {}, adsError = '';
-    try {
-      const adv = await mlAdvertiser(siteCode);
-      adsDaily = await quantAdsDaily(adv, from, to);
-      adsByItem = await quantAdsByItem(adv, from, to);
-    } catch (e) { adsError = String((e && e.message) || e); }
-
     let fx = null;
     try { const r = await getBocFxRates([site.currency]); fx = r[site.currency] || null; } catch { }
     const localPerCny = Number(fx && fx.localPerCny) || 0;
@@ -3390,13 +3452,30 @@ app.get('/api/ml/product-quant', async (req, res) => {
       };
     }).sort((a, b) => b.revenue - a.revenue);
 
-    let daily = [...dayMap.values()].map(r => ({
-      date: r.date, itemId: r.itemId,
-      sku: String((meta[r.itemId] || {}).sku || ''),
-      title: (meta[r.itemId] || {}).title || '',
-      orders: r.orders.size, units: r.units, revenue: quantR2(r.revenue), revenueCny: toCny(r.revenue),
-      avgPrice: r.units ? quantR2(r.revenue / r.units) : 0,
-    })).sort((a, b) => a.date.localeCompare(b.date) || String(a.itemId).localeCompare(String(b.itemId)));
+    // 商品×天：订单行 + 广告行合并。有广告没订单的天也要出行（0 单 / 有花费）。
+    let daily = (() => {
+      const rows = new Map();
+      for (const r of dayMap.values()) rows.set(r.date + '|' + r.itemId, { date: r.date, itemId: r.itemId, orders: r.orders.size, units: r.units, revenue: r.revenue });
+      for (const [k, r] of adsItemDaily) if (!rows.has(k)) rows.set(k, { date: r.date, itemId: r.itemId, orders: 0, units: 0, revenue: 0 });
+      return [...rows.values()].map(r => {
+        const ad = adsItemDaily.get(r.date + '|' + r.itemId) || null;
+        const m = meta[r.itemId] || {};
+        const ag = itemAgg.get(r.itemId) || {};
+        return {
+          date: r.date, itemId: r.itemId,
+          sku: String(m.sku || ''), title: m.title || ag.title || '',
+          orders: r.orders, units: r.units, revenue: quantR2(r.revenue), revenueCny: toCny(r.revenue),
+          avgPrice: r.units ? quantR2(r.revenue / r.units) : 0,
+          adsPrints: ad ? ad.prints : null, adsClicks: ad ? ad.clicks : null,
+          adsCost: ad ? ad.cost : null, adsCostCny: ad ? toCny(ad.cost) : null,
+          adsSales: ad ? ad.sales : null, adsUnits: ad ? ad.units : null,
+          ctr: ad ? ad.ctr : null, cpc: ad ? ad.cpc : null,
+          acos: ad ? ad.acos : null, roas: ad ? ad.roas : null, cvr: ad ? ad.cvr : null,
+          adShare: ad && r.revenue ? quantR2(ad.cost / r.revenue * 100) : null,
+          hasAd: !!ad,
+        };
+      });
+    })().sort((a, b) => a.date.localeCompare(b.date) || b.revenue - a.revenue || String(a.itemId).localeCompare(String(b.itemId)));
 
     if (itemFilter) {
       daily = daily.filter(r => r.itemId === itemFilter);
@@ -3412,12 +3491,14 @@ app.get('/api/ml/product-quant', async (req, res) => {
       fx: fx ? { cnyPer100: quantNum(fx.cnyPer100), localPerCny, rateType: fx.rateType || '', publishedAt: fx.publishedAt || '', source: '中国银行牌价' } : null,
       items, daily, storeDaily,
       totals: {
-        orders: orders.length, items: itemAgg.size, units: orders.reduce((s, o) => s + (o.order_items || []).reduce((x, i) => x + (Number(i.quantity) || 1), 0), 0),
+        orders: orders.length, items: [...itemAgg.values()].filter(a => a.units > 0).length,
+        adsItems: [...adsByItem.keys()].length, adRows: adsItemDaily.size,
+        units: orders.reduce((s, o) => s + (o.order_items || []).reduce((x, i) => x + (Number(i.quantity) || 1), 0), 0),
         revenue: quantR2(orders.reduce((s, o) => s + (Number(o.total_amount) || 0), 0)),
         cancelledOrders: deadCount, pulled: pulled.orders.length, strategy: pulled.strategy,
         adsCost: adsDaily.reduce((s, r) => s + r.cost, 0), adsDays: adsDaily.length,
       },
-      adsError, metaMissing,
+      adsError, adsDayErrors, metaMissing,
     };
     data.totals.revenueCny = toCny(data.totals.revenue);
     data.totals.adsCostCny = toCny(data.totals.adsCost);
