@@ -744,3 +744,18 @@ a.pp-card:hover{border-color:#3a3a46;background:rgba(255,255,255,.05);transform:
 @media(max-width:760px){.theme-menu{top:auto;bottom:70px;left:10px}}
 @media(max-width:720px){.hub-heading{gap:10px}.hub-toolbar{gap:6px}.hub-toolbar .sales-auto{font-size:9px}.hub-period{align-items:flex-start;flex-direction:column}.hub-dates{width:100%;flex-wrap:wrap}.hub-dates input{width:calc(50% - 20px);min-width:105px}.hub-period>small{display:none}.hub-fx{margin-left:0;gap:5px}.hub-fx-src{display:none}.hub-metrics{gap:7px}.hub-metric{min-height:96px;padding:11px}.hub-metric>b{font-size:19px}.hub-tasks{gap:6px}.hub-task{padding:8px;gap:7px}.hub-task>strong{font-size:16px}.hub-order-status .hub-updated{display:none}.hub-panel{padding:12px}.hub-legend{gap:7px;font-size:8px}.hub-trend{min-height:180px}.hub-trend svg{height:178px}.hub-sites .lst{grid-template-columns:1fr 1fr}.hub-sites .li{padding:6px}.hub-list-table th:nth-child(3),.hub-list-table td:nth-child(3){display:none}}
 
+
+/* ---- 产品量化（导出表） ---- */
+.quant-kpis{margin:12px 0}
+.quant-table-wrap{overflow:auto}
+.quant-table{width:100%;min-width:920px;border-collapse:collapse;font-size:11px}
+.quant-table th,.quant-table td{padding:8px 10px;border-bottom:1px solid var(--bd);text-align:left;vertical-align:middle;white-space:nowrap}
+.quant-table th{color:var(--mut);font-weight:500;background:rgba(255,255,255,.015);position:sticky;top:0;z-index:1}
+.quant-table td.num,.quant-table th.num{text-align:right;font-variant-numeric:tabular-nums}
+.quant-table td a{color:var(--ink);text-decoration:none}
+.quant-table td a:hover{text-decoration:underline}
+.quant-table tbody tr:hover{background:rgba(220,229,255,.035)}
+.quant-na{color:var(--mut);opacity:.55}
+.quant-foot{display:flex;justify-content:space-between;gap:12px;margin-top:10px;color:var(--mut);font-size:10px}
+#quantItem{max-width:280px;padding:7px 9px;border:1px solid var(--bd2);border-radius:9px;background:var(--s2);color:var(--ink);font:inherit;font-size:11px}
+@media(max-width:720px){#quantItem{max-width:100%;width:100%}.quant-foot{flex-direction:column;gap:4px}}

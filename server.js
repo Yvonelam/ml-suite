@@ -3311,10 +3311,13 @@ app.get('/api/ml/product-quant', async (req, res) => {
     for (let i = 0; i < ids.length; i += 20) {
       const batch = ids.slice(i, i + 20);
       try {
-        const d = await mlRequest(`/items?ids=${batch.join(',')}&attributes=id,title,seller_sku,price,available_quantity,sold_quantity,permalink,thumbnail`);
+        const d = await mlRequest(`/items?ids=${batch.join(',')}&attributes=id,title,seller_sku,price,available_quantity,sold_quantity,permalink,thumbnail,attributes`);
         for (const row of (Array.isArray(d) ? d : [])) {
           const b = row && row.body;
-          if (b && b.id) meta[b.id] = b;
+          if (!b || !b.id) continue;
+          // SKU 实测不在顶层 seller_sku 上，而是 attributes 里的 SELLER_SKU（BW06BB-ML-BR-A 这种）
+          const skuAttr = (b.attributes || []).find(a => a && a.id === 'SELLER_SKU');
+          meta[b.id] = { ...b, sku: String(b.seller_sku || (skuAttr && skuAttr.value_name) || '') };
         }
       } catch { /* 元数据失败不影响数字 */ }
     }
@@ -3352,7 +3355,7 @@ app.get('/api/ml/product-quant', async (req, res) => {
       const ad = adsByItem[a.itemId] || null;
       return {
         itemId: a.itemId,
-        sku: String(m.seller_sku || ''),
+        sku: String(m.sku || m.seller_sku || ''),
         title: m.title || a.title || ('Listing ' + a.itemId),
         permalink: m.permalink || '', thumbnail: m.thumbnail || '',
         price: quantNum(m.price), available: quantNum(m.available_quantity), sold: quantNum(m.sold_quantity),
@@ -3369,7 +3372,7 @@ app.get('/api/ml/product-quant', async (req, res) => {
 
     let daily = [...dayMap.values()].map(r => ({
       date: r.date, itemId: r.itemId,
-      sku: String((meta[r.itemId] || {}).seller_sku || ''),
+      sku: String((meta[r.itemId] || {}).sku || ''),
       title: (meta[r.itemId] || {}).title || '',
       orders: r.orders.size, units: r.units, revenue: quantR2(r.revenue), revenueCny: toCny(r.revenue),
       avgPrice: r.units ? quantR2(r.revenue / r.units) : 0,

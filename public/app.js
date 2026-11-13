@@ -163,7 +163,7 @@ function hideSplash() {
 $('#skip').onclick = hideSplash;
 $('#replay').onclick = splash;
 
-const TT = { hub: '概览', ads: '广告投放', orders: '订单管理', questions: '商品问答', claims: '退货与投诉', rank: '关键词排名', box: '箱唛裁切', profit: '产品利润', warehouse: '平台仓库存' };
+const TT = { hub: '概览', ads: '广告投放', orders: '订单管理', questions: '商品问答', claims: '退货与投诉', rank: '关键词排名', box: '箱唛裁切', profit: '产品利润', quant: '产品量化', warehouse: '平台仓库存' };
 let currentView = 'hub';
 let profitItems = [];
 let warehouseRows = [];
@@ -178,6 +178,7 @@ function go(v, push = true) {
   if (v === 'claims') loadClaims();
   if (v === 'profit') { loadProfitListings(); loadProfitOrders(); }
   if (v === 'warehouse') loadWarehouseStock();
+  if (v === 'quant' && !quantView.data) loadQuant();
   $$('.view').forEach(e => e.classList.toggle('on', e.id === 'v-' + v));
   $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.go === v));
   $('#ct').textContent = TT[v];
@@ -225,6 +226,179 @@ async function loadWarehouseStock(refresh=false){
   }catch(e){body.innerHTML='<tr><td colspan="5" class="empty">'+escHtml(e.message)+'</td></tr>';status.textContent='库存同步失败：'+e.message;}
   finally{warehouseLoading=false;if(button&&refresh){button.disabled=false;button.textContent='立即刷新';}}
 }
+/* ---- 产品量化（导出表） ----
+   对应「产品量化表.xlsx」的字段口径。三张表：
+   itemday（按商品×天，纯订单数据）/ storeday（店铺按天，含账户级广告）/ items（按商品汇总，含区间广告）。
+   广告没有「单商品×单天」，所以 itemday 里不放广告列 —— 不摊派、不重复，导出后自己算。 */
+const quantView = { range: 'today', from: '', to: '', item: '', tab: 'itemday', data: null, loading: false };
+const QUANT_TABS = {
+  itemday: {
+    file: '按商品按天',
+    cols: [
+      { k: 'date', t: '日期', ty: 'text' }, { k: 'sku', t: 'SKU', ty: 'text' }, { k: 'title', t: '商品', ty: 'title' },
+      { k: 'orders', t: '总订单数', ty: 'int' }, { k: 'units', t: '销售件数', ty: 'int' },
+      { k: 'avgPrice', t: '单价', ty: 'money' }, { k: 'revenue', t: '总销售额(原币)', ty: 'money' },
+      { k: 'revenueCny', t: '销售额(¥)', ty: 'money' },
+    ],
+    empty: '所选区间没有有效订单。',
+  },
+  storeday: {
+    file: '店铺按天',
+    cols: [
+      { k: 'date', t: '日期', ty: 'text' },
+      { k: 'orders', t: '总订单数', ty: 'int' }, { k: 'units', t: '销售件数', ty: 'int' },
+      { k: 'avgPrice', t: '单价', ty: 'money' }, { k: 'revenue', t: '总销售额(原币)', ty: 'money' }, { k: 'revenueCny', t: '销售额(¥)', ty: 'money' },
+      { k: 'adsPrints', t: '广告展现次数', ty: 'int' }, { k: 'adsClicks', t: '广告点击数', ty: 'int' },
+      { k: 'adsCost', t: '广告费(原币)', ty: 'money' }, { k: 'adsCostCny', t: '广告费(¥)', ty: 'money' },
+      { k: 'adsSales', t: '广告销售额(原币)', ty: 'money' }, { k: 'adsUnits', t: '广告订单数', ty: 'int' },
+      { k: 'ctr', t: '点击率', ty: 'pct' }, { k: 'acos', t: '广告ACOS', ty: 'pct' }, { k: 'roas', t: 'ROAS', ty: 'num' },
+      { k: 'adShare', t: '广告费占销售额', ty: 'pct' },
+    ],
+    empty: '所选区间没有广告/订单数据（或该账号没有 Product Ads 权限）。',
+  },
+  items: {
+    file: '按商品汇总',
+    cols: [
+      { k: 'sku', t: 'SKU', ty: 'text' }, { k: 'itemId', t: 'Listing', ty: 'text' }, { k: 'title', t: '商品', ty: 'title' },
+      { k: 'orders', t: '总订单数', ty: 'int' }, { k: 'units', t: '销售件数', ty: 'int' },
+      { k: 'avgPrice', t: '单价(均价)', ty: 'money' }, { k: 'price', t: '当前售价', ty: 'money' },
+      { k: 'revenue', t: '总销售额(原币)', ty: 'money' }, { k: 'revenueCny', t: '销售额(¥)', ty: 'money' },
+      { k: 'adsCost', t: '广告费(原币)', ty: 'money' }, { k: 'adsCostCny', t: '广告费(¥)', ty: 'money' },
+      { k: 'adsSales', t: '广告销售额', ty: 'money' }, { k: 'adsUnits', t: '广告订单数', ty: 'int' },
+      { k: 'ctr', t: '点击率', ty: 'pct' }, { k: 'acos', t: 'ACOS', ty: 'pct' }, { k: 'cvr', t: '广告转化率', ty: 'pct' },
+      { k: 'available', t: '库存', ty: 'int' }, { k: 'sold', t: '累计已售', ty: 'int' },
+      { k: 'rating', t: '评分', ty: 'num' }, { k: 'reviews', t: '评论数', ty: 'int' },
+    ],
+    empty: '所选区间没有商品数据。',
+  },
+};
+function setQuantRange(range, from, to, run = false) {
+  const today = brToday();
+  let f = from || today, t = to || today;
+  if (range !== 'custom') {
+    if (range === '7') f = addDays(today, -6);
+    else if (range === '30') f = addDays(today, -29);
+    else if (range === 'month') f = today.slice(0, 8) + '01';
+    else f = today;
+    t = today;
+  }
+  if (f > t) { const z = f; f = t; t = z; }
+  quantView.range = range; quantView.from = f; quantView.to = t;
+  const qf = $('#quantFrom'), qt = $('#quantTo');
+  if (qf) qf.value = f; if (qt) qt.value = t;
+  $('#quantRange')?.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.range === range));
+  if (run) loadQuant();
+}
+function quantCell(row, col) {
+  const v = row[col.k];
+  if (v === null || v === undefined || v === '') return '<span class="quant-na">—</span>';
+  if (col.ty === 'title') {
+    const label = escHtml(String(v).slice(0, 60));
+    return row.permalink ? '<a href="' + escHtml(row.permalink) + '" target="_blank" rel="noreferrer" title="' + escHtml(v) + '">' + label + '</a>' : label;
+  }
+  if (col.ty === 'int') return fmt(v);
+  if (col.ty === 'money') return money(v, row.currency || (quantView.data && quantView.data.site.currency) || '');
+  if (col.ty === 'pct') return Number(v).toFixed(2) + '%';
+  if (col.ty === 'num') return Number(v).toFixed(2);
+  return escHtml(String(v));
+}
+function renderQuant() {
+  const box = $('#quantTable'); if (!box) return;
+  const tab = QUANT_TABS[quantView.tab];
+  const d = quantView.data;
+  const rows = !d ? [] : (quantView.tab === 'items' ? d.items : quantView.tab === 'storeday' ? d.storeDaily : d.daily);
+  const range = tab.cols.length;
+  if (!rows.length) { box.innerHTML = '<div class="empty">' + (d ? tab.empty : '选择日期后点「读取数据」。') + '</div>'; return; }
+  const head = '<thead><tr>' + tab.cols.map(c => '<th' + (c.ty !== 'text' && c.ty !== 'title' ? ' class="num"' : '') + '>' + escHtml(c.t) + '</th>').join('') + '</tr></thead>';
+  const body = rows.map(r => '<tr>' + tab.cols.map(c => '<td' + (c.ty !== 'text' && c.ty !== 'title' ? ' class="num"' : '') + '>' + quantCell(r, c) + '</td>').join('') + '</tr>').join('');
+  box.innerHTML = '<table class="quant-table">' + head + '<tbody>' + body + '</tbody></table>';
+}
+function renderQuantKpis() {
+  const d = quantView.data; if (!d) return;
+  const t = d.totals || {}, cur = (d.site && d.site.currency) || '', fx = d.fx;
+  $('#quantOrders').textContent = fmt(t.orders || 0);
+  $('#quantOrdersDl').textContent = '取消/退款 ' + fmt(t.cancelledOrders || 0) + ' 单（不计入）· ' + (t.strategy || '');
+  $('#quantUnits').textContent = fmt(t.units || 0);
+  $('#quantUnitsDl').textContent = (d.items || []).length + ' 个 Listing 有出单';
+  $('#quantRevenue').textContent = money(t.revenue || 0, cur);
+  $('#quantRevenueDl').textContent = fx ? ('≈ ' + money(t.revenueCny || 0, 'CNY') + ' · 100 ' + cur + ' = ¥' + Number(fx.cnyPer100).toFixed(2)) : '汇率暂不可用';
+  $('#quantAdsCost').textContent = d.adsError ? '待核对' : money(t.adsCost || 0, cur);
+  $('#quantAdsCostDl').textContent = d.adsError ? d.adsError : (fx ? ('≈ ' + money(t.adsCostCny || 0, 'CNY') + ' · ' + fmt(t.adsDays || 0) + ' 天') : '—');
+}
+async function loadQuant(refresh = false) {
+  if (quantView.loading) return;
+  quantView.loading = true;
+  const note = $('#quantNote'), state = $('#quantState'), btn = $('#quantRun');
+  if (note) note.style.display = 'none';
+  if (state) state.textContent = '正在读取订单、广告与商品数据…（首次约 10-30 秒）';
+  if (btn) { btn.disabled = true; btn.textContent = '读取中…'; }
+  try {
+    const q = '?from=' + encodeURIComponent(quantView.from) + '&to=' + encodeURIComponent(quantView.to)
+      + (quantView.item ? '&item=' + encodeURIComponent(quantView.item) : '') + (refresh ? '&refresh=1' : '');
+    const d = await mlGet('/api/ml/product-quant' + q);
+    if (!d.ok) throw Object.assign(new Error(d.message || '产品量化数据读取失败'), { payload: d });
+    quantView.data = d;
+    const sel = $('#quantItem');
+    if (sel) {
+      const keep = quantView.item, opts = ['<option value="">全部商品</option>'];
+      for (const it of (d.items || [])) opts.push('<option value="' + escHtml(it.itemId) + '">' + escHtml((it.sku ? it.sku + ' · ' : '') + it.title).slice(0, 70) + '</option>');
+      sel.innerHTML = opts.join('');
+      sel.value = keep && (d.items || []).some(x => x.itemId === keep) ? keep : '';
+      if (sel.value !== keep) quantView.item = sel.value;
+    }
+    renderQuantKpis();
+    renderQuant();
+    if (state) state.textContent = '区间 ' + d.range.from + ' → ' + d.range.to + ' · 读取于 ' + new Date(d.updatedAt).toLocaleTimeString('zh-CN') + (d.cached ? ' · 缓存' : '');
+    const rn = $('#quantRangeNote');
+    if (rn) rn.textContent = '店铺按天 ' + (d.storeDaily || []).length + ' 天 · 商品 ' + (d.items || []).length + ' 个';
+    if (note && d.adsError) { note.style.display = ''; note.textContent = '广告数据未取到：' + d.adsError + '（订单与商品数据不受影响）'; }
+  } catch (e) {
+    const payload = e.payload || {};
+    $('#quantTable').innerHTML = '<div class="empty">' + escHtml(payload.needAuth ? '请先完成美客多账号授权' : payload.needConfig ? '请先配置美客多 API' : e.message) + '</div>';
+    if (state) state.textContent = '读取失败：' + e.message;
+  } finally {
+    quantView.loading = false;
+    if (btn) { btn.disabled = false; btn.textContent = '↻ 读取数据'; }
+  }
+}
+function quantCsvCell(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function downloadQuantCsv() {
+  const d = quantView.data, tab = QUANT_TABS[quantView.tab];
+  if (!d) { toast('请先读取数据'); return; }
+  const rows = quantView.tab === 'items' ? d.items : quantView.tab === 'storeday' ? d.storeDaily : d.daily;
+  if (!rows || !rows.length) { toast('当前表没有可导出的数据'); return; }
+  const headers = tab.cols.map(c => c.t);
+  const lines = [headers.map(quantCsvCell).join(',')];
+  for (const r of rows) lines.push(tab.cols.map(c => quantCsvCell(r[c.k])).join(','));
+  const name = '产品量化_' + tab.file + '_' + d.range.from + '_' + d.range.to + '.csv';
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast('已导出 ' + rows.length + ' 行 · ' + name);
+}
+function bindQuantEvents() {
+  $('#quantRange')?.querySelectorAll('button[data-range]').forEach(b => b.addEventListener('click', () => setQuantRange(b.dataset.range, null, null, true)));
+  $('#quantApply')?.addEventListener('click', () => {
+    const f = $('#quantFrom')?.value || '', t = $('#quantTo')?.value || '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || !/^\d{4}-\d{2}-\d{2}$/.test(t)) { toast('请选择完整的起止日期'); return; }
+    setQuantRange('custom', f, t, true);
+  });
+  $('#quantItem')?.addEventListener('change', () => { quantView.item = $('#quantItem').value; loadQuant(); });
+  $('#quantRun')?.addEventListener('click', () => loadQuant(true));
+  $('#quantDownload')?.addEventListener('click', downloadQuantCsv);
+  $('#quantTabs')?.querySelectorAll('button[data-t]').forEach(b => b.addEventListener('click', () => {
+    quantView.tab = b.dataset.t;
+    $('#quantTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    renderQuant();
+  }));
+  setQuantRange('today', null, null, false);
+}
+
 function setProfitOrderRange(range,run=true){
   const today=brToday(),from=range==='7'?addDays(today,-6):range==='30'?addDays(today,-29):today;
   $('#profitOrderFrom').value=from;$('#profitOrderTo').value=today;
@@ -4002,6 +4176,7 @@ function init() {
   bindListingEvents();
   bindAdsEvents();
   bindOverviewEvents();
+  bindQuantEvents();
   initRouting();
   splash();
   applyModeUI();
