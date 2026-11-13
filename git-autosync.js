@@ -145,8 +145,25 @@ function behindCount() {
 // ---- 从远端拉 ----
 // 只在工作区干净时合入：正在编辑的文件被 rebase 换掉，热重载会读到半成品。
 // --autostash 是双保险，万一有残留改动也不会丢。
+//
+// ⚠️ 历史坑（2026-11-13 夜里真栽过）：以前拉取失败时也把 remoteHead 记进 lastPulledHead，
+// 「避免同一批提交反复撞」——结果一次 TLS 握手失败就把那个提交**永久拉黑**，
+// 之后每轮 fetch 都能看到「落后 1 个提交」，却因为 head 相等直接 return，日志也不写，
+// 本机就这么静默落后了一整夜。现在的规矩：
+//   · 只有「真冲突」（CONFLICT / could not apply）才记 conflictHead 交给人工；
+//   · 网络 / TLS / 认证失败一律按退避重试（30s→1min→2min→4min→5min 封顶），永不封死；
+//   · 同一错误 10 分钟内只记一次日志，别刷屏。
 let lastFetchAt = 0;
-let lastPulledHead = '';
+let conflictHead = '';        // 只记真冲突，网络失败绝不写这里
+let pullRetryAt = 0;
+let pullFailStreak = 0;
+let lastFetchErr = '';
+let lastFetchErrAt = 0;
+let conflictWarnAt = 0;
+
+function isConflictErr(err) {
+  return /CONFLICT|could not apply|needs merge|Automatic merge failed|rebase in progress|Resolve all conflicts|error: Your local changes/i.test(err || '');
+}
 
 function syncFromRemote(force) {
   const now = Date.now();
@@ -155,30 +172,57 @@ function syncFromRemote(force) {
 
   const f = git(['fetch', '--quiet', 'origin', BRANCH]);
   if (!f.ok) {
-    log('拉取远端状态失败（本地不受影响，稍后重试）：' + (f.err || f.out).slice(0, 200));
+    const err = (f.err || f.out).trim();
+    const wait = Math.round(Math.min(30000 * Math.pow(2, Math.min(pullFailStreak, 3)), 300000) / 1000);
+    if (err !== lastFetchErr || now - lastFetchErrAt > 10 * 60 * 1000) {
+      log('拉取远端状态失败（本地不受影响，约 ' + wait + ' 秒后重试）：' + err.slice(0, 200));
+      lastFetchErr = err; lastFetchErrAt = now;
+    }
+    pullFailStreak++;
     return false;
   }
+  if (lastFetchErr) { lastFetchErr = ''; lastFetchErrAt = 0; pullFailStreak = 0; }
 
   const behind = behindCount();
-  if (!behind) return false;
+  if (!behind) { pullRetryAt = 0; pullFailStreak = 0; return false; }
 
   const remoteHead = git(['rev-parse', '--short', 'origin/' + BRANCH]).out;
-  if (remoteHead && remoteHead === lastPulledHead) return false;
+  if (remoteHead && remoteHead === conflictHead) {
+    // 冲突不会自愈，但也不能一声不吭：每 30 分钟提醒一次，直到人工处理
+    if (!conflictWarnAt || now - conflictWarnAt > 30 * 60 * 1000) {
+      conflictWarnAt = now;
+      log('提醒：远端 ' + remoteHead + ' 有冲突还没处理，本机仍落后 ' + behind + ' 个提交（需要人工解决冲突）。');
+    }
+    return false;
+  }
+  if (pullRetryAt && now < pullRetryAt) return false;
 
   log('远端有 ' + behind + ' 个新提交（' + remoteHead + '），开始合入…');
   const r = git(['pull', '--rebase', '--autostash', 'origin', BRANCH]);
   if (r.ok) {
     const head = git(['rev-parse', '--short', 'HEAD']).out;
-    lastPulledHead = remoteHead;
-    log('已合入远端 ' + behind + ' 个提交，本地现在是 ' + head + '。');
-    // 合进来的若是 .js 改动，热重载会自己重启服务，这里只提示一下
+    conflictHead = ''; pullRetryAt = 0; pullFailStreak = 0;
+    const stat = git(['diff', '--name-only', 'HEAD@{1}', 'HEAD']);
+    const files = stat.ok ? stat.out.split('\n').map(x => x.trim()).filter(Boolean) : [];
+    log('已合入远端 ' + behind + ' 个提交，本地现在是 ' + head + (files.length ? '（' + files.slice(0, 8).join('、') + (files.length > 8 ? ' 等 ' + files.length + ' 个文件' : '') + '）' : '') + '。');
     log('（若改动涉及后端代码，服务会自动热重启，无需手动操作）');
     return true;
   }
 
-  log('合入远端失败（可能有冲突），已撤销 rebase，本地提交保持完整：' + (r.err || r.out).slice(0, 300));
-  git(['rebase', '--abort']);
-  lastPulledHead = remoteHead;   // 避免同一批提交反复撞
+  const err = (r.err || r.out).trim();
+  git(['rebase', '--abort']);   // 无论哪种失败都先回到干净状态，别把仓库卡在 rebase 中途
+
+  if (isConflictErr(err)) {
+    conflictHead = remoteHead;
+    log('合入远端失败：代码冲突，需要人工处理（本地提交已完整保留，不会自动覆盖）：' + err.slice(0, 300));
+    return false;
+  }
+
+  // 网络 / TLS / 代理问题：退避重试，绝不封死
+  pullFailStreak++;
+  const wait = Math.round(Math.min(30000 * Math.pow(2, Math.min(pullFailStreak - 1, 4)), 300000) / 1000);
+  pullRetryAt = now + wait * 1000;
+  log('合入远端失败（网络/代理问题，不是冲突），约 ' + wait + ' 秒后自动重试，本地提交保持完整：' + err.slice(0, 240));
   return false;
 }
 
