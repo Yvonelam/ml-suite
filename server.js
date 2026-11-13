@@ -3211,11 +3211,11 @@ async function quantAdsDaily(adv, from, to) {
   return [...byDate.values()].map(r => ({
     ...r,
     cost: quantR2(r.cost), sales: quantR2(r.sales), salesDirect: quantR2(r.salesDirect), salesIndirect: quantR2(r.salesIndirect),
-    ctr: r.prints ? quantR2(r.clicks / r.prints * 100) : 0,
-    cpc: r.clicks ? quantR2(r.cost / r.clicks) : 0,
-    acos: r.sales ? quantR2(r.cost / r.sales * 100) : 0,
-    roas: r.cost ? quantR2(r.sales / r.cost) : 0,
-    cvr: r.clicks ? quantR2(r.orders / r.clicks * 100) : 0,
+    ctr: r.prints ? quantR2(r.clicks / r.prints * 100) : null,
+    cpc: r.clicks ? quantR2(r.cost / r.clicks) : null,
+    acos: r.sales ? quantR2(r.cost / r.sales * 100) : null,
+    roas: r.cost ? quantR2(r.sales / r.cost) : null,
+    cvr: r.clicks ? quantR2(r.orders / r.clicks * 100) : null,
   })).sort((a, b) => a.date.localeCompare(b.date));
 }
 async function quantAdsByItem(adv, from, to) {
@@ -3237,11 +3237,11 @@ async function quantAdsByItem(adv, from, to) {
     map[id] = {
       prints: r.prints, clicks: r.clicks, cost: quantR2(r.cost), sales: quantR2(r.sales), salesDirect: quantR2(r.salesDirect),
       units: r.units, ads: r.ads,
-      ctr: r.prints ? quantR2(r.clicks / r.prints * 100) : 0,
-      cpc: r.clicks ? quantR2(r.cost / r.clicks) : 0,
-      acos: r.sales ? quantR2(r.cost / r.sales * 100) : 0,
-      roas: r.cost ? quantR2(r.sales / r.cost) : 0,
-      cvr: r.clicks ? quantR2(r.units / r.clicks * 100) : 0,
+      ctr: r.prints ? quantR2(r.clicks / r.prints * 100) : null,
+      cpc: r.clicks ? quantR2(r.cost / r.clicks) : null,
+      acos: r.sales ? quantR2(r.cost / r.sales * 100) : null,
+      roas: r.cost ? quantR2(r.sales / r.cost) : null,
+      cvr: r.clicks ? quantR2(r.units / r.clicks * 100) : null,
     };
   }
   return map;
@@ -3291,11 +3291,11 @@ async function quantAdsItemDaily(adv, from, to) {
     map.set(k, {
       ...r,
       cost: quantR2(r.cost), sales: quantR2(r.sales), salesDirect: quantR2(r.salesDirect),
-      ctr: r.prints ? quantR2(r.clicks / r.prints * 100) : 0,
-      cpc: r.clicks ? quantR2(r.cost / r.clicks) : 0,
-      acos: r.sales ? quantR2(r.cost / r.sales * 100) : 0,
-      roas: r.cost ? quantR2(r.sales / r.cost) : 0,
-      cvr: r.clicks ? quantR2(r.units / r.clicks * 100) : 0,
+      ctr: r.prints ? quantR2(r.clicks / r.prints * 100) : null,
+      cpc: r.clicks ? quantR2(r.cost / r.clicks) : null,
+      acos: r.sales ? quantR2(r.cost / r.sales * 100) : null,
+      roas: r.cost ? quantR2(r.sales / r.cost) : null,
+      cvr: r.clicks ? quantR2(r.units / r.clicks * 100) : null,
     });
   }
   return { map, errors, days: dates.length };
