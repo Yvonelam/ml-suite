@@ -3150,6 +3150,259 @@ function setIgnored(id, on) {
   saveIgnored(map);
 }
 
+/* ============ 产品量化表（导出）：把「产品量化表.xlsx」的字段用美客多数据填满 ============
+   数据来源与口径（改之前先看这段）：
+   - 订单 / 件数 / 销售额 / 均价：/orders/search（巴西时间按天分桶，口径与利润页一致：取消退款单不计）
+   - 广告（店铺按天）：product_ads/ads/search + aggregation_type=DAILY，账户级
+   - 广告（单商品、区间汇总）：product_ads/ads/search 不带 DAILY，逐条 ad 的 metrics
+     ⚠️ 实测 item_id 过滤参数**会被忽略**（换成不存在的 ID 仍返回同样的账户级数据），
+        所以「单商品 × 单天」的广告数据美客多根本没有，界面上必须留空，绝不摊派。
+   - 库存 / 售价 / SKU / 评分 / 评论数：/items?ids= + /reviews/item/{id}
+   - 访问量：/visits 系列对该卖家返回 403（无权限），量化表里的「单日访问量」只能手工填
+   - 目标销量、刷单、广告预算、Acos 预算、毛利率、自然排名、当日操作：平台不提供，属于手工列 */
+const quantCache = new Map();       // `${uid}|${from}|${to}|${item}` -> { at, data }
+const quantReviewCache = new Map(); // itemId -> { at, rating, reviews }
+const QUANT_ADS_FIELDS = 'clicks,prints,ctr,cost,cpc,acos,roas,cvr,sov,units_quantity,total_amount,direct_amount,indirect_amount,direct_units_quantity,indirect_units_quantity';
+function quantNum(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+function quantR2(v) { return Math.round(quantNum(v) * 100) / 100; }
+function quantDate(iso) {
+  const p = tzParts(iso, SALES_TZ.tz);
+  return p ? p.date : '';
+}
+async function quantAdsPaged(adv, from, to, extra, onBatch) {
+  let offset = 0;
+  for (let page = 0; page < 40; page++) {
+    const qs = `date_from=${from}&date_to=${to}&metrics=${QUANT_ADS_FIELDS}&limit=50&offset=${offset}${extra || ''}`;
+    const d = await mlRequest(`/advertising/${adv.site}/advertisers/${encodeURIComponent(adv.id)}/product_ads/ads/search?${qs}`, { headers: { 'api-version': '2' } });
+    const batch = Array.isArray(d && d.results) ? d.results : [];
+    onBatch(batch);
+    const total = Number((d && d.paging && d.paging.total) || batch.length);
+    offset += batch.length;
+    if (!batch.length || offset >= total) break;
+  }
+}
+async function quantAdsDaily(adv, from, to) {
+  const rows = [];
+  await quantAdsPaged(adv, from, to, '&aggregation_type=DAILY', batch => {
+    for (const r of batch) {
+      if (!r || !r.date) continue;
+      rows.push({
+        date: String(r.date).slice(0, 10),
+        prints: quantNum(r.prints), clicks: quantNum(r.clicks), cost: quantR2(r.cost),
+        sales: quantR2(r.total_amount), salesDirect: quantR2(r.direct_amount), salesIndirect: quantR2(r.indirect_amount),
+        units: quantNum(r.units_quantity), orders: quantNum(r.advertising_items_quantity || r.units_quantity),
+        ctr: quantR2(r.ctr), cpc: quantR2(r.cpc), acos: quantR2(r.acos), roas: quantR2(r.roas), cvr: quantR2(r.cvr), sov: quantR2(r.sov),
+      });
+    }
+  });
+  // 同一天可能被分页拆成多行（不同 ad），合并
+  const byDate = new Map();
+  for (const r of rows) {
+    const cur = byDate.get(r.date) || { date: r.date, prints: 0, clicks: 0, cost: 0, sales: 0, salesDirect: 0, salesIndirect: 0, units: 0, orders: 0, ctr: 0, cpc: 0, acos: 0, roas: 0, cvr: 0, sov: 0 };
+    for (const k of ['prints', 'clicks', 'cost', 'sales', 'salesDirect', 'salesIndirect', 'units', 'orders']) cur[k] += r[k];
+    byDate.set(r.date, cur);
+  }
+  return [...byDate.values()].map(r => ({
+    ...r,
+    cost: quantR2(r.cost), sales: quantR2(r.sales), salesDirect: quantR2(r.salesDirect), salesIndirect: quantR2(r.salesIndirect),
+    ctr: r.prints ? quantR2(r.clicks / r.prints * 100) : 0,
+    cpc: r.clicks ? quantR2(r.cost / r.clicks) : 0,
+    acos: r.sales ? quantR2(r.cost / r.sales * 100) : 0,
+    roas: r.cost ? quantR2(r.sales / r.cost) : 0,
+    cvr: r.clicks ? quantR2(r.orders / r.clicks * 100) : 0,
+  })).sort((a, b) => a.date.localeCompare(b.date));
+}
+async function quantAdsByItem(adv, from, to) {
+  const map = {};
+  await quantAdsPaged(adv, from, to, '', batch => {
+    for (const r of batch) {
+      const id = String((r && r.item_id) || '');
+      if (!id) continue;
+      const m = (r && r.metrics) || {};
+      const cur = map[id] || { prints: 0, clicks: 0, cost: 0, sales: 0, salesDirect: 0, units: 0, ads: 0 };
+      cur.prints += quantNum(m.prints); cur.clicks += quantNum(m.clicks); cur.cost += quantNum(m.cost);
+      cur.sales += quantNum(m.total_amount); cur.salesDirect += quantNum(m.direct_amount);
+      cur.units += quantNum(m.units_quantity); cur.ads += 1;
+      map[id] = cur;
+    }
+  });
+  for (const id of Object.keys(map)) {
+    const r = map[id];
+    map[id] = {
+      prints: r.prints, clicks: r.clicks, cost: quantR2(r.cost), sales: quantR2(r.sales), salesDirect: quantR2(r.salesDirect),
+      units: r.units, ads: r.ads,
+      ctr: r.prints ? quantR2(r.clicks / r.prints * 100) : 0,
+      cpc: r.clicks ? quantR2(r.cost / r.clicks) : 0,
+      acos: r.sales ? quantR2(r.cost / r.sales * 100) : 0,
+      roas: r.cost ? quantR2(r.sales / r.cost) : 0,
+      cvr: r.clicks ? quantR2(r.units / r.clicks * 100) : 0,
+    };
+  }
+  return map;
+}
+async function quantItemReviews(id) {
+  const key = auth.currentUserId() + ':' + id;
+  const hit = quantReviewCache.get(key);
+  if (hit && Date.now() - hit.at < 600000) return hit;
+  let out = { at: Date.now(), rating: null, reviews: null };
+  try {
+    const d = await mlRequest(`/reviews/item/${encodeURIComponent(id)}`);
+    out.rating = Number.isFinite(Number(d && d.rating_average)) ? quantR2(d.rating_average) : null;
+    out.reviews = Number((d && d.paging && d.paging.total) || 0) || 0;
+  } catch { /* 没评价权限/没评价不影响主流程 */ }
+  quantReviewCache.set(key, out);
+  return out;
+}
+
+app.get('/api/ml/product-quant', async (req, res) => {
+  const cfg = loadConfig();
+  if (!mlConfigured(cfg)) return res.json({ ok: false, needConfig: true, message: '尚未配置美客多 API 凭证' });
+  if (!mlAuthorized(cfg)) return res.json({ ok: false, needAuth: true, message: '请先完成美客多账号授权' });
+  try {
+    const u = await mlUser(), today = tzToday();
+    let from = isDateStr(req.query.from) ? String(req.query.from) : today;
+    let to = isDateStr(req.query.to) ? String(req.query.to) : today;
+    if (from > to) { const t = from; from = to; to = t; }
+    if (rejectTooWideRange(res, from, to, ADS_MAX_DAYS, '产品量化日期')) return;
+    const itemFilter = String(req.query.item || '').trim();
+    const cacheKey = [auth.currentUserId(), u.id, from, to, itemFilter].join('|');
+    const hitQ = quantCache.get(cacheKey);
+    if (!req.query.refresh && hitQ && Date.now() - hitQ.at < 60000) return res.json({ ...hitQ.data, cached: true });
+
+    const siteCode = String(mlEffectiveSite(cfg.mlSite) || u.site_id || 'MLB').toUpperCase();
+    const site = mlSite(siteCode);
+
+    const pulled = await fetchAllOrders(u.id, from, to);
+    const isDead = (o) => {
+      const s = String(o.status || '').toLowerCase(), d = String(o.status_detail || '').toLowerCase();
+      return s === 'cancelled' || s === 'invalid' || /cancel|refund/.test(d);
+    };
+    const orders = pulled.orders.filter(o => !isDead(o));
+    const deadCount = pulled.orders.length - orders.length;
+
+    const dayMap = new Map();   // `${date}|${itemId}`
+    const itemAgg = new Map();
+    const storeByDay = new Map();
+    for (const o of orders) {
+      const date = quantDate(o.date_created);
+      if (!date) continue;
+      const sd = storeByDay.get(date) || { date, orders: new Set(), units: 0, revenue: 0 };
+      sd.orders.add(String(o.id));
+      storeByDay.set(date, sd);
+      for (const it of (o.order_items || [])) {
+        const id = String((it.item && it.item.id) || '');
+        if (!id) continue;
+        const qty = Number(it.quantity) || 1, unit = Number(it.unit_price) || 0, rev = unit * qty;
+        sd.units += qty; sd.revenue += rev;
+        const k = date + '|' + id;
+        const row = dayMap.get(k) || { date, itemId: id, orders: new Set(), units: 0, revenue: 0 };
+        row.orders.add(String(o.id)); row.units += qty; row.revenue += rev;
+        dayMap.set(k, row);
+        const a = itemAgg.get(id) || { itemId: id, orders: new Set(), units: 0, revenue: 0, title: '' };
+        a.orders.add(String(o.id)); a.units += qty; a.revenue += rev;
+        if (!a.title) a.title = (it.item && it.item.title) || '';
+        itemAgg.set(id, a);
+      }
+    }
+
+    const ids = [...itemAgg.keys()];
+    // 商品元数据：seller_sku / 当前售价 / 可售库存 / 累计已售
+    const meta = {};
+    for (let i = 0; i < ids.length; i += 20) {
+      const batch = ids.slice(i, i + 20);
+      try {
+        const d = await mlRequest(`/items?ids=${batch.join(',')}&attributes=id,title,seller_sku,price,available_quantity,sold_quantity,permalink,thumbnail`);
+        for (const row of (Array.isArray(d) ? d : [])) {
+          const b = row && row.body;
+          if (b && b.id) meta[b.id] = b;
+        }
+      } catch { /* 元数据失败不影响数字 */ }
+    }
+    const reviewMap = {};
+    for (const id of ids) reviewMap[id] = await quantItemReviews(id);
+
+    let adsDaily = [], adsByItem = {}, adsError = '';
+    try {
+      const adv = await mlAdvertiser(siteCode);
+      adsDaily = await quantAdsDaily(adv, from, to);
+      adsByItem = await quantAdsByItem(adv, from, to);
+    } catch (e) { adsError = String((e && e.message) || e); }
+
+    let fx = null;
+    try { const r = await getBocFxRates([site.currency]); fx = r[site.currency] || null; } catch { }
+    const localPerCny = Number(fx && fx.localPerCny) || 0;
+    const toCny = (v) => localPerCny ? quantR2(Number(v) / localPerCny) : null;
+
+    const adDailyMap = new Map(adsDaily.map(r => [r.date, r]));
+    const storeDaily = [...storeByDay.values()].map(r => {
+      const ads = adDailyMap.get(r.date) || null;
+      return {
+        date: r.date, orders: r.orders.size, units: r.units, revenue: quantR2(r.revenue), revenueCny: toCny(r.revenue),
+        avgPrice: r.units ? quantR2(r.revenue / r.units) : 0,
+        adsCost: ads ? ads.cost : null, adsCostCny: ads ? toCny(ads.cost) : null,
+        adsPrints: ads ? ads.prints : null, adsClicks: ads ? ads.clicks : null,
+        adsSales: ads ? ads.sales : null, adsUnits: ads ? ads.units : null,
+        acos: ads ? ads.acos : null, roas: ads ? ads.roas : null, ctr: ads ? ads.ctr : null, cvr: ads ? ads.cvr : null, sov: ads ? ads.sov : null,
+        adShare: ads && r.revenue ? quantR2(ads.cost / r.revenue * 100) : null,
+      };
+    }).sort((a, b) => a.date.localeCompare(b.date));
+
+    const items = [...itemAgg.values()].map(a => {
+      const m = meta[a.itemId] || {};
+      const ad = adsByItem[a.itemId] || null;
+      return {
+        itemId: a.itemId,
+        sku: String(m.seller_sku || ''),
+        title: m.title || a.title || ('Listing ' + a.itemId),
+        permalink: m.permalink || '', thumbnail: m.thumbnail || '',
+        price: quantNum(m.price), available: quantNum(m.available_quantity), sold: quantNum(m.sold_quantity),
+        rating: (reviewMap[a.itemId] || {}).rating, reviews: (reviewMap[a.itemId] || {}).reviews,
+        orders: a.orders.size, units: a.units, revenue: quantR2(a.revenue), revenueCny: toCny(a.revenue),
+        avgPrice: a.units ? quantR2(a.revenue / a.units) : 0,
+        adsCost: ad ? ad.cost : null, adsCostCny: ad ? toCny(ad.cost) : null,
+        adsPrints: ad ? ad.prints : null, adsClicks: ad ? ad.clicks : null,
+        adsSales: ad ? ad.sales : null, adsUnits: ad ? ad.units : null,
+        acos: ad ? ad.acos : null, roas: ad ? ad.roas : null, ctr: ad ? ad.ctr : null, cpc: ad ? ad.cpc : null, cvr: ad ? ad.cvr : null,
+        hasAd: !!ad,
+      };
+    }).sort((a, b) => b.revenue - a.revenue);
+
+    let daily = [...dayMap.values()].map(r => ({
+      date: r.date, itemId: r.itemId,
+      sku: String((meta[r.itemId] || {}).seller_sku || ''),
+      title: (meta[r.itemId] || {}).title || '',
+      orders: r.orders.size, units: r.units, revenue: quantR2(r.revenue), revenueCny: toCny(r.revenue),
+      avgPrice: r.units ? quantR2(r.revenue / r.units) : 0,
+    })).sort((a, b) => a.date.localeCompare(b.date) || String(a.itemId).localeCompare(String(b.itemId)));
+
+    if (itemFilter) {
+      daily = daily.filter(r => r.itemId === itemFilter);
+      // 商品筛选只影响「按商品」两张表；店铺按天始终保持全店口径（否则广告数据对不上）
+      const keep = items.filter(x => x.itemId === itemFilter);
+      items.length = 0;
+      items.push(...keep);
+    }
+
+    const data = {
+      ok: true, range: { from, to }, updatedAt: Date.now(),
+      site: { code: site.code, name: site.name, currency: site.currency },
+      fx: fx ? { cnyPer100: quantNum(fx.cnyPer100), localPerCny, rateType: fx.rateType || '', publishedAt: fx.publishedAt || '', source: '中国银行牌价' } : null,
+      items, daily, storeDaily,
+      totals: {
+        orders: orders.length, items: itemAgg.size, units: orders.reduce((s, o) => s + (o.order_items || []).reduce((x, i) => x + (Number(i.quantity) || 1), 0), 0),
+        revenue: quantR2(orders.reduce((s, o) => s + (Number(o.total_amount) || 0), 0)),
+        cancelledOrders: deadCount, pulled: pulled.orders.length, strategy: pulled.strategy,
+        adsCost: adsDaily.reduce((s, r) => s + r.cost, 0), adsDays: adsDaily.length,
+      },
+      adsError,
+    };
+    data.totals.revenueCny = toCny(data.totals.revenue);
+    data.totals.adsCostCny = toCny(data.totals.adsCost);
+    quantCache.set(cacheKey, { at: Date.now(), data });
+    res.json(data);
+  } catch (e) { sendMlError(res, e); }
+});
+
 // ---- 退货与投诉（售后） ----
 app.get('/api/ml/claims', async (req, res) => {
   try {
