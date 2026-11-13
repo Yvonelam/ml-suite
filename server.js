@@ -1798,7 +1798,13 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     // 口径与 lines 里的 fxRate 完全一致（同一个 rates 对象），避免界面显示的和算出来的两套数。
     // 没有牌价的币种不返回 —— 前端据此提示「该币种待核对」，而不是显示成 0。
     const fxUsed={};
-    for(const code of new Set([...currencies,adStatus.currency].filter(Boolean))){
+    // 当天没出单时 currencies 是空的，角标就会一片空白（看着像汇率坏了）。
+    // 汇率本质是「店铺经营币种的牌价」，所以始终把站点币种算进来兜底。
+    const fxSiteCur=mlSite(String(mlEffectiveSite(cfg.mlSite)||u.site_id||'MLB').toUpperCase()).currency;
+    if(fxSiteCur&&fxSiteCur!=='CNY'&&!rates[fxSiteCur]){
+      try{Object.assign(rates,await getBocFxRates([fxSiteCur]));}catch{/* 补不到就照旧 */}
+    }
+    for(const code of new Set([...currencies,adStatus.currency,fxSiteCur].filter(Boolean))){
       const row=rates[code];
       if(code==='CNY'||!row||!(Number(row.cnyPer100)>0))continue;
       fxUsed[code]={cnyPer100:r2(row.cnyPer100),localPerCny:Number(row.localPerCny)||0,rateType:row.rateType||'',publishedAt:row.publishedAt||'',source:'中国银行牌价'};
