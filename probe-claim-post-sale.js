@@ -94,7 +94,13 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
 
     console.log('\n--- 2. 「买家咨询」tab 渲染 ---');
     await ev("(function(){var b=document.querySelector('#claimTabs button[data-k=buyer]');if(b)b.click();})()");
-    await sleep(2500);
+    if (ps.length) {
+      for (let i = 0; i < 20; i++) {
+        await sleep(1200);
+        const n = await ev("document.querySelectorAll('#claimBody .ccard.postsale').length");
+        if (n > 0) break;
+      }
+    } else await sleep(2500);
     const buyerTab = JSON.parse(await ev(`(function(){var b=document.getElementById('claimBody');
       var cards=[].slice.call(b.querySelectorAll('.ccard.postsale'));
       return JSON.stringify({n:cards.length,text:cards.map(function(c){return (c.innerText||'').replace(/\\s+/g,' ')}).join(' || '),
@@ -109,9 +115,15 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
     }
 
     console.log('\n--- 3. 「待我处理」tab 同一条可见 ---');
+    // 切 tab 会整页重拉 /api/ml/claims（好几次美客多请求 + 买家资料），2.5 秒经常还不够，
+    // 之前就因此假失败（卡片是 0，其实还在转圈）。这里改成轮询到出卡片或超时。
     await ev("(function(){var b=document.querySelector('#claimTabs button[data-k=todo]');if(b)b.click();})()");
-    await sleep(2500);
-    const todoN = await ev("document.querySelectorAll('#claimBody .ccard.postsale').length");
+    let todoN = 0;
+    for (let i = 0; i < 20; i++) {
+      await sleep(1200);
+      todoN = await ev("document.querySelectorAll('#claimBody .ccard.postsale').length");
+      if (todoN > 0) break;
+    }
     ok(!ps.length || todoN > 0, '待我处理 tab 也能看到私信卡片', 'cards=' + todoN);
 
     console.log('\n--- 4. 不会把用户未读清掉 ---');
