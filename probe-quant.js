@@ -103,15 +103,16 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
     ok(/R\$/.test(kpi.r || ''), 'KPI 销售额带原币符号', kpi.r);
 
     console.log('\n--- 3. 下载 CSV ---');
-    // 拦住 createObjectURL，把 Blob 读成文本
-    await ev("(function(){window.__csv=null;var old=URL.createObjectURL;URL.createObjectURL=function(b){var r=new FileReader();r.onload=function(){window.__csv=r.result};r.readAsText(b);return old.call(URL,b)};})()");
+    // 拦住 createObjectURL，把 Blob 按字节读出来（FileReader.readAsText 会吃掉 BOM，测不到）
+    await ev("(function(){window.__csv=null;window.__csvBom=null;var old=URL.createObjectURL;URL.createObjectURL=function(b){var r=new FileReader();r.onload=function(){var u=new Uint8Array(r.result);window.__csvBom=[u[0],u[1],u[2]];window.__csv=new TextDecoder('utf-8',{ignoreBOM:true}).decode(u);};r.readAsArrayBuffer(b);return old.call(URL,b)};})()");
     await ev("(function(){document.getElementById('quantDownload').click();})()");
-    let csv = null;
-    for (let i = 0; i < 25; i++) { csv = await ev('window.__csv'); if (csv) break; await sleep(400); }
+    let csv = null, bom = null;
+    for (let i = 0; i < 25; i++) { csv = await ev('window.__csv'); bom = await ev('JSON.stringify(window.__csvBom||null)'); if (csv) break; await sleep(400); }
     ok(!!csv, '下载按钮产出了 CSV 内容');
     if (csv) {
-      const lines = String(csv).split(/\r?\n/).filter(Boolean);
-      ok(String(csv).charCodeAt(0) === 0xFEFF, 'CSV 带 UTF-8 BOM（Excel 不乱码）');
+      const clean = String(csv).replace(/^\uFEFF/, '');
+      const lines = clean.split(/\r?\n/).filter(Boolean);
+      ok(bom === '[239,187,191]', 'CSV 带 UTF-8 BOM（Excel 不乱码）', bom);
       ok(lines.length === itemRows + 1, 'CSV 行数 = 表头 + 表格行数', lines.length + ' vs ' + (itemRows + 1));
       ok(/SKU/.test(lines[0]) && /Listing/.test(lines[0]), 'CSV 表头是字段名', lines[0].slice(0, 60));
       const quoteOk = lines.every(l => (l.match(/"/g) || []).length % 2 === 0);
