@@ -350,7 +350,8 @@ async function loadQuant(refresh = false) {
     renderQuant();
     if (state) state.textContent = '区间 ' + d.range.from + ' → ' + d.range.to + ' · 读取于 ' + new Date(d.updatedAt).toLocaleTimeString('zh-CN') + (d.cached ? ' · 缓存' : '');
     const rn = $('#quantRangeNote');
-    if (rn) rn.textContent = '店铺按天 ' + (d.storeDaily || []).length + ' 天 · 商品 ' + (d.items || []).length + ' 个';
+    if (rn) rn.textContent = '店铺按天 ' + (d.storeDaily || []).length + ' 天 · 商品 ' + (d.items || []).length + ' 个'
+      + (d.metaMissing ? ' · ' + d.metaMissing + ' 个商品的基础资料未取到（售价/库存为空，金额不受影响）' : '');
     if (note && d.adsError) { note.style.display = ''; note.textContent = '广告数据未取到：' + d.adsError + '（订单与商品数据不受影响）'; }
   } catch (e) {
     const payload = e.payload || {};

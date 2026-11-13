@@ -3307,20 +3307,34 @@ app.get('/api/ml/product-quant', async (req, res) => {
 
     const ids = [...itemAgg.keys()];
     // 商品元数据：seller_sku / 当前售价 / 可售库存 / 累计已售
+    // 批量接口偶尔整条超时/500，会导致整张表「售价/库存全 0」且毫无提示，
+    // 所以：整批失败重试一次 → 仍缺的逐个补，最后把补不全的条数报给前端。
     const meta = {};
+    const metaUrl = (list) => `/items?ids=${list.join(',')}&attributes=id,title,seller_sku,price,available_quantity,sold_quantity,permalink,thumbnail,attributes`;
+    const absorbItems = (d) => {
+      for (const row of (Array.isArray(d) ? d : [])) {
+        const b = row && row.body;
+        if (!b || !b.id) continue;
+        // SKU 实测不在顶层 seller_sku 上，而是 attributes 里的 SELLER_SKU（BW06BB-ML-BR-A 这种）
+        const skuAttr = (b.attributes || []).find(a => a && a.id === 'SELLER_SKU');
+        meta[b.id] = { ...b, sku: String(b.seller_sku || (skuAttr && skuAttr.value_name) || '') };
+      }
+    };
     for (let i = 0; i < ids.length; i += 20) {
       const batch = ids.slice(i, i + 20);
-      try {
-        const d = await mlRequest(`/items?ids=${batch.join(',')}&attributes=id,title,seller_sku,price,available_quantity,sold_quantity,permalink,thumbnail,attributes`);
-        for (const row of (Array.isArray(d) ? d : [])) {
-          const b = row && row.body;
-          if (!b || !b.id) continue;
-          // SKU 实测不在顶层 seller_sku 上，而是 attributes 里的 SELLER_SKU（BW06BB-ML-BR-A 这种）
-          const skuAttr = (b.attributes || []).find(a => a && a.id === 'SELLER_SKU');
-          meta[b.id] = { ...b, sku: String(b.seller_sku || (skuAttr && skuAttr.value_name) || '') };
-        }
-      } catch { /* 元数据失败不影响数字 */ }
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try { absorbItems(await mlRequest(metaUrl(batch))); } catch { /* 下一轮重试 */ }
+        if (batch.every(id => meta[id])) break;
+      }
     }
+    const missing = ids.filter(id => !meta[id]).slice(0, 12);
+    await Promise.all(missing.map(async (id) => {
+      try {
+        const b = await mlRequest(`/items/${id}?attributes=id,title,seller_sku,price,available_quantity,sold_quantity,permalink,thumbnail,attributes`);
+        if (b && b.id) absorbItems([{ code: 200, body: b }]);
+      } catch { /* 单个商品取不到就留空，不影响金额 */ }
+    }));
+    const metaMissing = ids.filter(id => !meta[id]).length;
     const reviewMap = {};
     for (const id of ids) reviewMap[id] = await quantItemReviews(id);
 
@@ -3397,7 +3411,7 @@ app.get('/api/ml/product-quant', async (req, res) => {
         cancelledOrders: deadCount, pulled: pulled.orders.length, strategy: pulled.strategy,
         adsCost: adsDaily.reduce((s, r) => s + r.cost, 0), adsDays: adsDaily.length,
       },
-      adsError,
+      adsError, metaMissing,
     };
     data.totals.revenueCny = toCny(data.totals.revenue);
     data.totals.adsCostCny = toCny(data.totals.adsCost);
