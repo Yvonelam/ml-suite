@@ -198,6 +198,7 @@ function syncFromRemote(force) {
   if (pullRetryAt && now < pullRetryAt) return false;
 
   log('远端有 ' + behind + ' 个新提交（' + remoteHead + '），开始合入…');
+  const preHead = (git(['rev-parse', 'HEAD']).out || '').trim();
   const r = git(['pull', '--rebase', '--autostash', 'origin', BRANCH]);
   if (r.ok) {
     const head = git(['rev-parse', '--short', 'HEAD']).out;
@@ -211,6 +212,15 @@ function syncFromRemote(force) {
 
   const err = (r.err || r.out).trim();
   git(['rebase', '--abort']);   // 无论哪种失败都先回到干净状态，别把仓库卡在 rebase 中途
+
+  // 失败可能在 merge/rebase 中途就退出（比如 ref 被锁），工作区会残留已暂存的半成品。
+  // 不收拾的话下一轮就把它当成「用户改动」提交上去（脏文件不再走拉取分支，重试也被打断）。
+  // 进 pull 之前工作区一定是干净的，所以回滚到 preHead 是安全的。
+  const after = gitStatusPorcelain();
+  if (preHead && after.ok && after.out) {
+    git(['reset', '--hard', preHead]);
+    log('已回滚这次拉取残留的改动（回到 ' + preHead.slice(0, 7) + '，拉取前工作区是干净的，不会动你的文件）。');
+  }
 
   if (isConflictErr(err)) {
     conflictHead = remoteHead;
