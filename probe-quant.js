@@ -78,12 +78,31 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
     const so = JSON.parse(sumOrders || '{}');
     ok(Number(so.sum) === Number(so.total), '店铺按天订单合计 = 总订单数', so.sum + ' / ' + so.total);
 
+    // 广告必须是「商品 × 天」明细，而且按天汇总后必须等于账户日花费（否则就是摊派/丢数）
+    const adChk = JSON.parse(await ev(`fetch('/api/ml/product-quant?from=2026-11-06&to=2026-11-12',{cache:'no-store'}).then(r=>r.json()).then(d=>{
+      var byDate={};
+      (d.daily||[]).forEach(function(r){ if(r.adsCost==null)return; byDate[r.date]=(byDate[r.date]||0)+Number(r.adsCost); });
+      var bad=[];
+      (d.storeDaily||[]).forEach(function(s){ var a=Math.round((byDate[s.date]||0)*100)/100, b=Math.round(Number(s.adsCost||0)*100)/100;
+        if(Math.abs(a-b)>0.05) bad.push({date:s.date,itemSum:a,account:b}); });
+      return JSON.stringify({bad:bad, rowsWithAds:(d.daily||[]).filter(function(x){return Number(x.adsCost)>0}).length,
+        adsItems:(d.totals||{}).adsItems, adsCost:(d.totals||{}).adsCost, allRows:(d.daily||[]).length});
+    })`) || '{}');
+    ok(Array.isArray(adChk.bad) && adChk.bad.length === 0, '商品×天广告费合计 = 店铺当日账户花费', JSON.stringify(adChk.bad || []).slice(0, 120));
+    ok(Number(adChk.rowsWithAds) > 0, '按商品×天有广告花费行', 'rows=' + adChk.rowsWithAds + '/' + adChk.allRows);
+    ok(Number(adChk.adsItems) > 0, '在投商品数已统计', 'items=' + adChk.adsItems);
+
     console.log('\n--- 2. 页面渲染三个 tab ---');
     // 页面默认「今天」，先切到近 7 天拿数据
     await ev("(function(){document.querySelector('#quantRange button[data-range=\"7\"]').click();})()");
     let rows = 0;
     for (let i = 0; i < 60; i++) { rows = await ev("document.querySelectorAll('#quantTable .quant-table tbody tr').length"); if (rows > 0) break; await sleep(2000); }
     ok(rows > 0, '按商品×天 tab 渲染出行', 'rows=' + rows);
+    const itemdayHead = await ev("JSON.stringify([].slice.call(document.querySelectorAll('#quantTable th')).map(function(t){return t.textContent}))");
+    const idh = JSON.parse(itemdayHead || '[]');
+    ok(idh.some(t => /广告费/.test(t)) && idh.some(t => /广告订单数/.test(t)) && idh.some(t => /ACOS/i.test(t)), '按商品×天表头有广告列', idh.join(',').slice(0, 90));
+    const adCells = await ev("(function(){var ths=[].slice.call(document.querySelectorAll('#quantTable th')).map(function(t){return t.textContent});var idx=ths.indexOf('广告费(原币)');if(idx<0)return 'no-col';var trs=[].slice.call(document.querySelectorAll('#quantTable .quant-table tbody tr'));var n=0;trs.forEach(function(tr){var td=tr.querySelectorAll('td')[idx];if(td&&/R\\$/.test(td.textContent)&&!/^R\\$\\s*0[,.]00$/.test(td.textContent.trim()))n++;});return n+'/'+trs.length;})()");
+    ok(/^[1-9]/.test(String(adCells)), '按商品×天有广告费数值行', String(adCells));
     const fromVal = await ev("document.getElementById('quantFrom').value");
     ok(/^\d{4}-\d{2}-\d{2}$/.test(fromVal || ''), '日期筛选填入起始日期', fromVal);
 
@@ -103,6 +122,10 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
     ok(/R\$/.test(kpi.r || ''), 'KPI 销售额带原币符号', kpi.r);
 
     console.log('\n--- 3. 下载 CSV ---');
+    // 回到「按商品×天」再下载：新加的广告列必须真的进 CSV，不只是界面上有
+    await ev("(function(){document.querySelector('#quantTabs button[data-t=\"itemday\"]').click();})()");
+    await sleep(800);
+    const expRows = await ev("document.querySelectorAll('#quantTable .quant-table tbody tr').length");
     // 拦住 createObjectURL，把 Blob 按字节读出来（FileReader.readAsText 会吃掉 BOM，测不到）
     await ev("(function(){window.__csv=null;window.__csvBom=null;var old=URL.createObjectURL;URL.createObjectURL=function(b){var r=new FileReader();r.onload=function(){var u=new Uint8Array(r.result);window.__csvBom=[u[0],u[1],u[2]];window.__csv=new TextDecoder('utf-8',{ignoreBOM:true}).decode(u);};r.readAsArrayBuffer(b);return old.call(URL,b)};})()");
     await ev("(function(){document.getElementById('quantDownload').click();})()");
@@ -113,8 +136,9 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
       const clean = String(csv).replace(/^\uFEFF/, '');
       const lines = clean.split(/\r?\n/).filter(Boolean);
       ok(bom === '[239,187,191]', 'CSV 带 UTF-8 BOM（Excel 不乱码）', bom);
-      ok(lines.length === itemRows + 1, 'CSV 行数 = 表头 + 表格行数', lines.length + ' vs ' + (itemRows + 1));
+      ok(lines.length === expRows + 1, 'CSV 行数 = 表头 + 表格行数', lines.length + ' vs ' + (expRows + 1));
       ok(/SKU/.test(lines[0]) && /Listing/.test(lines[0]), 'CSV 表头是字段名', lines[0].slice(0, 60));
+      ok(/广告费/.test(lines[0]) && /广告订单数/.test(lines[0]) && /ACOS/.test(lines[0]), 'CSV 表头含广告列', lines[0].slice(0, 100));
       const quoteOk = lines.every(l => (l.match(/"/g) || []).length % 2 === 0);
       ok(quoteOk, 'CSV 引号成对（含逗号的标题不串列）');
     }

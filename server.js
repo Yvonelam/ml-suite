@@ -3420,7 +3420,17 @@ app.get('/api/ml/product-quant', async (req, res) => {
     }));
     const metaMissing = ids.filter(id => !meta[id]).length;
     const reviewMap = {};
-    for (const id of ids) reviewMap[id] = await quantItemReviews(id);
+    // 评价接口逐个查，商品一多就串成一长串等待；并发 4 个既快又不会撞限流
+    {
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < ids.length) {
+          const id = ids[cursor++];
+          reviewMap[id] = await quantItemReviews(id);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker));
+    }
     let fx = null;
     try { const r = await getBocFxRates([site.currency]); fx = r[site.currency] || null; } catch { }
     const localPerCny = Number(fx && fx.localPerCny) || 0;
