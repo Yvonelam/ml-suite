@@ -239,8 +239,14 @@ const QUANT_TABS = {
       { k: 'orders', t: '总订单数', ty: 'int' }, { k: 'units', t: '销售件数', ty: 'int' },
       { k: 'avgPrice', t: '单价', ty: 'money' }, { k: 'revenue', t: '总销售额(原币)', ty: 'money' },
       { k: 'revenueCny', t: '销售额(¥)', ty: 'money' },
+      { k: 'adsPrints', t: '广告展现次数', ty: 'int' }, { k: 'adsClicks', t: '广告点击数', ty: 'int' },
+      { k: 'adsCost', t: '广告费(原币)', ty: 'money' }, { k: 'adsCostCny', t: '广告费(¥)', ty: 'money' },
+      { k: 'adsSales', t: '广告销售额(原币)', ty: 'money' }, { k: 'adsUnits', t: '广告订单数', ty: 'int' },
+      { k: 'ctr', t: '点击率', ty: 'pct' }, { k: 'cpc', t: 'CPC', ty: 'money' },
+      { k: 'acos', t: 'ACOS', ty: 'pct' }, { k: 'roas', t: 'ROAS', ty: 'num' },
+      { k: 'cvr', t: '广告转化率', ty: 'pct' }, { k: 'adShare', t: '广告费占销售额', ty: 'pct' },
     ],
-    empty: '所选区间没有有效订单。',
+    empty: '所选区间没有有效订单，也没有广告花费。',
   },
   storeday: {
     file: '店铺按天',
@@ -319,11 +325,11 @@ function renderQuantKpis() {
   $('#quantOrders').textContent = fmt(t.orders || 0);
   $('#quantOrdersDl').textContent = '取消/退款 ' + fmt(t.cancelledOrders || 0) + ' 单（不计入）· ' + (t.strategy || '');
   $('#quantUnits').textContent = fmt(t.units || 0);
-  $('#quantUnitsDl').textContent = (d.items || []).length + ' 个 Listing 有出单';
+  $('#quantUnitsDl').textContent = fmt(t.items || 0) + ' 个 Listing 有出单';
   $('#quantRevenue').textContent = money(t.revenue || 0, cur);
   $('#quantRevenueDl').textContent = fx ? ('≈ ' + money(t.revenueCny || 0, 'CNY') + ' · 100 ' + cur + ' = ¥' + Number(fx.cnyPer100).toFixed(2)) : '汇率暂不可用';
   $('#quantAdsCost').textContent = d.adsError ? '待核对' : money(t.adsCost || 0, cur);
-  $('#quantAdsCostDl').textContent = d.adsError ? d.adsError : (fx ? ('≈ ' + money(t.adsCostCny || 0, 'CNY') + ' · ' + fmt(t.adsDays || 0) + ' 天') : '—');
+  $('#quantAdsCostDl').textContent = d.adsError ? d.adsError : (fx ? ('≈ ' + money(t.adsCostCny || 0, 'CNY') + ' · ' + fmt(t.adsDays || 0) + ' 天 · ' + fmt(t.adsItems || 0) + ' 个商品在投') : '—');
 }
 async function loadQuant(refresh = false) {
   if (quantView.loading) return;

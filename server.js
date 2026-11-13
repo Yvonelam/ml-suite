@@ -3332,6 +3332,19 @@ app.get('/api/ml/product-quant', async (req, res) => {
     const siteCode = String(mlEffectiveSite(cfg.mlSite) || u.site_id || 'MLB').toUpperCase();
     const site = mlSite(siteCode);
 
+    // 广告和订单是两个独立接口，串行跑白白多等好几秒（7 天要逐日查 7 次广告），这里并行。
+    const adsPromise = (async () => {
+      const out = { daily: [], byItem: {}, itemDaily: new Map(), error: '', dayErrors: 0 };
+      try {
+        const adv = await mlAdvertiser(siteCode);
+        out.daily = await quantAdsDaily(adv, from, to);
+        out.byItem = await quantAdsByItem(adv, from, to);
+        const idm = await quantAdsItemDaily(adv, from, to);
+        out.itemDaily = idm.map; out.dayErrors = idm.errors;
+      } catch (e) { out.error = String((e && e.message) || e); }
+      return out;
+    })();
+
     const pulled = await fetchAllOrders(u.id, from, to);
     const isDead = (o) => {
       const s = String(o.status || '').toLowerCase(), d = String(o.status_detail || '').toLowerCase();
@@ -3368,14 +3381,9 @@ app.get('/api/ml/product-quant', async (req, res) => {
     // ---- 广告 ----
     // 三种口径都要：账户级按天（店铺表）、区间按商品（商品汇总）、**商品×天**（逐日 ads/search）。
     // 商品×天必须是明细，不能再像以前那样「只到店铺级」——用户在广告投放页看得到的东西，导出表里也得有。
-    let adsDaily = [], adsByItem = {}, adsItemDaily = new Map(), adsError = '', adsDayErrors = 0;
-    try {
-      const adv = await mlAdvertiser(siteCode);
-      adsDaily = await quantAdsDaily(adv, from, to);
-      adsByItem = await quantAdsByItem(adv, from, to);
-      const idm = await quantAdsItemDaily(adv, from, to);
-      adsItemDaily = idm.map; adsDayErrors = idm.errors;
-    } catch (e) { adsError = String((e && e.message) || e); }
+    const adsRes = await adsPromise;
+    const adsDaily = adsRes.daily, adsByItem = adsRes.byItem, adsItemDaily = adsRes.itemDaily;
+    const adsError = adsRes.error, adsDayErrors = adsRes.dayErrors;
     // 只投广告、区间内没出单的商品也要出现在表里（否则「花了钱没转化」的品会被藏起来）
     for (const r of adsItemDaily.values()) {
       if (!itemAgg.has(r.itemId)) itemAgg.set(r.itemId, { itemId: r.itemId, orders: new Set(), units: 0, revenue: 0, title: '' });
@@ -3492,7 +3500,7 @@ app.get('/api/ml/product-quant', async (req, res) => {
       items, daily, storeDaily,
       totals: {
         orders: orders.length, items: [...itemAgg.values()].filter(a => a.units > 0).length,
-        adsItems: [...adsByItem.keys()].length, adRows: adsItemDaily.size,
+        adsItems: Object.values(adsByItem).filter(a => a.cost > 0 || a.clicks > 0 || a.prints > 0).length, adRows: adsItemDaily.size,
         units: orders.reduce((s, o) => s + (o.order_items || []).reduce((x, i) => x + (Number(i.quantity) || 1), 0), 0),
         revenue: quantR2(orders.reduce((s, o) => s + (Number(o.total_amount) || 0), 0)),
         cancelledOrders: deadCount, pulled: pulled.orders.length, strategy: pulled.strategy,

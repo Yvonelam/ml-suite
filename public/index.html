@@ -134,7 +134,7 @@
     </section>
     <!-- 产品量化：把「产品量化表.xlsx」那套字段用美客多数据填出来，按天/按商品可导 -->
     <section class="view" id="v-quant">
-      <div class="ph2"><h1>产品量化</h1><p>按「产品量化表」的字段口径导出：订单、销售额、广告、库存、评分按巴西时间分天统计。美客多不提供的字段（目标销量、刷单、预算、毛利、自然排名、当日操作）留空，导出后手填。</p></div>
+      <div class="ph2"><h1>产品量化</h1><p>按「产品量化表」的字段口径导出：订单、销售额、广告（含「商品×天」明细的展现/点击/花费/ACOS/ROAS）、库存、评分按巴西时间分天统计。美客多不提供的字段（目标销量、刷单、预算、毛利、自然排名、当日操作）留空，导出后手填。</p></div>
       <div class="hub-period">
         <div class="seg" id="quantRange"><button class="on" data-range="today">今天</button><button data-range="7">近 7 天</button><button data-range="30">近 30 天</button><button data-range="month">本月</button></div>
         <div class="hub-dates"><input type="date" id="quantFrom" aria-label="开始日期"><span>至</span><input type="date" id="quantTo" aria-label="结束日期"><button class="btn" id="quantApply" type="button">应用</button></div>
@@ -158,7 +158,7 @@
         <div class="tw" id="quantTable"><div class="empty">选择日期后点「读取数据」。</div></div>
         <div class="quant-foot"><span id="quantState">等待读取…</span><span id="quantRangeNote"></span></div>
       </div>
-      <p class="profit-disclaimer" id="quantDisclaimer">口径说明：订单/件数/销售额按美客多 /orders/search，巴西时间分天，取消与退款单不计入；广告来自 Product Ads（店铺按天为账户口径，单商品为所选区间汇总——美客多<b>不提供「单商品 × 单天」广告</b>，所以「按商品 × 天」里没有广告列）；库存/售价/SKU/评分取商品接口与评价接口，为<b>当前值</b>不是历史值；访问量接口对该账号无权限（403），故不提供。</p>
+      <p class="profit-disclaimer" id="quantDisclaimer">口径说明：订单/件数/销售额按美客多 /orders/search，巴西时间分天，取消与退款单不计入；广告来自 Product Ads —— 店铺按天取账户日汇总，「商品 × 天」逐天查 <code>ads/search</code>（同一天有多个广告位的同一商品会相加，合计与账户日花费一致），「按商品」为所选区间汇总；库存/售价/SKU/评分取商品接口与评价接口，为<b>当前值</b>不是历史值；访问量接口对该账号无权限（403），故不提供。</p>
     </section>
 
     <section class="view" id="v-profit">
@@ -666,6 +666,6 @@
   <button class="theme-item" data-t="gold" type="button" role="menuitem"><span class="dot d-gold"></span><span class="nm"><b>典藏金</b><small>暖金天光 · 层叠山脊 · 细金描边</small></span><span class="ck">✓</span></button>
   <button class="theme-item" data-t="motion" type="button" role="menuitem"><span class="dot d-motion"></span><span class="nm"><b>动态玻璃</b><small>动态渐变 · 流动波纹 · 通透玻璃</small></span><span class="ck">✓</span></button>
 </div>
-<script src="app.js?v=74"></script>
+<script src="app.js?v=75"></script>
 </body>
 </html>
