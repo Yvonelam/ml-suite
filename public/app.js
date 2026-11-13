@@ -3605,12 +3605,15 @@ function claimCard(c, buyers = {}) {
 /* Pós-venda 未读私信卡片。
    这条不是纠纷：它来自 /messages/packs（买家自己在订单/售后页发起的私信），
    纠纷关掉之后仍然存在，claims/search 里根本看不到 —— 界面上必须说清楚走的是哪条通道，
-   否则用户会以为「纠纷已关闭 = 事情结束了」。回复只能在美客多做（会话多半被平台锁住）。 */
+   否则用户会以为「纠纷已关闭 = 事情结束了」。
+   回复走 Messaging API（POST /messages/packs/{pack}/sellers/{seller}?tag=post_sale）站内完成；
+   会话被平台锁定（取消单 / 履约中 / 调解中）时只给外链并说明原因，不提供假回复框。 */
 function postSaleCard(c, buyers = {}) {
   const blocked = /blocked/.test(String(c.status || '')) || /blocked/.test(String(c.substatus || ''));
+  const canReply = !blocked && !!c.canReply;
   const convState = blocked
     ? (c.substatus === 'blocked_by_cancelled_order' ? '订单已取消，会话被平台锁定' : '平台已锁定该会话，只能查看')
-    : '可继续对话（请在美客多回复）';
+    : '可继续对话（' + (canReply ? '本工具可直接回复' : '需在美客多回复') + '）';
   const tail = escHtml((c.text || '').slice(0, 400)) || '（对方发来一条非文字消息）';
   const att = (c.attachments || []).length ? '<div>附件：<b>' + escHtml((c.attachments || []).join('、')) + '</b></div>' : '';
   const ignBtn = c.ignored
@@ -3628,13 +3631,18 @@ function postSaleCard(c, buyers = {}) {
     + att
     + '</div>'
     + '<div class="cacts"><span class="cwait">⚠️ 等你回复</span>'
-    + '<span class="cact warn">回复需在美客多完成</span>'
+    + (canReply ? '<span class="cact ok">可站内回复</span>' : '<span class="cact warn">会话被平台锁定，需去美客多处理</span>')
     + (c.ignored ? '<span class="cign">🚫 已忽略</span>' : '') + '</div>'
     + '<div class="qwho">' + buyerLine(buyers[String(c.buyerId)] || null, c.buyerId)
     + (c.buyerId ? '<button class="btn ghost sm" data-cbuyer="' + escHtml(c.buyerId) + '">看下单情况</button>' : '')
     + '</div>'
-    + '<div class="cfoot"><a class="btn y" href="https://www.mercadolivre.com.br/vendas" target="_blank" rel="noreferrer">去美客多回复 ↗</a>'
-    + ignBtn + '</div></div>';
+    + '<div class="cfoot">'
+    + (canReply
+      ? '<button class="btn y" data-ptalk="' + escHtml(String(c.packId || '')) + '">💬 查看并回复买家</button>'
+      : '<a class="btn y" href="https://www.mercadolivre.com.br/vendas" target="_blank" rel="noreferrer">去美客多回复 ↗</a>')
+    + ignBtn + '</div>'
+    + '<div class="cpanel" data-panel="pack-' + escHtml(String(c.packId || '')) + '" style="display:none"></div>'
+    + '</div>';
 }
 
 function renderClaims(d, list, buyers = {}, psList = []) {
@@ -3664,6 +3672,7 @@ function renderClaims(d, list, buyers = {}, psList = []) {
   const cards = psList.map(c => postSaleCard(c, buyers)).join('') + list.map(c => claimCard(c, buyers)).join('');
   body.innerHTML = demoBar + '<div class="clist">' + cards + '</div>';
   body.querySelectorAll('button[data-talk]').forEach(b => b.onclick = () => toggleClaimPanel(b.dataset.talk, b.closest('.ccard'), b));
+  body.querySelectorAll('button[data-ptalk]').forEach(b => b.onclick = () => togglePackPanel(b.dataset.ptalk, b.closest('.ccard'), b));
   body.querySelectorAll('button[data-ignore]').forEach(b => b.onclick = () => toggleIgnore(b.dataset.ignore, true, b));
   body.querySelectorAll('button[data-unignore]').forEach(b => b.onclick = () => toggleIgnore(b.dataset.unignore, false, b));
   body.querySelectorAll('button[data-cbuyer]').forEach(b => b.onclick = () => showBuyerOrders(b.dataset.cbuyer, b));
@@ -3854,6 +3863,104 @@ async function sendClaimReply(panel, id) {
     const p = e.payload || {};
     say('❌ ' + (p.error || e.message) + (p.hint ? ' ｜ ' + p.hint : ''));
     if (btn) { btn.disabled = false; btn.textContent = sendLabel; }
+  }
+}
+
+/* ---- Pós-venda 私信：站内查看与回复（视觉与纠纷会话面板同一套） ---- */
+async function togglePackPanel(packId, card, btn) {
+  const panel = card ? card.querySelector('[data-panel="pack-' + packId + '"]') : null;
+  if (!panel) return;
+  if (panel.style.display === 'block') {
+    panel.style.display = 'none';
+    if (card) card.classList.remove('panel-open');
+    if (btn) btn.textContent = btn.dataset.label || '💬 查看并回复买家';
+    return;
+  }
+  panel.style.display = 'block';
+  if (card) card.classList.add('panel-open');
+  if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+  btn.textContent = '收起对话';
+  panel.innerHTML = '<div class="empty" style="padding:18px 0">正在加载对话…</div>';
+  try {
+    const d = await mlGet('/api/ml/packs/' + encodeURIComponent(packId) + '/thread');
+    panel.__data = d;
+    renderPackPanel(panel, d, packId);
+  } catch (e) {
+    const p = e.payload || {};
+    panel.innerHTML = '<div class="qerr">❌ 对话加载失败：' + escHtml(p.error || e.message) + '</div>';
+  }
+}
+
+function renderPackPanel(panel, d, packId) {
+  const msgs = d.messages || [];
+  const canReply = !!d.canReply;
+  const thread = msgs.length
+    ? msgs.map(m => '<div class="msg' + (m.fromMe ? ' mine' : '') + '">'
+      + '<div class="msg-h"><b>' + (m.fromMe ? '我方' : '买家') + (!m.fromMe && m.read === false ? ' · 未读' : '') + '</b><span>' + fmtDate(m.date) + '</span></div>'
+      + '<div class="msg-t">' + escHtml(m.text || '-') + '</div>'
+      + (m.attachments && m.attachments.length ? '<div class="msg-a">📎 ' + m.attachments.map(escHtml).join('、') + '</div>' : '')
+      + '</div>').join('')
+    : '<div class="empty" style="padding:14px 0;font-size:12.5px">还没有往来消息，可以主动联系买家</div>';
+  const banner = '<div class="cban buy"><div class="cban-tx">💬 <b>买家咨询</b> · Pós-venda 私信 · 这条消息会直接发给买家 · <span class="cw">对方在等你回复</span></div></div>';
+  const ph = '回复买家私信（美客多建议 350 字以内）… Ctrl / ⌘ + Enter 发送';
+  panel.dataset.confirm = '';
+  panel.innerHTML = banner + '<div class="cthread">' + thread + '</div>'
+    + (canReply
+      ? '<div class="qreply">'
+      + '<textarea rows="2" maxlength="2000" placeholder="' + ph + '" data-pta="' + escHtml(packId) + '"></textarea>'
+      + '<div class="qreply-b"><span class="qcount" data-pcnt="' + escHtml(packId) + '">0 / 2000</span>'
+      + '<button class="btn y" data-psend="' + escHtml(packId) + '">发送给买家</button></div>'
+      + '<div class="qerr" data-perr="' + escHtml(packId) + '" style="display:none"></div>'
+      + '</div>'
+      : '<div class="note" style="margin-top:10px">这条会话被平台锁定（订单取消 / 履约流程），只能去美客多后台处理：<a href="https://www.mercadolivre.com.br/vendas" target="_blank" rel="noreferrer">打开美客多 ↗</a></div>')
+    + (d.demo ? '<div class="note" style="margin-top:10px">示例模式：这里发送不会真正发出。</div>' : '');
+
+  const ta = panel.querySelector('textarea[data-pta]');
+  if (ta) {
+    ta.addEventListener('input', () => { const cc = panel.querySelector('[data-pcnt="' + packId + '"]'); if (cc) cc.textContent = ta.value.length + ' / 2000'; });
+    ta.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { const b = panel.querySelector('[data-psend="' + packId + '"]'); if (b) b.click(); }
+    });
+  }
+  const sb = panel.querySelector('[data-psend]');
+  if (sb) sb.onclick = () => sendPackReply(panel, packId);
+}
+
+async function sendPackReply(panel, packId) {
+  const ta = panel.querySelector('textarea[data-pta]');
+  const err = panel.querySelector('[data-perr]');
+  const btn = panel.querySelector('[data-psend]');
+  const cur = panel.__data || {};
+  const text = ta ? ta.value.trim() : '';
+  const say = (t, color) => { if (err) { err.textContent = t || ''; err.style.display = t ? 'block' : 'none'; err.style.color = color || 'var(--bad)'; } };
+  if (!text) { say('请先输入要发给买家的内容'); if (ta) ta.focus(); return; }
+  if (text.length > 2000) { say('内容超过 2000 字（当前 ' + text.length + '），请精简后再发送'); return; }
+
+  // 二次确认：第一次点击只提示，第二次才真正发送（消息发给对方，不可撤回）
+  if (panel.dataset.confirm !== '1') {
+    panel.dataset.confirm = '1';
+    say('⚠️ 这条消息会直接发给买家，发送后不可撤回。确认无误请再点一次「确认发送」。', 'var(--warn)');
+    if (btn) btn.textContent = '确认发送';
+    setTimeout(() => {
+      if (panel.dataset.confirm === '1') { panel.dataset.confirm = ''; if (btn) btn.textContent = '发送给买家'; say(''); }
+    }, 10000);
+    return;
+  }
+  panel.dataset.confirm = '';
+  if (btn) { btn.disabled = true; btn.textContent = '发送中…'; }
+  try {
+    const d = await mlGet('/api/ml/packs/' + encodeURIComponent(packId) + '/reply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    toast(d && d.demo ? '示例模式：未真正发送' : '✅ 消息已发送给买家');
+    if (ta) ta.value = '';
+    const next = { ...cur, messages: (cur.messages || []).concat([{ fromMe: true, fromId: '', text, date: new Date().toISOString(), attachments: [] }]) };
+    panel.__data = next;
+    renderPackPanel(panel, next, packId);
+  } catch (e) {
+    const p = e.payload || {};
+    say('❌ ' + (p.error || e.message) + (p.hint ? ' ｜ ' + p.hint : ''));
+    if (btn) { btn.disabled = false; btn.textContent = '发送给买家'; }
   }
 }
 

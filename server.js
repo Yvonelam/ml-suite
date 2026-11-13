@@ -1187,8 +1187,9 @@ async function mlPostSaleUnread(limit = 10) {
       count: p.count, unread: true,
       text: last.text, date: last.date, attachments: last.attachments || [],
       status: conv.status || '', substatus: conv.substatus || '',
-      // 会话被平台锁住（取消单 / 履约中 / 调解中）时只能去美客多处理，本工具不给假回复框
-      canReply: false,
+      // 会话被平台锁住（取消单 / 履约中 / 调解中）时不给假回复框；
+      // 未锁定的 Pós-venda 私信走 Messaging API（POST /messages/packs/{pack}/sellers/{uid}?tag=post_sale）站内回复
+      canReply: !(/blocked/.test(String(conv.status || '')) || /blocked/.test(String(conv.substatus || ''))),
       messages: t.messages.length,
     });
   }
@@ -3103,11 +3104,23 @@ function demoClaims() {
     counts[c.category] = (counts[c.category] || 0) + 1;
     if (c.needAction) counts.todo++;
   });
+  // 示例私信卡：Pós-venda 未读私信（pack 通道），演示站内回复入口
+  const demoPack = {
+    id: 'pack-demo-77', kind: 'pack', packId: 'demo-77', orderId: '2000015918633705', buyerId: '174000001',
+    claimId: '', count: 4, unread: true, source: 'post-sale',
+    text: 'O produto chegou com a caixa amassada, mas está funcionando. Podemos combinar um desconto parcial em vez de devolver?',
+    date: new Date(now - 22 * 60000).toISOString(), attachments: ['foto_caixa.jpg'],
+    status: '', substatus: '', canReply: true, messages: 2,
+    category: 'buyer', categoryLabel: CLAIM_CAT.buyer.label, categoryDesc: CLAIM_CAT.buyer.desc,
+    needAction: true, awaitingSeller: true, messageCount: 2,
+  };
+  counts.todo++; counts.buyer++;
   return {
     ok: true, demo: true, total: items.length, status: 'opened',
     categories: CLAIM_CAT,
     counts,
     claims: items,
+    postSale: [demoPack],
   };
 }
 function demoClaimDetail(id) {
@@ -3722,6 +3735,82 @@ app.post('/api/ml/claims/:id/reply', async (req, res) => {
     else if (/forbidden|403/i.test(msg)) hint = '美客多不允许在当前状态发消息：可能调解环节已结束、需要等待调解员发起新一轮，或订单已取消。';
     else if (/not_found|404/i.test(msg)) hint = '纠纷不存在或已关闭。';
     else if (/mediat|dispute/i.test(msg)) hint = '该纠纷已进入平台调解阶段，只能在调解通道内回复。';
+    res.json({ ok: false, error: msg, hint, status: e.status || 0 });
+  }
+});
+
+/* ---- Pós-venda 私信：站内查看与回复（Messaging API：/messages/packs/{pack}/sellers/{uid}?tag=post_sale） ----
+   买家在订单页 / 售后页发的私信走这条通道，不是纠纷。美客多本身支持在这里回复，
+   之前只给外链是错误假设。两条约束沿用私信拉取的铁律：
+   1) 读线程必须 mark_as_read=false（否则会替用户清掉美客多未读）；
+   2) 会话被平台锁定（订单取消 / 履约中 / 调解中）时拒发并说明原因，不提供假回复框。 */
+app.get('/api/ml/packs/:packId/thread', async (req, res) => {
+  try {
+    const pack = String(req.params.packId);
+    if (/^demo/i.test(pack)) {
+      const now = Date.now();
+      return res.json({
+        ok: true, demo: true, canReply: true, conversation: {},
+        messages: [
+          { id: 'demo-m1', fromId: '174000001', fromMe: false, text: 'O produto chegou com a caixa amassada, mas está funcionando. Podemos combinar um desconto parcial em vez de devolver?', date: new Date(now - 30 * 60000).toISOString(), read: false, attachments: ['foto_caixa.jpg'] },
+        ],
+      });
+    }
+    const t = await mlPackThread(pack);
+    if (t.fetchError) return res.json({ ok: false, error: t.error || '会话拉取失败，请稍后重试' });
+    const conv = t.conversation || {};
+    const blocked = /blocked/.test(String(conv.status || '')) || /blocked/.test(String(conv.substatus || ''));
+    res.json({ ok: true, messages: t.messages, conversation: conv, canReply: !blocked });
+  } catch (e) {
+    res.json({ ok: false, error: String(e.message || e), status: e.status || 0 });
+  }
+});
+
+app.post('/api/ml/packs/:packId/reply', async (req, res) => {
+  try {
+    const pack = String(req.params.packId);
+    const text = ((req.body && req.body.text) || '').trim();
+    if (!text) return res.json({ ok: false, error: '回复内容不能为空' });
+    if (text.length > 2000) return res.json({ ok: false, error: '回复内容不能超过 2000 个字符（当前 ' + text.length + '）' });
+    if (/^demo/i.test(pack)) return res.json({ ok: true, demo: true, message: '示例模式：未真正发送' });
+
+    // 先读会话状态：锁定的通道直接拒发，避免用户写一大段后被平台打回
+    const uid = String((await mlUser()).id);
+    const t = await mlPackThread(pack);
+    if (t.fetchError) return res.json({ ok: false, error: '读取会话失败，无法确认能否回复：' + (t.error || '请稍后重试') });
+    const conv = t.conversation || {};
+    const blocked = /blocked/.test(String(conv.status || '')) || /blocked/.test(String(conv.substatus || ''));
+    if (blocked) {
+      return res.json({
+        ok: false,
+        error: '这条会话已被美客多锁定，不能站内回复',
+        hint: conv.substatus === 'blocked_by_cancelled_order'
+          ? '订单已取消，平台锁死了私信通道，需去美客多后台查看。'
+          : '会话状态：' + String(conv.status || '-') + ' / ' + String(conv.substatus || '-') + '。该通道目前只读，需在美客多后台处理。',
+      });
+    }
+    const path = `/messages/packs/${encodeURIComponent(pack)}/sellers/${uid}?tag=post_sale`;
+    let r;
+    try {
+      r = await mlRequest(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    } catch (e1) {
+      // 部分站点的私信端点只认表单编码：JSON 被 4xx（非鉴权/权限类）拒绝时自动回退一次，不把失败直接甩给用户
+      const s = String(e1.status || '');
+      if (s && s.startsWith('4') && s !== '401' && s !== '403') {
+        r = await mlRequest(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ text }).toString() });
+      } else throw e1;
+    }
+    postSaleCache.delete(uid + ':pack:' + pack);   // 下次读到含我方新回复的线程
+    postSaleCache.delete(uid + ':unread');        // 未读计数重新对齐
+    console.log(`[私信] 已回复 Pós-venda 会话 #${pack}（tag=post_sale）`);
+    res.json({ ok: true, result: r });
+  } catch (e) {
+    const msg = String(e.message || '');
+    let hint = '';
+    if (/forbidden|403/i.test(msg)) hint = '美客多拒绝在当前会话发消息：可能订单仍在履约流程（需先在后台确认发货），或会话已随订单关闭。';
+    else if (/not_found|404/i.test(msg)) hint = '会话不存在或已失效。';
+    else if (/blocked/i.test(msg)) hint = '该会话被平台锁定（如订单取消），只能去美客多后台处理。';
+    else if (/text|message/i.test(msg) && /null|required|invalid/i.test(msg)) hint = '消息内容没被平台接受，请检查是否为空或超长后重试。';
     res.json({ ok: false, error: msg, hint, status: e.status || 0 });
   }
 });
