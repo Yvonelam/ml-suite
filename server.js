@@ -3790,16 +3790,30 @@ app.post('/api/ml/packs/:packId/reply', async (req, res) => {
       });
     }
     const path = `/messages/packs/${encodeURIComponent(pack)}/sellers/${uid}?tag=post_sale`;
-    let r;
-    try {
-      r = await mlRequest(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
-    } catch (e1) {
-      // 部分站点的私信端点只认表单编码：JSON 被 4xx（非鉴权/权限类）拒绝时自动回退一次，不把失败直接甩给用户
-      const s = String(e1.status || '');
-      if (s && s.startsWith('4') && s !== '401' && s !== '403') {
-        r = await mlRequest(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ text }).toString() });
-      } else throw e1;
+    /* 美客多私信端点对 body 格式很挑剔：JSON body 会被整体忽略，报
+       "The body of the request cannot be empty"（实测 2026-11-14，用户真实会话踩中）。
+       依次尝试 multipart/form-data → x-www-form-urlencoded → JSON：
+       解析类失败时消息并不会真的发出，所以逐个换格式重试不会造成重复发送；
+       但权限/不存在类错误（401/403/404）换格式也没用，直接抛给上层给提示。 */
+    const attempts = [
+      { label: 'multipart/form-data', init: (() => { const fd = new FormData(); fd.append('text', text); return fd; })(), headers: {} },
+      { label: 'x-www-form-urlencoded', init: new URLSearchParams({ text }), headers: {} },
+      { label: 'application/json', init: JSON.stringify({ text }), headers: { 'Content-Type': 'application/json' } },
+    ];
+    let r = null, lastErr = null;
+    for (const a of attempts) {
+      try {
+        r = await mlRequest(path, { method: 'POST', headers: a.headers, body: a.init });
+        console.log(`[私信] 会话 #${pack} 回复成功（body 格式 ${a.label}）`);
+        break;
+      } catch (e) {
+        lastErr = e;
+        const s = String(e.status || '');
+        if (s === '401' || s === '403' || s === '404') throw e;
+        // 其余（含 body 解析失败 400）继续试下一种格式
+      }
     }
+    if (!r) throw lastErr;
     postSaleCache.delete(uid + ':pack:' + pack);   // 下次读到含我方新回复的线程
     postSaleCache.delete(uid + ':unread');        // 未读计数重新对齐
     console.log(`[私信] 已回复 Pós-venda 会话 #${pack}（tag=post_sale）`);
@@ -3808,6 +3822,7 @@ app.post('/api/ml/packs/:packId/reply', async (req, res) => {
     const msg = String(e.message || '');
     let hint = '';
     if (/forbidden|403/i.test(msg)) hint = '美客多拒绝在当前会话发消息：可能订单仍在履约流程（需先在后台确认发货），或会话已随订单关闭。';
+    else if (/body of the request|cannot be empty/i.test(msg)) hint = '三种消息格式（multipart/form-data、表单编码、JSON）美客多都未接受。该站点可能走的是不同的私信版本，请把这条报错截图发管理员核对。';
     else if (/not_found|404/i.test(msg)) hint = '会话不存在或已失效。';
     else if (/blocked/i.test(msg)) hint = '该会话被平台锁定（如订单取消），只能去美客多后台处理。';
     else if (/text|message/i.test(msg) && /null|required|invalid/i.test(msg)) hint = '消息内容没被平台接受，请检查是否为空或超长后重试。';
