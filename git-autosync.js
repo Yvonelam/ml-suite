@@ -222,7 +222,7 @@ function syncFromRemote(force) {
   pullFailStreak++;
   const wait = Math.round(Math.min(30000 * Math.pow(2, Math.min(pullFailStreak - 1, 4)), 300000) / 1000);
   pullRetryAt = now + wait * 1000;
-  log('合入远端失败（网络/代理问题，不是冲突），约 ' + wait + ' 秒后自动重试，本地提交保持完整：' + err.slice(0, 240));
+  log('合入远端失败（网络/认证类问题，不是冲突），约 ' + wait + ' 秒后自动重试，本地提交保持完整：' + err.slice(0, 240));
   return false;
 }
 

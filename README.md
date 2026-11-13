@@ -348,6 +348,11 @@ node handoff.js shots    # 只截图（也可 node shots.js hub ads 只截指定
 > ⚠️ 老版本**只 push 不 fetch**，所以远端 AI 推的改动永远进不了本机 —— 单向半闭环，这也是「远端改了本地看不到」的根因。
 > 合入只在工作区干净时做：正在编辑的文件被 rebase 换掉，热重载会读到半成品。
 
+> 🐞 **2026-11-13 夜里踩过的坑（已修）**：拉取失败时把 `remoteHead` 也写进了「已尝试过」记录（原意是避免同一批提交反复撞冲突），结果**一次 TLS 握手失败就把那个提交永久拉黑**——之后每轮 fetch 都看到「落后 1 个提交」，却因为 head 相等直接 return，连日志都不写，本机静默落后了一整夜（`137a751` 一直没进来）。
+> 现在的规矩写死在 `syncFromRemote()` 里：**只有真冲突（`CONFLICT` / `could not apply`）才拉黑并交给人工**，网络/TLS/代理失败一律按 30s→1min→2min→4min→5min 退避重试、永不放弃；同一错误 10 分钟内只记一次日志；conflictHead 每 30 分钟提醒一次，不会一声不吭。改这段务必跑 `node sync-status.js` 确认「未合入 0」。
+>
+> 顺带一句：这台机器直连 `github.com` 偶尔会 `schannel: failed to receive handshake`（国内链路/代理抖动），属于**可恢复**故障——所以「失败就重试」比「失败就记住」重要得多。
+
 **看状态不用记命令**：双击 **`同步状态.bat`**，一眼看到「自动同步进程在不在 / 未提交几个 / 未推送几个 / 未合入几个 / 最近 8 条记录」。
 命令行等价：`node sync-status.js`（`node git-autosync.js --once` 可以手动跑一轮并强制拉一次）。
 
