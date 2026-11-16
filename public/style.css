@@ -762,5 +762,5 @@ a.pp-card:hover{border-color:#3a3a46;background:rgba(255,255,255,.05);transform:
 
 /* 多关键词：站点多选别被拉成整行宽，三个一排更紧凑 */
 #rank-multi .site-checkboxes{gap:10px;padding:6px 0}
-#rank-multi .site-checkbox{flex:0 0 auto;padding:8px 14px;font-size:13px}
+#rank-multi .site-checkbox{flex:1 1 0;justify-content:center;padding:8px 14px;font-size:13px}
 #rank-multi .site-checkbox span{white-space:nowrap}
