@@ -816,6 +816,7 @@ function switchRankTab(mode) {
   // 只管排名页自己的页签：产品利润页也用了 .tabs，全局选中会互相抢
   $$('#v-rank .tabs button').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
   $('#rank-single').style.display = mode === 's' ? 'block' : 'none';
+  const mm = $('#rank-multi'); if (mm) mm.style.display = mode === 'm' ? 'block' : 'none';
   $('#rank-batch').style.display = mode === 'b' ? 'block' : 'none';
   $('#rank-cfg').style.display = mode === 'cfg' ? 'block' : 'none';
 }
@@ -1085,6 +1086,176 @@ $('#batchExport').onclick = () => {
   const headers = ['序号', '状态', '页码', '页内位次', '总排名', '搜索的产品标题', '匹配的实际标题', '价格', '币种', '卖家', '匹配数', '商品链接'];
   const rows = currentBatchResults.map(r => [r.index, r.found ? '已找到' : '未找到', r.page || '', r.rankInPage || '', r.overallRank || '', `"${r.searchTitle.replace(/"/g, '""')}"`, `"${(r.matchedTitle || '').replace(/"/g, '""')}"`, r.priceDisplay || '', r.currency, `"${(r.seller || '').replace(/"/g, '""')}"`, r.matchCount, r.link || '']);
   downloadCSV('美客多批量搜索_' + currentBatchKeyword + '_' + brToday() + '.csv', headers, rows);
+};
+
+/* =========================================================
+   3b. 多关键词批量查询（站点 × 关键词）
+   ---------------------------------------------------------
+   为什么要前端串行跑：一次性把 30 个词丢给一个接口，
+   公网经 Cloudflare 隧道 100 秒就断；改成逐条调用 /api/search，
+   每条都是短请求，还能实时显示进度、随时停止、失败不拖累其他词。
+   ========================================================= */
+const RANK_SITE_NAMES = { MLM: '墨西哥 (MLM)', MLB: '巴西 (MLB)', MLA: '阿根廷 (MLA)' };
+let multiRows = [], multiTargets = [], multiRunning = false, multiAbort = null, multiElapsed = 0;
+
+function normTitle(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+}
+function multiLines(sel, cap) {
+  const out = [];
+  $(sel).value.split('\n').map(t => t.trim()).filter(Boolean).forEach(t => { if (!out.includes(t)) out.push(t); });
+  return out.slice(0, cap);
+}
+function multiSites() {
+  return ['MLM', 'MLB', 'MLA'].filter(c => { const el = $('#mSite' + c); return el && el.checked; });
+}
+function updateMultiCounts() {
+  const kws = multiLines('#mkw', 999), ts = multiLines('#mt', 999), sites = multiSites().length;
+  $('#mkw-count').textContent = kws.length;
+  $('#mt-count').textContent = ts.length;
+  if (multiRunning) return;
+  if (!kws.length || !sites) { $('#mProgNote').textContent = '数据来自美客多前台，每页 48 个商品；批量查询按「站点 × 关键词」逐个跑，中途可停。'; return; }
+  const per = 1.5 + (+$('#mpg').value || 3) * 2.0;
+  const est = Math.round(kws.length * sites * per);
+  $('#mProgNote').textContent = `将执行 ${kws.length * sites} 次查询（${sites} 个站点 × ${kws.length} 个关键词），预计 ${est < 90 ? est + ' 秒' : Math.round(est / 60) + ' 分钟'}。`;
+}
+['#mkw', '#mt'].forEach(sel => $(sel).addEventListener('input', updateMultiCounts));
+['#mSiteMLM', '#mSiteMLB', '#mSiteMLA', '#mpg'].forEach(sel => $(sel).addEventListener('change', updateMultiCounts));
+updateMultiCounts();
+
+async function doMultiSearch() {
+  if (multiRunning) return;
+  const kws = multiLines('#mkw', 31), titles = multiLines('#mt', 31), sites = multiSites();
+  if (!kws.length) { $('#mkw').focus(); return toast('请每行输入一个关键词', 'err'); }
+  if (kws.length > 30) return toast('最多 30 个关键词，请分批查', 'err');
+  if (titles.length > 30) return toast('最多 30 个目标产品标题', 'err');
+  if (!sites.length) return toast('请至少勾选一个站点', 'err');
+
+  const pages = +$('#mpg').value || 3;
+  const total = sites.length * kws.length;
+  multiRows = []; multiTargets = titles; multiRunning = true;
+  multiAbort = new AbortController();
+  const t0 = Date.now();
+  $('#multiRes').style.display = 'none';
+  $('#mgo').disabled = true; $('#mstop').disabled = false;
+  showProg(2);
+  let done = 0;
+  try {
+    outer:
+    for (const site of sites) {
+      for (const kw of kws) {
+        if (multiAbort.signal.aborted) break outer;
+        $('#mProgNote').textContent = `进行中 ${done + 1}/${total} · ${RANK_SITE_NAMES[site]} · ${kw}`;
+        const row = { site, siteName: RANK_SITE_NAMES[site], keyword: kw, totalResults: 0, pagesSearched: 0, resultsCount: 0, results: [], targets: [], error: '' };
+        try {
+          const params = new URLSearchParams({ keyword: kw, site, pages, gap: 700 });
+          const r = await fetch(`${API_BASE}/api/search?${params}`, { signal: multiAbort.signal });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+          row.totalResults = d.totalResults || 0;
+          row.pagesSearched = d.pagesSearched || 0;
+          row.resultsCount = d.resultsCount || 0;
+          row.results = d.results || [];
+          if (d.partialError) row.error = '部分页失败：' + d.partialError;
+        } catch (e) {
+          if (e.name === 'AbortError') { row.error = '已手动停止'; multiRows.push(row); break outer; }
+          row.error = e.message || String(e);
+        }
+        row.targets = multiTargets.map(t => {
+          const nt = normTitle(t);
+          const hits = row.results.filter(x => normTitle(x.title).includes(nt));
+          if (!hits.length) return { title: t, found: false, rank: null, page: null, rankInPage: null, matchedTitle: '', link: '', price: 0, priceDisplay: '', count: 0 };
+          const best = hits[0];
+          return { title: t, found: true, rank: best.overallRank, page: best.page, rankInPage: best.rankInPage, matchedTitle: best.title, link: best.link, price: best.price, priceDisplay: best.priceDisplay, count: hits.length };
+        });
+        multiRows.push(row);
+        done++;
+        showProg(Math.max(2, Math.round(done / total * 95)));
+        if (done < total && !multiAbort.signal.aborted) await new Promise(res => setTimeout(res, 1200));
+      }
+    }
+  } finally {
+    multiElapsed = Math.round((Date.now() - t0) / 1000);
+    multiRunning = false; $('#mgo').disabled = false; $('#mstop').disabled = true;
+    showProg(null);
+    renderMulti();
+  }
+}
+$('#mgo').onclick = doMultiSearch;
+$('#mstop').onclick = () => { if (multiAbort) multiAbort.abort(); toast('已停止，保留已完成的结果'); };
+
+function multiBest(row) {
+  const hit = row.targets.find(t => t.found);
+  return hit || null;
+}
+function renderMulti() {
+  if (!multiRows.length) { $('#mProgNote').textContent = '没有结果'; return; }
+  const ok = multiRows.filter(r => !r.error);
+  const kwCount = new Set(multiRows.map(r => r.keyword)).size;
+  const siteCount = new Set(multiRows.map(r => r.site)).size;
+  const scanned = ok.reduce((s, r) => s + r.resultsCount, 0);
+  const hitTotal = multiTargets.length ? multiRows.reduce((s, r) => s + r.targets.filter(t => t.found).length, 0) : null;
+  const hitSlots = multiTargets.length ? multiTargets.length * multiRows.length : null;
+  $('#multiSum').innerHTML = `
+    <div><b>${multiRows.length}</b><span>查询次数</span></div>
+    <div><b>${kwCount}</b><span>关键词</span></div>
+    <div><b>${siteCount}</b><span>站点</span></div>
+    <div><b>${fmt(scanned)}</b><span>已扫描商品</span></div>
+    ${hitTotal !== null ? `<div><b style="color:var(--warn)">${hitTotal}/${hitSlots}</b><span>目标命中</span></div>` : ''}
+    <div><b>${multiElapsed}s</b><span>耗时</span></div>`;
+  const fail = multiRows.length - ok.length;
+  $('#multiInfo').textContent = `共 ${multiRows.length} 次查询${fail ? '（' + fail + ' 次失败）' : ''} · 每词最多 ${$('#mpg').value} 页 · 数据来自美客多前台`;
+
+  $('#multiTable tbody').innerHTML = multiRows.map(r => {
+    const best = multiBest(r);
+    const first = r.results[0];
+    const hitTxt = multiTargets.length ? (r.targets.filter(t => t.found).length + '/' + multiTargets.length) : '—';
+    const bestTxt = best ? `<span class="rk ${rankClass(best.rank)}">${best.rank}</span> <small style="color:var(--mut)">P${best.page}·${best.rankInPage}</small>` : (multiTargets.length ? '<span style="color:var(--mut)">未进前 ' + r.pagesSearched + ' 页</span>' : '—');
+    const firstTxt = first ? `<a href="${first.link}" target="_blank">${escHtml(first.title).slice(0, 60)}</a>` : '<span style="color:var(--mut)">—</span>';
+    return `<tr${r.error ? ' style="opacity:.6"' : ''}><td>${escHtml(r.siteName)}</td><td>${escHtml(r.keyword)}</td>
+      <td>${r.error ? '<span class="tag bad">失败</span>' : fmt(r.totalResults)}</td><td>${r.error ? escHtml(r.error.slice(0, 24)) : fmt(r.resultsCount)}</td>
+      <td>${hitTxt}</td><td>${bestTxt}</td><td>${firstTxt}</td><td>${first ? priceStr(first) : '—'}</td></tr>`;
+  }).join('');
+
+  const mw = $('#multiMatrixWrap');
+  if (multiTargets.length) {
+    mw.style.display = 'block';
+    const short = multiTargets.map(t => t.length > 18 ? t.slice(0, 18) + '…' : t);
+    $('#multiMatrix thead').innerHTML = '<tr><th>站点</th><th>关键词</th>' + short.map(t => '<th>' + escHtml(t) + '</th>').join('') + '</tr>';
+    $('#multiMatrix tbody').innerHTML = multiRows.map(r => {
+      const cells = r.targets.map(t => t.found
+        ? `<td><span class="rk ${rankClass(t.rank)}">${t.rank}</span> <small style="color:var(--mut)">P${t.page}·${t.rankInPage}</small></td>`
+        : '<td style="color:var(--mut)">未进前 ' + (r.pagesSearched || 0) + ' 页</td>');
+      return `<tr><td>${escHtml(r.siteName)}</td><td>${escHtml(r.keyword)}</td>${cells.join('')}</tr>`;
+    }).join('');
+    $('#multiExportMatrix').style.display = '';
+  } else { mw.style.display = 'none'; $('#multiExportMatrix').style.display = 'none'; }
+
+  $('#multiTopTable tbody').innerHTML = multiRows.map(r => r.results.slice(0, 5).map(x =>
+    `<tr><td>${escHtml(r.siteName)}</td><td>${escHtml(r.keyword)}</td><td><span class="rk ${rankClass(x.overallRank)}">${x.overallRank}</span></td>
+     <td><a href="${x.link}" target="_blank">${escHtml(x.title)}</a></td><td>${priceStr(x)}</td><td>${escHtml(x.seller)}</td><td><a href="${x.link}" target="_blank">🔗</a></td></tr>`
+  ).join('')).join('');
+  $('#multiRes').style.display = 'block';
+}
+
+$('#multiExport').onclick = () => {
+  if (!multiRows.length) return toast('暂无数据可导出', 'err');
+  const headers = ['站点', '关键词', '总结果数', '已扫描', '目标命中数', '最佳排名', '最佳页码', '最佳页内位次', '目标产品标题', '首位商品标题', '首位商品价格', '首位商品链接', '错误'];
+  const rows = multiRows.map(r => {
+    const best = multiBest(r);
+    return [r.siteName, `"${r.keyword.replace(/"/g, '""')}"`, r.error ? '' : r.totalResults, r.error ? '' : r.resultsCount,
+      multiTargets.length ? r.targets.filter(t => t.found).length : '', best ? best.rank : '', best ? best.page : '', best ? best.rankInPage : '',
+      `"${(best ? best.matchedTitle : '').replace(/"/g, '""')}"`,
+      `"${((r.results[0] && r.results[0].title) || '').replace(/"/g, '""')}"`,
+      (r.results[0] && (r.results[0].priceDisplay || r.results[0].price)) || '', (r.results[0] && r.results[0].link) || '', `"${r.error.replace(/"/g, '""')}"`];
+  });
+  downloadCSV('美客多多关键词_' + brToday() + '.csv', headers, rows);
+};
+$('#multiExportMatrix').onclick = () => {
+  if (!multiTargets.length) return toast('没有目标产品，无法导出矩阵', 'err');
+  const headers = ['站点', '关键词', ...multiTargets.map(t => `"${t.replace(/"/g, '""')}"`)];
+  const rows = multiRows.map(r => [r.siteName, `"${r.keyword.replace(/"/g, '""')}"`, ...r.targets.map(t => t.found ? `${t.rank}（P${t.page}·${t.rankInPage}）` : '未进前' + (r.pagesSearched || 0) + '页')]);
+  downloadCSV('美客多关键词排名矩阵_' + brToday() + '.csv', headers, rows);
 };
 
 function downloadCSV(name, headers, rows) {
