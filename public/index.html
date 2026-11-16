@@ -204,7 +204,7 @@
     <section class="view" id="v-rank">
       <div class="card pad">
         <div class="ph"><h2>关键词排名查询</h2><p>输入关键词在美客多前台搜索，查看产品出现在第几页第几位。</p></div>
-        <div class="tabs"><button class="on" data-m="s">单关键词</button><button data-m="b">批量产品</button><button data-m="cfg">定时报告</button></div>
+        <div class="tabs"><button class="on" data-m="s">单关键词</button><button data-m="m">多关键词</button><button data-m="b">批量产品</button><button data-m="cfg">定时报告</button></div>
 
         <!-- 单关键词 -->
         <div id="rank-single" class="rank-panel">
@@ -219,6 +219,33 @@
             <div class="fld"><label>&nbsp;</label><button class="btn" id="testConn">测试连接</button></div>
           </div>
           <div class="note" id="singleNote">数据来自美客多前台，每页 48 个商品，最多 42 页（2016 个商品）。</div>
+        </div>
+
+        <!-- 多关键词 -->
+        <div id="rank-multi" class="rank-panel" style="display:none">
+          <div class="row">
+            <label class="fld grow">关键词列表（每行一个，最多 30 个）<textarea id="mkw" rows="4" placeholder="headset gamer&#10;fone bluetooth 5.3&#10;controle sem fio pc"></textarea></label>
+          </div>
+          <div class="row">
+            <div class="fld" style="flex:1">
+              <label>搜索站点（可多选）</label>
+              <div class="site-checkboxes">
+                <label class="site-checkbox"><input type="checkbox" id="mSiteMLM" value="MLM" checked><span>墨西哥 (MLM)</span></label>
+                <label class="site-checkbox"><input type="checkbox" id="mSiteMLB" value="MLB"><span>巴西 (MLB)</span></label>
+                <label class="site-checkbox"><input type="checkbox" id="mSiteMLA" value="MLA"><span>阿根廷 (MLA)</span></label>
+              </div>
+            </div>
+            <label class="fld">每词搜索页数<select id="mpg"><option value="1">1页</option><option value="2">2页</option><option value="3" selected>3页</option><option value="5">5页</option><option value="10">10页</option><option value="20">20页</option><option value="42">42页（最大）</option></select></label>
+            <div class="fld"><label>&nbsp;</label><button class="btn y" id="mgo">开始批量查询</button></div>
+            <div class="fld"><label>&nbsp;</label><button class="btn" id="mstop" disabled>停止</button></div>
+          </div>
+          <label class="fld" style="margin-top:12px">目标产品标题（可选，每行一个，最多 30 个）<textarea id="mt" rows="4" placeholder="留空：只汇总每个词的第一名&#10;填了：算出你的每个产品在各词下排第几"></textarea></label>
+          <div class="batch-info">
+            <span id="mkw-count">0</span> 个关键词 <span class="sep">|</span>
+            <span id="mt-count">0</span> 个目标标题 <span class="sep">|</span>
+            顺序执行，词间间隔 1.2 秒，避免被验证码拦
+          </div>
+          <div class="note" id="mProgNote">数据来自美客多前台，每页 48 个商品；批量查询按「站点 × 关键词」逐个跑，中途可停。</div>
         </div>
 
         <!-- 批量产品 -->
@@ -291,6 +318,22 @@
           <div class="toolbar"><div class="table-info" id="batchInfo"></div><button class="btn" id="batchExport">导出 CSV</button></div>
           <div class="tw"><table id="batchTable"><thead><tr><th>#</th><th>状态</th><th>页码</th><th>页内</th><th>总排名</th><th>搜索标题</th><th>匹配商品</th><th>价格</th><th>链接</th></tr></thead><tbody></tbody></table></div>
         </div>
+
+        <!-- 多关键词结果 -->
+        <div id="multiRes" style="display:none;margin-top:18px">
+          <div class="sum" id="multiSum"></div>
+          <div class="toolbar"><div class="table-info" id="multiInfo"></div><button class="btn" id="multiExport">导出汇总 CSV</button><button class="btn" id="multiExportMatrix" style="display:none">导出排名矩阵 CSV</button></div>
+          <div class="tw"><table id="multiTable"><thead><tr><th>站点</th><th>关键词</th><th>总结果数</th><th>已扫描</th><th>目标命中</th><th>最佳排名</th><th>首位商品</th><th>价格</th></tr></thead><tbody></tbody></table></div>
+          <div id="multiMatrixWrap" style="display:none;margin-top:18px">
+            <h4 style="margin:0 0 8px;font-size:12px;color:var(--mut)">目标产品排名矩阵（单元格：总排名 · P页码第几位；未命中显示「未进前 N 页」）</h4>
+            <div class="tw"><table id="multiMatrix"><thead></thead><tbody></tbody></table></div>
+          </div>
+          <details id="multiTopWrap" style="margin-top:16px">
+            <summary style="cursor:pointer;color:var(--mut);font-size:12px">展开每个关键词的前 5 名</summary>
+            <div class="tw" style="margin-top:10px"><table id="multiTopTable"><thead><tr><th>站点</th><th>关键词</th><th>排名</th><th>商品标题</th><th>价格</th><th>卖家</th><th>链接</th></tr></thead><tbody></tbody></table></div>
+          </details>
+        </div>
+
       </div>
     </section>
 

@@ -253,6 +253,9 @@ app.get('/api/search', async (req, res) => {
     const keyword = (req.query.keyword || '').trim();
     const siteCode = (req.query.site || 'MLM').toUpperCase();
     const maxPages = Math.min(Math.max(parseInt(req.query.pages) || 5, 1), 42);
+    // 翻页间隔可调：多关键词连续查时 1.5 秒/页会拖很久，允许降到 700ms；
+    // 再低就容易吃验证码，所以下限卡死 500ms。
+    const pageGap = Math.min(Math.max(parseInt(req.query.gap) || 1500, 500), 3000);
     const productFilter = (req.query.productFilter || '').trim().toLowerCase();
 
     if (!keyword) {
@@ -313,7 +316,7 @@ app.get('/api/search', async (req, res) => {
 
         // 请求间隔（较长间隔避免触发验证码）
         if (page < maxPages) {
-          await sleep(1500);
+          await sleep(pageGap);
         }
       } catch (error) {
         if (allResults.length === 0) {
