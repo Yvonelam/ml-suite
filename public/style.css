@@ -759,3 +759,8 @@ a.pp-card:hover{border-color:#3a3a46;background:rgba(255,255,255,.05);transform:
 .quant-foot{display:flex;justify-content:space-between;gap:12px;margin-top:10px;color:var(--mut);font-size:10px}
 #quantItem{max-width:280px;padding:7px 9px;border:1px solid var(--bd2);border-radius:9px;background:var(--s2);color:var(--ink);font:inherit;font-size:11px}
 @media(max-width:720px){#quantItem{max-width:100%;width:100%}.quant-foot{flex-direction:column;gap:4px}}
+
+/* 多关键词：站点多选别被拉成整行宽，三个一排更紧凑 */
+#rank-multi .site-checkboxes{gap:10px;padding:6px 0}
+#rank-multi .site-checkbox{flex:0 0 auto;padding:8px 14px;font-size:13px}
+#rank-multi .site-checkbox span{white-space:nowrap}

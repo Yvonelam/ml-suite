@@ -1179,6 +1179,9 @@ async function doMultiSearch() {
     multiRunning = false; $('#mgo').disabled = false; $('#mstop').disabled = true;
     showProg(null);
     renderMulti();
+    const aborted = multiAbort.signal.aborted;
+    $('#mProgNote').textContent = (aborted ? '已停止' : '已完成') + ' ' + multiRows.length + ' 次查询 · 用时 ' + multiElapsed + ' 秒'
+      + (multiRows.length < total ? '（共 ' + total + ' 个任务，剩余未执行）' : '') + ' · 结果在下方，可导出 CSV';
   }
 }
 $('#mgo').onclick = doMultiSearch;
