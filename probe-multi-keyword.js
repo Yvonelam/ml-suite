@@ -69,9 +69,15 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
     await sleep(500);
 
     console.log('--- 1. 页签与输入 ---');
-    await ev("(function(){var b=document.querySelector('#v-rank .tabs button[data-m=\"m\"]');if(b)b.click();})()");
-    await sleep(300);
-    const panelShown = await ev("(function(){var p=document.getElementById('rank-multi');return !!p && getComputedStyle(p).display!=='none';})()");
+    // app.js 是同步加载的大文件，页签的 onclick 绑在最外层，初始化没走完时点一下会被吞掉
+    // （表现为面板一直 display:none，后面所有断言却都能过，因为输入框在 DOM 里照样能拿到值）。
+    // 所以这里重试到真的切过去为止，最多等 6 秒。
+    let panelShown = false;
+    for (let i = 0; i < 30 && !panelShown; i++) {
+      await ev("(function(){var b=document.querySelector('#v-rank .tabs button[data-m=\"m\"]');if(b)b.click();})()");
+      await sleep(200);
+      panelShown = await ev("(function(){var p=document.getElementById('rank-multi');return !!p && getComputedStyle(p).display!=='none';})()");
+    }
     ok(panelShown === true, '「多关键词」面板可见');
     ok((await ev("!!document.getElementById('mkw') && !!document.getElementById('mt') && !!document.getElementById('mgo')")), '关键词框 / 目标框 / 开始按钮都在');
 
