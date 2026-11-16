@@ -47,7 +47,18 @@ const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = 
       if (m.id && pending.has(m.id)) { const p = pending.get(m.id); pending.delete(m.id); m.error ? p.rej(new Error(m.error.message)) : p.res(m.result); return; }
       if (m.method === 'Runtime.exceptionThrown') errors.push('EXCEPTION: ' + (m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text || '').split('\n')[0]);
       if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') errors.push('console.error: ' + m.params.args.map(a => a.value ?? a.description ?? '').join(' ').slice(0, 160));
-      if (m.method === 'Network.responseReceived' && m.params.response.status >= 400) failed.push(m.params.response.status + ' ' + m.params.response.url.replace(HOST, ''));
+      // 只记 URL 的话，一个 500 看不出到底是美客多限流、汇率接口挂了还是代码炸了
+      // （这三种在日志里长得一模一样）。顺手把响应体前 180 字也捞回来。
+      if (m.method === 'Network.responseReceived' && m.params.response.status >= 400) {
+        const line = m.params.response.status + ' ' + m.params.response.url.replace(HOST, '');
+        const at = failed.push(line) - 1;
+        const rid = m.params.requestId;
+        setTimeout(() => {
+          send('Network.getResponseBody', { requestId: rid })
+            .then(r => { const s = String((r && r.body) || '').replace(/\s+/g, ' ').trim().slice(0, 180); if (s) failed[at] = line + ' → ' + s; })
+            .catch(() => { });
+        }, 400);
+      }
     });
     await send('Runtime.enable'); await send('Page.enable'); await send('Network.enable');
     await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
