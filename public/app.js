@@ -4081,8 +4081,8 @@ function renderPackPanel(panel, d, packId) {
   panel.innerHTML = banner + '<div class="cthread">' + thread + '</div>'
     + (canReply
       ? '<div class="qreply">'
-      + '<textarea rows="2" maxlength="2000" placeholder="' + ph + '" data-pta="' + escHtml(packId) + '"></textarea>'
-      + '<div class="qreply-b"><span class="qcount" data-pcnt="' + escHtml(packId) + '">0 / 2000</span>'
+      + '<textarea rows="2" maxlength="350" placeholder="' + ph + '" data-pta="' + escHtml(packId) + '"></textarea>'
+      + '<div class="qreply-b"><span class="qcount" data-pcnt="' + escHtml(packId) + '">0 / 350</span>'
       + '<button class="btn y" data-psend="' + escHtml(packId) + '">发送给买家</button></div>'
       + '<div class="qerr" data-perr="' + escHtml(packId) + '" style="display:none"></div>'
       + '</div>'
@@ -4091,13 +4091,24 @@ function renderPackPanel(panel, d, packId) {
 
   const ta = panel.querySelector('textarea[data-pta]');
   if (ta) {
-    ta.addEventListener('input', () => { const cc = panel.querySelector('[data-pcnt="' + packId + '"]'); if (cc) cc.textContent = ta.value.length + ' / 2000'; });
+    ta.addEventListener('input', () => { const cc = panel.querySelector('[data-pcnt="' + packId + '"]'); if (cc) cc.textContent = ta.value.length + ' / 350'; });
     ta.addEventListener('keydown', e => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { const b = panel.querySelector('[data-psend="' + packId + '"]'); if (b) b.click(); }
     });
   }
   const sb = panel.querySelector('[data-psend]');
   if (sb) sb.onclick = () => sendPackReply(panel, packId);
+}
+
+/* 回复必须带收件人 to.user_id（缺了平台报 "The field 'to_user_id' is required"）。
+   从线程里倒着找第一条非我方消息，它的 fromId 就是买家。后端也会自己推一遍，这里是双保险。 */
+function buyerIdOf(d) {
+  const msgs = (d && d.messages) || [];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (!m.fromMe && m.fromId) return String(m.fromId);
+  }
+  return '';
 }
 
 async function sendPackReply(panel, packId) {
@@ -4108,7 +4119,8 @@ async function sendPackReply(panel, packId) {
   const text = ta ? ta.value.trim() : '';
   const say = (t, color) => { if (err) { err.textContent = t || ''; err.style.display = t ? 'block' : 'none'; err.style.color = color || 'var(--bad)'; } };
   if (!text) { say('请先输入要发给买家的内容'); if (ta) ta.focus(); return; }
-  if (text.length > 2000) { say('内容超过 2000 字（当前 ' + text.length + '），请精简后再发送'); return; }
+  // Pós-venda 私信平台硬限 350 字符，超了必被拒（官方：max characters allowed are 350）
+  if (text.length > 350) { say('Pós-venda 私信最多 350 个字符（当前 ' + text.length + '），请精简后发送'); return; }
 
   // 二次确认：第一次点击只提示，第二次才真正发送（消息发给对方，不可撤回）
   if (panel.dataset.confirm !== '1') {
@@ -4124,7 +4136,8 @@ async function sendPackReply(panel, packId) {
   if (btn) { btn.disabled = true; btn.textContent = '发送中…'; }
   try {
     const d = await mlGet('/api/ml/packs/' + encodeURIComponent(packId) + '/reply', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, toUserId: buyerIdOf(cur) }),
     });
     toast(d && d.demo ? '示例模式：未真正发送' : '✅ 消息已发送给买家');
     if (ta) ta.value = '';

@@ -3774,7 +3774,15 @@ app.post('/api/ml/packs/:packId/reply', async (req, res) => {
     const pack = String(req.params.packId);
     const text = ((req.body && req.body.text) || '').trim();
     if (!text) return res.json({ ok: false, error: '回复内容不能为空' });
-    if (text.length > 2000) return res.json({ ok: false, error: '回复内容不能超过 2000 个字符（当前 ' + text.length + '）' });
+    /* 350 是美客多的硬限制（官方错误码：「The message content is too long, max characters allowed are 350」）。
+       以前这里放行到 2000，用户写完点发送才被平台打回 —— 白写一段字。 */
+    if (text.length > 350) {
+      return res.json({
+        ok: false,
+        error: 'Pós-venda 私信最多 350 个字符（当前 ' + text.length + '）',
+        hint: '这是平台硬限制，超过必被拒。请精简后发送，或分两条发。',
+      });
+    }
     if (/^demo/i.test(pack)) return res.json({ ok: true, demo: true, message: '示例模式：未真正发送' });
 
     // 先读会话状态：锁定的通道直接拒发，避免用户写一大段后被平台打回
@@ -3793,23 +3801,43 @@ app.post('/api/ml/packs/:packId/reply', async (req, res) => {
       });
     }
     const path = `/messages/packs/${encodeURIComponent(pack)}/sellers/${uid}?tag=post_sale`;
-    /* 美客多私信端点两个硬性要求：
-       1) body 格式挑剔：JSON 会被整体忽略报 "The body of the request cannot be empty"，
-          依次尝试 multipart/form-data → x-www-form-urlencoded → JSON；
-       2) 必填 from.user_id（发件人=卖家 ID），缺了报 "The field 'from.user_id' is required"。
-       解析/字段类失败时消息并不会真的发出，逐个换格式重试不会重复发送；
-       401/403/404 换格式也没用，直接抛给上层给提示。 */
-    const fromJson = JSON.stringify({ user_id: uid });
+    /* 收件人 user_id 是必填项，缺了平台直接 400：
+         "The field 'to.user_id' is required"
+       （前端截图里那句 "The field 'to_user_id' is required" 就是缺它，之前只发了 from。）
+       从会话线程里倒着找第一条「不是我方发的」消息取买家 user_id；
+       线程只有我方消息时，退回前端带上来的 toUserId。 */
+    let buyerId = '';
+    for (let i = t.messages.length - 1; i >= 0; i--) {
+      const fid = String(t.messages[i].fromId || '');
+      if (fid && fid !== uid) { buyerId = fid; break; }
+    }
+    if (!buyerId && req.body && req.body.toUserId) buyerId = String(req.body.toUserId).trim();
+    if (!buyerId) {
+      return res.json({
+        ok: false,
+        error: '没能确定这条会话的买家 user_id（回复必须带收件人）',
+        hint: '这条会话里没有买家发过的消息。请在美客多后台直接回复该买家，或刷新页面后重试。',
+      });
+    }
+    if (buyerId === uid) {
+      return res.json({ ok: false, error: '收件人与发件人相同，平台会拒绝发送', hint: '会话数据异常，请刷新后重试。' });
+    }
+
+    /* 官方文档的 body（https://developers.mercadolivre.com.br/en_us/api-docs/messaging-after-sale）：
+         { "from": {"user_id": "<seller>"}, "to": {"user_id": "<buyer>"}, "text": "..." }
+       早先「只发 from 就能通」的判断是错的 —— 平台一直要 to，只是报错信息写在 to_user_id 上容易看漏。
+       解析/字段类 400 时消息不会真发出，换格式重试不会重复发送；401/403/404 直接抛给上层给提示。 */
+    const bodyJson = JSON.stringify({ from: { user_id: uid }, to: { user_id: buyerId }, text });
     const attempts = [
-      { label: 'multipart/form-data', init: (() => { const fd = new FormData(); fd.append('text', text); fd.append('from', fromJson); return fd; })(), headers: {} },
-      { label: 'x-www-form-urlencoded', init: new URLSearchParams({ text, from: fromJson }), headers: {} },
-      { label: 'application/json', init: JSON.stringify({ from: { user_id: uid }, text }), headers: { 'Content-Type': 'application/json' } },
+      { label: 'application/json', init: bodyJson, headers: { 'Content-Type': 'application/json' } },
+      { label: 'x-www-form-urlencoded', init: new URLSearchParams({ from: JSON.stringify({ user_id: uid }), to: JSON.stringify({ user_id: buyerId }), text }), headers: {} },
+      { label: 'multipart/form-data', init: (() => { const fd = new FormData(); fd.append('from', JSON.stringify({ user_id: uid })); fd.append('to', JSON.stringify({ user_id: buyerId })); fd.append('text', text); return fd; })(), headers: {} },
     ];
     let r = null, lastErr = null;
     for (const a of attempts) {
       try {
         r = await mlRequest(path, { method: 'POST', headers: a.headers, body: a.init });
-        console.log(`[私信] 会话 #${pack} 回复成功（body 格式 ${a.label}）`);
+        console.log(`[私信] 会话 #${pack} 回复成功（body 格式 ${a.label} · to=${buyerId}）`);
         break;
       } catch (e) {
         lastErr = e;
@@ -3818,7 +3846,19 @@ app.post('/api/ml/packs/:packId/reply', async (req, res) => {
         // 其余（含 body 解析失败 400）继续试下一种格式
       }
     }
-    if (!r) throw lastErr;
+    /* 官方 curl 示例把 application_id 挂在 URL 上。部分应用（尤其没在后台绑定 app 的）
+       不带上会被拒："Application id is required"。撞到这条就补一次再试。 */
+    if (!r && lastErr && /application\s*id/i.test(String(lastErr.message || '')) && loadConfig().mlAppId) {
+      const p2 = path + '&application_id=' + encodeURIComponent(String(loadConfig().mlAppId));
+      try {
+        r = await mlRequest(p2, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyJson });
+        console.log(`[私信] 会话 #${pack} 回复成功（补 application_id）`);
+      } catch (e) { lastErr = e; }
+    }
+    if (!r) {
+      console.log(`[私信] 会话 #${pack} 发送失败：status=${(lastErr && lastErr.status) || 0} · ${String((lastErr && lastErr.message) || '').slice(0, 160)}`);
+      throw lastErr;
+    }
     postSaleCache.delete(uid + ':pack:' + pack);   // 下次读到含我方新回复的线程
     postSaleCache.delete(uid + ':unread');        // 未读计数重新对齐
     console.log(`[私信] 已回复 Pós-venda 会话 #${pack}（tag=post_sale）`);
@@ -3826,9 +3866,14 @@ app.post('/api/ml/packs/:packId/reply', async (req, res) => {
   } catch (e) {
     const msg = String(e.message || '');
     let hint = '';
-    if (/forbidden|403/i.test(msg)) hint = '美客多拒绝在当前会话发消息：可能订单仍在履约流程（需先在后台确认发货），或会话已随订单关闭。';
-    else if (/body of the request|cannot be empty/i.test(msg)) hint = '三种消息格式（multipart/form-data、表单编码、JSON）美客多都未接受。该站点可能走的是不同的私信版本，请把这条报错截图发管理员核对。';
-    else if (/from\.user_id|from/i.test(msg) && /required|invalid/i.test(msg)) hint = '发件人字段被美客多拒绝：请确认绑定账号是这条会话的卖家本人，若确认无误请把报错发管理员核对。';
+    if (/to\.user_id|to_user_id/i.test(msg) && /required|invalid/i.test(msg)) hint = '收件人字段被拒：平台要求 to.user_id 必须是这笔订单的真实买家。请刷新页面重试；仍失败请截图发管理员。';
+    else if (/sender and received must not be equals/i.test(msg)) hint = '发件人与收件人是同一个账号，平台拒绝。会话数据异常，请刷新后重试。';
+    else if (/not supported|not be supported/i.test(msg)) hint = '消息里有平台不支持的字符（只收 ISO-8859-1 范围的字符和官方表情），请删掉特殊符号/emoji 后重试。';
+    else if (/too long|max characters/i.test(msg)) hint = '超过 350 字符上限，请精简后发送。';
+    else if (/forbidden|403/i.test(msg)) hint = '美客多拒绝在当前会话发消息：可能订单仍在履约流程（需先在后台确认发货），或会话已随订单关闭。';
+    else if (/mediation/i.test(msg)) hint = '这笔订单正在调解中，私信通道被关闭，只能走纠纷面板回复。';
+    else if (/body of the request|cannot be empty/i.test(msg)) hint = '三种消息格式（JSON、表单编码、multipart）美客多都未接受，请把这条报错截图发管理员核对。';
+    else if (/from\.user_id/i.test(msg) && /required|invalid/i.test(msg)) hint = '发件人字段被美客多拒绝：请确认绑定账号是这条会话的卖家本人。';
     else if (/not_found|404/i.test(msg)) hint = '会话不存在或已失效。';
     else if (/blocked/i.test(msg)) hint = '该会话被平台锁定（如订单取消），只能去美客多后台处理。';
     else if (/text|message/i.test(msg) && /null|required|invalid/i.test(msg)) hint = '消息内容没被平台接受，请检查是否为空或超长后重试。';
