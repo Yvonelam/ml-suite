@@ -9,7 +9,7 @@ const path = require('path');
 const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const PORT = 9334;
 const BASE = 'http://127.0.0.1:3000/';
-const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-ign-'));
+const userDir = require('./cdp-tmp').profileDir('cdp-ign-');
 const OUT = path.join(__dirname, 'shots');
 const W = 1440;
 fs.mkdirSync(OUT, { recursive: true });

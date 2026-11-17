@@ -29,7 +29,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const getJson = url => new Promise((res, rej) => { http.get(url, r => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { res(JSON.parse(d)); } catch (e) { rej(e); } }); }).on('error', rej); });
 
 (async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-smoke-'));
+  const dir = require('./cdp-tmp').profileDir('ml-smoke-');
   const child = spawn(browser, ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--no-proxy-server', '--hide-scrollbars', '--mute-audio', '--window-size=1440,1000', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });
   let ws = null, id = 0; const pending = new Map();
   const errors = [], failed = [];

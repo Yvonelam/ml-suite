@@ -61,7 +61,7 @@ if (process.env.ORDER === 'rev') VARIANTS.reverse();
   const ck = await login();
   const outDir = path.join(__dirname, 'probe-out');
   try { fs.mkdirSync(outDir, { recursive: true }); } catch (e) { }
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-cost-'));
+  const dir = require('./cdp-tmp').profileDir('ml-cost-');
   const child = spawn(BROWSERS[0], ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check',
     '--hide-scrollbars', '--mute-audio', '--autoplay-policy=no-user-gesture-required',
     '--window-size=1440,900', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });

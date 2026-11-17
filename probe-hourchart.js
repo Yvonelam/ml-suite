@@ -46,7 +46,7 @@ const PROBE = `(function(){
 })()`;
 
 (async () => {
-  const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-probe-hc-'));
+  const userDir = require('./cdp-tmp').profileDir('ml-probe-hc-');
   const child = spawn(browser, ['--headless=new', '--remote-debugging-port=' + PORT, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--no-proxy-server', '--hide-scrollbars', '--mute-audio', '--window-size=1440,1000', '--user-data-dir=' + userDir, 'about:blank'], { stdio: 'ignore' });
   let ws = null, msgId = 0; const pending = new Map();
   const send = (m, p = {}) => { const id = ++msgId; ws.send(JSON.stringify({ id, method: m, params: p })); return new Promise((res, rej) => { pending.set(id, { res, rej }); setTimeout(() => { if (pending.has(id)) { pending.delete(id); rej(new Error(m + ' timeout')); } }, 30000); }); };

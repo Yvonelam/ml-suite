@@ -105,7 +105,7 @@ async function main() {
   const want = argv.filter((a) => !a.startsWith('--'));
   const views = want.length ? VIEWS.filter((v) => want.includes(v.key)) : VIEWS;
 
-  const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-shots-'));
+  const userDir = require('./cdp-tmp').profileDir('ml-shots-');
   const child = spawn(browser, [
     '--headless=new', '--remote-debugging-port=' + PORT, '--no-first-run',
     '--no-default-browser-check', '--disable-gpu', '--no-proxy-server',

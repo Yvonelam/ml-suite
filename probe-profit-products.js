@@ -48,7 +48,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
   console.log('接口口径：全部 ' + T.allOrders + ' 单 / ' + T.units + ' 件 · 有效 ' + T.orders + ' 单 / ' + T.validUnits + ' 件 · 取消 ' + T.cancelledOrders + ' 单 / ' + T.cancelledUnits + ' 件');
   console.log('产品维度：' + P.length + ' 个 Listing · 件数合计 ' + P.reduce((s, p) => s + p.units, 0));
 
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-pp-'));
+  const dir = require('./cdp-tmp').profileDir('ml-pp-');
   const child = spawn(browser, ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--hide-scrollbars', '--mute-audio', '--window-size=1440,1400', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });
   let ws = null, id = 0; const pending = new Map();
   const errors = [];

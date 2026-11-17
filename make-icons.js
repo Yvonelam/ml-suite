@@ -24,7 +24,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const chrome = spawn(CHROME, [
   '--headless=new', '--remote-debugging-port=' + PORT, '--no-first-run', '--disable-gpu',
   '--no-proxy-server',
-  '--window-size=64,64', '--user-data-dir=' + fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-ico-')), 'about:blank',
+  '--window-size=64,64', '--user-data-dir=' + require('./cdp-tmp').profileDir('cdp-ico-'), 'about:blank',
 ], { stdio: ['ignore', 'pipe', 'pipe'] });
 chrome.stderr.on('data', d => { const s = d.toString(); if (/error|fail/i.test(s)) console.log('[chrome] ' + s.trim().slice(0, 200)); });
 chrome.on('exit', c => { if (c) console.log('[chrome] 已退出 code=' + c); });

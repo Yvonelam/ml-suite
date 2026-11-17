@@ -50,7 +50,7 @@ const VARIANTS = [
 
 (async () => {
   const ck = await login();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-perf-'));
+  const dir = require('./cdp-tmp').profileDir('ml-perf-');
   const child = spawn(BROWSERS[0], ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check',
     '--hide-scrollbars', '--mute-audio', '--autoplay-policy=no-user-gesture-required',
     '--window-size=1440,900', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });

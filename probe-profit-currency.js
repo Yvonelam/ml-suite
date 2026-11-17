@@ -34,7 +34,7 @@ let pass = 0, fail = 0;
 const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label); } else { fail++; console.log('  ✗ ' + label + (extra !== undefined ? ' → ' + JSON.stringify(extra) : '')); } };
 
 (async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-cur-'));
+  const dir = require('./cdp-tmp').profileDir('ml-cur-');
   const child = spawn(browser, ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--no-proxy-server', '--hide-scrollbars', '--mute-audio', '--window-size=1440,1100', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });
   let ws = null, id = 0; const pending = new Map();
   const errors = [];

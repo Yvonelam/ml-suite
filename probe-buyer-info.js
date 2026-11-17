@@ -30,7 +30,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
 (async () => {
   if (!BROWSERS.length) throw new Error('找不到 Chrome');
   const ck = await login();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-buyer-'));
+  const dir = require('./cdp-tmp').profileDir('ml-buyer-');
   const child = spawn(BROWSERS[0], ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--hide-scrollbars', '--mute-audio', '--window-size=1280,1200', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });
   let ws = null, id = 0; const pending = new Map();
   const send = (m, p = {}) => { const n = ++id; ws.send(JSON.stringify({ id: n, method: m, params: p })); return new Promise((res, rej) => pending.set(n, { res, rej })); };

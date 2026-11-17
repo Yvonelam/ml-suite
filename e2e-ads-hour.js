@@ -12,7 +12,7 @@ const BASE = 'http://127.0.0.1:3000/';
 const OUT = path.join(__dirname, 'shots');
 const W = 1440;
 fs.mkdirSync(OUT, { recursive: true });
-const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-adsh-'));
+const userDir = require('./cdp-tmp').profileDir('cdp-adsh-');
 
 const get = (url) => new Promise((res, rej) => {
   http.get(url, r => { let d = ''; r.on('data', c => d += c); r.on('end', () => res(d)); }).on('error', rej);

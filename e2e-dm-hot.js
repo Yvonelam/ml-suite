@@ -11,7 +11,7 @@ const PORT = 9334;
 const BASE = 'http://127.0.0.1:3000/';
 const OUT = path.join(__dirname, 'shots');
 fs.mkdirSync(OUT, { recursive: true });
-const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-dm-'));
+const userDir = require('./cdp-tmp').profileDir('cdp-dm-');
 
 const get = (url) => new Promise((res, rej) => {
   http.get(url, (r) => { let d = ''; r.on('data', (c) => d += c); r.on('end', () => res(d)); }).on('error', rej);

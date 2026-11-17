@@ -40,7 +40,7 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
 
 (async () => {
   if (!browser) { console.error('找不到 Chrome/Edge'); process.exit(1); }
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-quant-'));
+  const dir = require('./cdp-tmp').profileDir('ml-quant-');
   const child = spawn(browser, ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--no-proxy-server', '--hide-scrollbars', '--mute-audio', '--window-size=1440,1100', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });
   let ws = null, id = 0; const pending = new Map(); const errors = [];
   const send = (m, p = {}) => { const n = ++id; ws.send(JSON.stringify({ id: n, method: m, params: p })); return new Promise((res, rej) => { pending.set(n, { res, rej }); setTimeout(() => { if (pending.has(n)) { pending.delete(n); rej(new Error(m + ' timeout')); } }, 180000); }); };

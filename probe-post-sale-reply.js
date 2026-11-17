@@ -20,7 +20,9 @@ const PROXY = process.env.HTTPS_PROXY || process.env.https_proxy || 'http://127.
 try { setGlobalDispatcher(new ProxyAgent(PROXY)); } catch (e) { }
 
 const CFG = path.join(__dirname, 'daily-search-config.json');
-const cfg = JSON.parse(fs.readFileSync(CFG, 'utf8'));
+// 真配置是按账号存的（auth-data/configs/<uid>.json）；daily-search-config.json 只是旧的单账号遗留文件
+const CFG_ACCOUNT = path.join(__dirname, 'auth-data', 'configs', 'admin.json');
+const cfg = JSON.parse(fs.readFileSync(fs.existsSync(CFG_ACCOUNT) ? CFG_ACCOUNT : CFG, 'utf8'));
 const API = 'https://api.mercadolibre.com';
 const PACK = process.argv[2] || '';
 if (!PACK) { console.error('用法：node probe-post-sale-reply.js <packId>'); process.exit(1); }

@@ -718,10 +718,22 @@ input[data-secret]{-webkit-text-security:disc}
 - 每轮监控额外调 `GET /messages/unread?role=seller&tag=post_sale` 拿未读会话列表（一次请求），再逐个取消息包。
 - **取消息包必须带 `mark_as_read=false`**。官方文档写明不带这个参数会把消息标记成已读 —— 那等于我们一刷新就把用户在美客多的未读清空了。`probe-claim-post-sale.js` 里有静态断言 + 等 62 秒再取一次确认未读还在。
 - 能对上纠纷的（`conversation_status.claim_ids` 或同订单号）就地升级成「买家咨询」；对不上的作为独立卡片显示，`counts.buyer` / `counts.todo` / 概览角标 / 微信推送都算进去。
-- 卡片写明「Pós-venda 私信」通道与平台会话状态，**不给假的站内回复框**：这类会话多半被平台锁住（`blocked_by_cancelled_order` 等），回复只能去美客多。
-- 只读：本工具不会代你回复私信，也不会把消息标成已读。
+- 卡片写明「Pós-venda 私信」通道与平台会话状态；能回复的会话直接给站内回复框（走后端起 `POST /messages/packs/{pack}/sellers/{uid}?tag=post_sale`），被平台锁住的（`blocked_by_cancelled_order` 等）只给「去美客多后台处理」。
+- 取消息包仍然是只读的（`mark_as_read=false`），我们不会替你把买家的未读清掉。
 
 回归：`node probe-claim-post-sale.js`（14 项，含 62 秒未读保活验证）。
+
+**Q：私信回复一直报 `The field 'to_user_id' is required`？**
+（2026-11-17 修）这是**缺收件人**。平台要的 body 是 `{"from":{"user_id":"卖家"},"to":{"user_id":"买家"},"text":"…"}`，我们之前只发了 `from`，所以每条都被拒 —— 报错里的 `to_user_id` 就是 `to.user_id` 被压平后的字段名。
+
+现在的做法：
+
+- 卖家 ID 取当前授权账号；买家 ID 从会话线程里**倒着找第一条非我方消息**的 `from.user_id`（前端也会把同一个值当 `toUserId` 传一遍做双保险）。
+- body 以官方 JSON 格式首发，表单编码 / multipart 依次兜底；撞到 `Application id is required` 会自动补 `&application_id=` 再试一次。
+- **350 字符是硬限制**（官方 `max characters allowed are 350`）。以前前端放行到 2000，用户写完点发送才被打回 —— 现在输入框直接 `maxlength=350`，计数也是 `/350`。
+- 报错文案按官方错误码分流：收件人不属于该订单 / 发件人与收件人相同 / 字符不在 ISO-8859-1 范围 / 调解中 / 订单取消锁定。
+- 解析/字段类 400 时平台不会真发出消息，所以逐个换格式重试不会重复发送。
+
 
 **Q：产品量化表里有 44 列，为什么导出来的表少了快一半？**
 （2026-11-13）因为**美客多 API 里根本没有这些字段**，硬填等于编数据。`产品量化表` 的 44 列分成两类：

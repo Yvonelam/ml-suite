@@ -30,7 +30,7 @@ function login() {
 (async () => {
   const b64 = fs.readFileSync(PDF).toString('base64');
   const ck = await login();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-boxshot-'));
+  const dir = require('./cdp-tmp').profileDir('ml-boxshot-');
   const outDir = path.join(__dirname, 'probe-out'); try { fs.mkdirSync(outDir, { recursive: true }); } catch (e) { }
   const child = spawn(BROWSERS[0], ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--hide-scrollbars', '--mute-audio', '--window-size=1440,980', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });
   let ws = null, id = 0; const pending = new Map();

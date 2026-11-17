@@ -39,7 +39,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
   console.log('源文件：' + PDF + '（' + (bytes.length / 1024).toFixed(0) + ' KB）\n');
 
   const ck = await login();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-box-'));
+  const dir = require('./cdp-tmp').profileDir('ml-box-');
   const outDir = path.join(__dirname, 'probe-out');
   try { fs.mkdirSync(outDir, { recursive: true }); } catch (e) { }
   const child = spawn(BROWSERS[0], ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--hide-scrollbars', '--mute-audio', '--window-size=1440,900', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });

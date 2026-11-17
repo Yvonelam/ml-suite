@@ -36,7 +36,7 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
 
 (async () => {
   const ck = await login();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-logo-'));
+  const dir = require('./cdp-tmp').profileDir('ml-logo-');
   const outDir = path.join(__dirname, 'probe-out');
   try { fs.mkdirSync(outDir, { recursive: true }); } catch (e) { }
   const child = spawn(browser, ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--hide-scrollbars', '--mute-audio', '--window-size=1440,900', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });

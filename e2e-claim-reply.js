@@ -30,7 +30,7 @@ async function main() {
   if (!browser) { console.log('没找到 Chrome/Edge'); return 1; }
   try { await getJson(HOST + '/api/config'); } catch (e) { console.log('服务没在跑'); return 1; }
 
-  const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-e2e-'));
+  const userDir = require('./cdp-tmp').profileDir('ml-e2e-');
   const child = spawn(browser, [
     '--headless=new', '--remote-debugging-port=' + PORT, '--no-first-run', '--no-default-browser-check',
     '--disable-gpu', '--no-proxy-server', '--hide-scrollbars', '--mute-audio', '--disable-extensions',
