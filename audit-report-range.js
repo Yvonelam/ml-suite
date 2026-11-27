@@ -51,7 +51,16 @@ function login() {
   const child = spawn(browser, ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--no-proxy-server', '--hide-scrollbars', '--mute-audio', '--window-size=1440,1200', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });
   let ws = null, id = 0; const pending = new Map();
   const send = (m, p = {}) => { const n = ++id; ws.send(JSON.stringify({ id: n, method: m, params: p })); return new Promise((res, rej) => { pending.set(n, { res, rej }); setTimeout(() => { if (pending.has(n)) { pending.delete(n); rej(new Error(m + ' timeout')); } }, 60000); }); };
-  const ev = async e => (await send('Runtime.evaluate', { expression: e, returnByValue: true, awaitPromise: true })).result.value;
+  // 页面里抛异常时 Runtime.evaluate 只回一个没有 value 的 result，光看 undefined 完全查不出原因
+  const ev = async e => {
+    const r = await send('Runtime.evaluate', { expression: e, returnByValue: true, awaitPromise: true });
+    if (r && r.exceptionDetails) {
+      const desc = (r.exceptionDetails.exception && r.exceptionDetails.exception.description) || r.exceptionDetails.text || '';
+      console.log('  ⚠ 页面求值报错：' + String(desc).split('\n')[0].slice(0, 200));
+      return undefined;
+    }
+    return r && r.result ? r.result.value : undefined;
+  };
   const waitJson = async url => new Promise((res, rej) => { http.get(url, r => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { res(JSON.parse(d)); } catch (e) { rej(e); } }); }).on('error', rej); });
 
   try {
