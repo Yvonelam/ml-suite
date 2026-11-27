@@ -99,15 +99,29 @@ function login() {
       const st = await ev("(function(){var e=document.getElementById('profitOrderStatus');return e?e.textContent:''})()");
       throw new Error('等不到 ' + FROM + '~' + TO + ' 的数据：' + String(st || '').slice(0, 200));
     }
-    const d = JSON.parse(await ev("(function(){var d=(typeof lastProfitOrderData!=='undefined'?lastProfitOrderData:null);if(!d)return '{}';var S=d.series||[],P=d.products||[],T=d.totals||{};" +
-      "var s=function(a,k){return a.reduce(function(x,y){return x+(Number(y[k])||0)},0)};" +
-      "return JSON.stringify({range:d.range,apiTotal:d.apiTotal,pulled:d.pulled," +
-      "series:S.length,listings:P.length,lines:(d.orders||[]).length,noSeries:(d.orders||[]).filter(function(x){return !x.series}).length," +
-      "totals:T,sumSeriesUnits:s(S,'units'),sumSeriesCancelled:s(S,'cancelledUnits'),sumSeriesOrders:s(S,'orders'),sumSeriesProfit:Math.round(s(S,'profitCny')*100)/100," +
-      "sumProdUnits:s(P,'units'),sumProdCancelled:s(P,'cancelledUnits'),sumProdProfit:Math.round(s(P,'profitCny')*100)/100," +
-      "cards:document.querySelectorAll('#profitProducts .pp-card').length," +
-      "cardUnits:[].slice.call(document.querySelectorAll('#profitProducts .pp-units b')).reduce(function(a,b){return a+Number(String(b.textContent).replace(/[^0-9]/g,''))},0)," +
-      "kpi:[].slice.call(document.querySelectorAll('#profitOrderSummary .profit-order-stat')).map(function(x){var b=x.querySelector('b');return (x.querySelector('small')?x.querySelector('small').textContent:'')+'='+(b?b.textContent:'')})}))()") || '{}');
+    // 取的每个数都要能对上：系列合计、卡片合计、Listing 合计、totals 三方互相咬死
+    const READ_EXPR = [
+      '(function(){',
+      ' var d=(typeof lastProfitOrderData!=="undefined"?lastProfitOrderData:null);',
+      ' if(!d) return "{}";',
+      ' var S=d.series||[], P=d.products||[], T=d.totals||{};',
+      ' var s=function(a,k){return a.reduce(function(x,y){return x+(Number(y[k])||0)},0)};',
+      ' var cardEls=document.querySelectorAll("#profitProducts .pp-card");',
+      ' var cardUnits=[].slice.call(document.querySelectorAll("#profitProducts .pp-units b")).reduce(function(a,b){return a+Number(String(b.textContent).replace(/[^0-9]/g,""))},0);',
+      ' return JSON.stringify({',
+      '  range:d.range, apiTotal:d.apiTotal, pulled:d.pulled,',
+      '  series:S.length, listings:P.length, lines:(d.orders||[]).length,',
+      '  noSeries:(d.orders||[]).filter(function(x){return !x.series}).length,',
+      '  totals:T,',
+      '  sumSeriesUnits:s(S,"units"), sumSeriesCancelled:s(S,"cancelledUnits"), sumSeriesOrders:s(S,"orders"),',
+      '  sumSeriesProfit:Math.round(s(S,"profitCny")*100)/100,',
+      '  sumProdUnits:s(P,"units"), sumProdCancelled:s(P,"cancelledUnits"), sumProdProfit:Math.round(s(P,"profitCny")*100)/100,',
+      '  cards:cardEls.length, cardUnits:cardUnits',
+      ' });',
+      '})()',
+    ].join('\n');
+    try { new Function(READ_EXPR); } catch (e) { throw new Error('取数表达式有语法错误：' + e.message); }
+    const d = JSON.parse(await ev(READ_EXPR) || '{}');
     const T = d.totals || {};
     console.log('\n--- 页面数字 ---');
     console.log('区间            ' + (d.range ? d.range.from + ' ~ ' + d.range.to : '?'));
