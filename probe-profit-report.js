@@ -139,13 +139,14 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
       await sleep(1000);
     }
     await ev("(function(){window.__csv=null;window.__csvBom=null;var old=URL.createObjectURL;URL.createObjectURL=function(b){var r=new FileReader();r.onload=function(){var u=new Uint8Array(r.result);window.__csvBom=[u[0],u[1],u[2]];window.__csv=new TextDecoder('utf-8',{ignoreBOM:true}).decode(u);};r.readAsArrayBuffer(b);return old.call(URL,b)};})()");
-    await ev("(function(){document.getElementById('profitExportCsv').click();})()");
+    // 读数与点击必须在同一次求值里完成：中间隔一次往返，页面自带的「今天」加载可能刚好覆盖数据
+    const pcAtClick = await ev("(function(){var n=(window.lastProfitOrderData&&lastProfitOrderData.products||[]).length;document.getElementById('profitExportCsv').click();return n})()") || 0;
     let csv = null, bom = null;
     for (let i = 0; i < 30; i++) { csv = await ev('window.__csv'); bom = await ev('JSON.stringify(window.__csvBom||null)'); if (csv) break; await sleep(300); }
     ok(!!csv, 'CSV 有内容');
     if (csv) {
       const lines = String(csv).replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
-      const pc = await ev("(function(){return (window.lastProfitOrderData&&lastProfitOrderData.products||[]).length})()") || 0;
+      const pc = pcAtClick;
       ok(bom === '[239,187,191]', 'CSV 带 UTF-8 BOM', bom);
       ok(lines.length === pc + 1, 'CSV 行数 = 表头 + 产品数', lines.length + ' vs ' + (pc + 1));
       ok(/产品/.test(lines[0]) && /利润\(¥\)/.test(lines[0]) && /利润率%/.test(lines[0]), 'CSV 表头含利润与利润率', lines[0].slice(0, 70));

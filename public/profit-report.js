@@ -150,7 +150,7 @@ function buildProfitReportHTML(d) {
     return `<tr class="${dead ? 'dead' : ''}">
       <td>${escHtml(String(x.date || '').replace('T', ' ').slice(0, 16))}</td>
       <td>${escHtml(x.orderId)}</td>
-      <td class="name">${escHtml(x.title || x.itemId)}<small>${escHtml(x.itemId || '')}</small></td>
+      <td class="name">${escHtml(rptClip(x.title || x.itemId, 46))}<small>${escHtml(x.itemId || '')}</small></td>
       <td class="num">${rptNum(x.qty)}</td>
       <td class="num">${rptNum(x.revenue, 2)}</td>
       <td class="num">${x.saleFee == null ? '—' : rptNum(x.saleFee, 2)}</td>
