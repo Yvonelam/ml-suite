@@ -18,6 +18,7 @@
     "handoff": "node handoff.js"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "https-proxy-agent": "^9.1.0",
     "nodemailer": "^9.0.3",
