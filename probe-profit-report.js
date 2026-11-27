@@ -227,10 +227,11 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
       if (await ev("(function(){var v=document.getElementById('v-profit');return !!v && getComputedStyle(v).display!=='none';})()")) break;
     }
     await ev("(function(){var b=document.querySelector('#profitOrderRange button[data-range=\"7\"]');if(b)b.click();})()");
-    // 光看表格行数不够：表格可能还是上一轮的空占位，必须等 lastProfitOrderData 真的落库
+    // 光看表格行数不够：表格可能还是上一轮的空占位，必须等 lastProfitOrderData 真的落库。
+    // 而且页面进来自动加载「今天」，必须等到区间真的变成近 7 天，否则导出的 Excel 只有今天那 3 个系列。
     for (let i = 0; i < 90; i++) {
-      const n = await ev("(function(){return (typeof lastProfitOrderData!=='undefined'&&lastProfitOrderData&&lastProfitOrderData.products||[]).length})()") || 0;
-      if (n > 0) break;
+      const st = await ev("(function(){var d=(typeof lastProfitOrderData!=='undefined'?lastProfitOrderData:null);if(!d||!d.range)return 0;return ((d.series||[]).length?1:0)*1000+Math.round((new Date(d.range.to)-new Date(d.range.from))/86400000)})()") || 0;
+      if (st >= 1006) break;
       await sleep(1000);
     }
     const prodCount = await ev("(function(){return (lastProfitOrderData&&lastProfitOrderData.series||[]).length})()") || 0;
