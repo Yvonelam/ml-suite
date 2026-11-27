@@ -23,7 +23,7 @@ function rptPct(v) { const n = Number(v); return isFinite(n) ? n.toFixed(2) + '%
 function rptClip(s, n = 34) { const t = String(s || ''); return t.length > n ? t.slice(0, n) + '…' : t; }
 
 function rptStackBars(items, series, opt = {}) {
-  const W = 940, labelW = 300, padR = 92, rowH = 22, gap = 6, top = 30;
+  const W = 940, labelW = 300, padR = 92, rowH = 20, gap = 5, top = 26;
   const H = top + items.length * (rowH + gap) + 16;
   const max = Math.max(1, ...items.map(it => it.values.reduce((a, b) => a + Math.max(0, Number(b) || 0), 0)));
   const barW = W - labelW - padR;
@@ -48,7 +48,7 @@ function rptStackBars(items, series, opt = {}) {
 
 /* 正负分叉条形：利润可能为负，零轴居中，负值向左画 */
 function rptDivergeBars(items, opt = {}) {
-  const W = 940, labelW = 300, padR = 110, rowH = 22, gap = 6, top = 30;
+  const W = 940, labelW = 300, padR = 110, rowH = 20, gap = 5, top = 26;
   const H = top + items.length * (rowH + gap) + 22;
   const maxAbs = Math.max(1, ...items.map(it => Math.abs(Number(it.value) || 0)));
   const area = W - labelW - padR;
@@ -70,7 +70,7 @@ function rptDivergeBars(items, opt = {}) {
 
 /* 收入 vs 总成本：分组条形，一眼看出每个产品还剩多少空间 */
 function rptRevCostBars(items) {
-  const W = 940, labelW = 300, padR = 100, rowH = 26, gap = 8, top = 30;
+  const W = 940, labelW = 300, padR = 100, rowH = 24, gap = 6, top = 26;
   const H = top + items.length * (rowH + gap) + 20;
   const max = Math.max(1, ...items.map(it => Math.max(it.revenueCny, it.costAll)));
   const area = W - labelW - padR, half = rowH / 2 - 2;
@@ -218,7 +218,7 @@ function buildProfitReportHTML(d, opt) {
   tr.sum td{background:#f8fafc;font-weight:700;border-top:2px solid #cbd5e1}
   tr.dead td{color:#94a3b8;text-decoration:line-through}
   .pos{color:${RPT.pos};font-weight:700} .neg{color:${RPT.neg};font-weight:700}
-  .chart{border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin:10px 0;overflow:hidden}
+  .chart{border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;margin:8px 0;overflow:hidden}
   .chart-h{font-size:12px;color:#475569;font-weight:700;margin-bottom:6px}
   .legend{font-size:11px;color:#64748b;margin:6px 0 0;display:flex;gap:14px;flex-wrap:wrap}
   .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
