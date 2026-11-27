@@ -269,7 +269,7 @@ function buildProfitReportHTML(d) {
 <table>
   <thead><tr>
     <th class="num">#</th><th>系列（型号）</th>
-    <th class="num">件数</th><th class="num">订单数</th><th class="num">取消件</th>
+    <th class="num">有效件数</th><th class="num">订单数</th><th class="num">取消件</th>
     <th class="num">收入（${escHtml(lcur)}）</th><th class="num">收入（折¥）</th>
     <th class="num">平台佣金（${escHtml(lcur)}）</th><th class="num">尾程运费（${escHtml(lcur)}）</th><th class="num">税费（${escHtml(lcur)}）</th>
     <th class="num">成本+头程（¥）</th><th class="num">利润（¥）</th><th class="num">利润率</th><th class="num">利润占比</th>
@@ -290,7 +290,7 @@ function buildProfitReportHTML(d) {
 <div class="note">
   <b>口径说明</b><br>
   0. <b>按系列（型号）合并</b>：同一个型号的不同颜色 / 变体在美客多是各自独立的 Listing，报告按标题里识别出的型号（U3 / BW06 / HG04L…）把它们的订单与利润合并成一条；逐单明细第二列给出系列名，第三列仍是 Listing ID，需要拆开看时按 Listing ID 筛。<br>
-  1. 件数含取消 / 退款单（与美客多后台「已售出」口径一致），但取消单不计入收入与利润，逐单明细里整行置灰并划掉。<br>
+  1. 件数口径：表内「有效件数」只算未取消的行，「取消件」单列；两者相加才等于美客多后台「已售出」件数（KPI 里那个数），所以表内合计天然小于后台 —— 不是丢单。取消单不计入收入与利润，逐单明细里整行置灰划掉。<br>
   2. 系列利润 = 收入 − 平台佣金 − 尾程运费 − 税费 − 产品成本 − 头程；<b>广告费不分摊到系列</b>，只从整体净利润里扣一次。<br>
   3. 税费：平台返回 <code>order.taxes.amount</code> 有数字就用平台值；巴西站平台不代扣，按订单收入 × ${rptNum((d.taxRate || 0) * 100, 1)}% 估算，因此是<b>估算值</b>。<br>
   4. 汇率：中国银行牌价，${Object.keys(fx).length ? '参与折算的币种见下表' : '本次区间无可用牌价，相关金额显示为待核对'}。同一行里原币列与人民币列<b>不能直接相减</b>。<br>
