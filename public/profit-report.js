@@ -6,6 +6,10 @@
    - 口径与页面完全一致：产品利润不含广告分摊，广告只从总利润里扣
    ========================================================= */
 const RPT = { pos: '#2563eb', neg: '#dc2626', dead: '#cbd5e1', axis: '#e2e8f0', ink: '#0f172a', mut: '#64748b', band: '#f8fafc' };
+/* PDF 里逐单明细最多印多少行。Chrome 的 Page.printToPDF 在 800 行上下会卡死
+   （实测 600 行 2.2s、750 行 2.5s、900 行 >240s），600 行是留了余量的安全线。
+   HTML / Excel / CSV 不受这个限制，一律全量。 */
+const PDF_ORDER_LIMIT = 600;
 
 function rptNum(v, d = 0) {
   const n = Number(v);
@@ -85,7 +89,8 @@ function rptRevCostBars(items) {
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="收入与成本对比">${legend}${out}</svg>`;
 }
 
-function buildProfitReportHTML(d) {
+function buildProfitReportHTML(d, opt) {
+  const orderLimit = Number((opt && opt.orderLimit) || 0);   // 0 = 全量（HTML 存档用）
   const lcur = (d.orders && d.orders[0] && d.orders[0].currency) || (d.ads && d.ads.currency) || 'BRL';
   const T = d.totals || {}, ads = d.ads || {}, fx = d.fx || {};
   /* 服务端已按「型号」把同系列的不同颜色/变体合并成一条（U3 / BW06 / HG04L…）。
@@ -160,7 +165,14 @@ function buildProfitReportHTML(d) {
       <td class="num">${rptPct(T.margin)}</td><td class="num">100.00%</td>
     </tr>`;
 
-  const orderTable = orders.map(x => {
+  /* 逐单明细：PDF 只印前 N 行。
+     原因不是「想省纸」，是 Chrome 的 Page.printToPDF 在 800 行上下有性能悬崖：
+     实测 600 行 2.2 秒、750 行 2.5 秒、900 行 240 秒都不返回（日志里连续几次
+     「PDF 生成失败：Page.printToPDF 超时」）。所以 PDF 限 600 行并写明去 Excel 看全量；
+     HTML 存档 / Excel / CSV 一律全量，一个字都不删。 */
+  const orderShown = orderLimit > 0 ? orders.slice(0, orderLimit) : orders;
+  const orderCut = orders.length - orderShown.length;
+  const orderTable = orderShown.map(x => {
     const dead = !!x.cancelled;
     return `<tr class="${dead ? 'dead' : ''}">
       <td>${escHtml(String(x.date || '').replace('T', ' ').slice(0, 16))}</td>
@@ -211,6 +223,7 @@ function buildProfitReportHTML(d) {
   .legend{font-size:11px;color:#64748b;margin:6px 0 0;display:flex;gap:14px;flex-wrap:wrap}
   .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
   .note{font-size:11.5px;color:#64748b;line-height:1.75;border-top:1px dashed #e2e8f0;margin-top:22px;padding-top:10px}
+  .cut{font-size:11.5px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin:6px 0 10px}
   .note b{color:#334155}
   table.mini{width:auto;min-width:420px}
   @page{size:A4 landscape;margin:9mm}
@@ -277,7 +290,8 @@ function buildProfitReportHTML(d) {
   <tbody>${productTable || '<tr><td colspan="14">区间内没有产品数据</td></tr>'}${products.length ? productSum : ''}</tbody>
 </table>
 
-<h2>逐单明细（${rptNum(orders.length)} 行）</h2>
+<h2>逐单明细（共 ${rptNum(orders.length)} 行${orderCut > 0 ? '，本表列前 ' + rptNum(orderShown.length) + ' 行' : ''}）</h2>
+${orderCut > 0 ? `<div class="cut">另 ${rptNum(orderCut)} 行未印在本文件里（Chrome 打印超过约 800 行会卡死）。完整明细见 <b>Excel</b> 的「订单明细」表或 <b>CSV</b>，一份不少。</div>` : ''}
 <table>
   <thead><tr>
     <th>下单时间</th><th>订单号</th><th>系列</th><th class="num">数量</th>
@@ -338,11 +352,11 @@ async function downloadProfitReportPdf(btn) {
   const name = profitReportBaseName(d);
   const old = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '正在生成 PDF…'; }
-  toast('正在生成 PDF，通常 3–8 秒…');
+  toast('正在生成 PDF…（逐单明细多的话要十几秒，最多约 25 页）');
   try {
     const r = await fetch(API_BASE + '/api/ml/profit/report.pdf', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ html: buildProfitReportHTML(d), name }),
+      body: JSON.stringify({ html: buildProfitReportHTML(d, { orderLimit: PDF_ORDER_LIMIT }), name }),
     });
     if (!r.ok) { let m = 'HTTP ' + r.status; try { const j = await r.json(); m = j.error || m; } catch { } throw new Error(m); }
     const blob = await r.blob();
