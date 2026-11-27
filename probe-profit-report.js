@@ -133,14 +133,16 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
     // 页面进来自动加载「今天」，紧接着我们切「近 7 天」——两轮请求会抢同一个 lastProfitOrderData。
     // 必须等到数据真的落在 7 天区间，否则会拿今天的 3 个产品去比 DOM 里 16 个卡片。
     for (let i = 0; i < 90; i++) {
-      const st = await ev("(function(){var d=window.lastProfitOrderData;if(!d)return '';return (d.range?d.range.from+'|'+d.range.to:'')+'|'+((d.products||[]).length)})()") || '';
+      const st = await ev("(function(){var d=(typeof lastProfitOrderData!=='undefined'?lastProfitOrderData:null);if(!d)return '';return (d.range?d.range.from+'|'+d.range.to:'')+'|'+((d.products||[]).length)})()") || '';
       const m = /^(\d{4}-\d{2}-\d{2})\|(\d{4}-\d{2}-\d{2})\|(\d+)$/.exec(st);
       if (m && m[3] > 0 && (new Date(m[2]) - new Date(m[1])) / 86400000 >= 6) break;
       await sleep(1000);
     }
     await ev("(function(){window.__csv=null;window.__csvBom=null;var old=URL.createObjectURL;URL.createObjectURL=function(b){var r=new FileReader();r.onload=function(){var u=new Uint8Array(r.result);window.__csvBom=[u[0],u[1],u[2]];window.__csv=new TextDecoder('utf-8',{ignoreBOM:true}).decode(u);};r.readAsArrayBuffer(b);return old.call(URL,b)};})()");
     // 读数与点击必须在同一次求值里完成：中间隔一次往返，页面自带的「今天」加载可能刚好覆盖数据
-    const pcAtClick = await ev("(function(){var n=(window.lastProfitOrderData&&lastProfitOrderData.products||[]).length;document.getElementById('profitExportCsv').click();return n})()") || 0;
+    // 注意：app.js 里是 `let lastProfitOrderData`（词法绑定），不是 window 属性。
+    // 写成 window.lastProfitOrderData 恒为 undefined → 产品数永远是 0，断言就假失败。
+    const pcAtClick = await ev("(function(){var n=(typeof lastProfitOrderData!=='undefined'&&lastProfitOrderData&&lastProfitOrderData.products||[]).length;document.getElementById('profitExportCsv').click();return n})()") || 0;
     let csv = null, bom = null;
     for (let i = 0; i < 30; i++) { csv = await ev('window.__csv'); bom = await ev('JSON.stringify(window.__csvBom||null)'); if (csv) break; await sleep(300); }
     ok(!!csv, 'CSV 有内容');
@@ -204,7 +206,7 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
     await ev("(function(){var b=document.querySelector('#profitOrderRange button[data-range=\"7\"]');if(b)b.click();})()");
     // 光看表格行数不够：表格可能还是上一轮的空占位，必须等 lastProfitOrderData 真的落库
     for (let i = 0; i < 90; i++) {
-      const n = await ev("(function(){return (window.lastProfitOrderData&&lastProfitOrderData.products||[]).length})()") || 0;
+      const n = await ev("(function(){return (typeof lastProfitOrderData!=='undefined'&&lastProfitOrderData&&lastProfitOrderData.products||[]).length})()") || 0;
       if (n > 0) break;
       await sleep(1000);
     }

@@ -107,9 +107,16 @@ function buildProfitReportHTML(d) {
     };
   });
 
-  const unitsItems = rows.map(r => ({ label: r.p.title || r.p.itemId, sub: r.p.itemId, values: [r.p.units || 0, r.p.cancelledUnits || 0] }));
-  const profitItems = rows.map(r => ({ label: r.p.title || r.p.itemId, sub: (r.p.units || 0) + ' 件 · ' + rptPct(r.p.margin), value: r.p.profitCny || 0 }));
-  const revCostItems = rows.map(r => ({ label: r.p.title || r.p.itemId, sub: (r.p.units || 0) + ' 件', revenueCny: Number(r.p.revenueCny) || 0, costAll: r.costAll }));
+  /* 图表只画前 N 个产品：16 个产品全画时 SVG 高度接近 700px，
+     打印分页会把整块 SVG 切掉（实测「收入 vs 成本」那张在 PDF 里只剩标题、图是空白），
+     而且一条图里 16 行也看不清。完整数据在下方明细表里，缺不了。 */
+  const CHART_TOP = 12;
+  const topRows = rows.slice(0, CHART_TOP);
+  const profitTop = rows.slice().sort((a, b) => Math.abs(Number(b.p.profitCny) || 0) - Math.abs(Number(a.p.profitCny) || 0)).slice(0, CHART_TOP);
+  const chartNote = rows.length > CHART_TOP ? '（只画前 ' + CHART_TOP + ' 个，另 ' + (rows.length - CHART_TOP) + ' 个见下方明细表）' : '';
+  const unitsItems = topRows.map(r => ({ label: r.p.title || r.p.itemId, sub: r.p.itemId, values: [r.p.units || 0, r.p.cancelledUnits || 0] }));
+  const profitItems = profitTop.map(r => ({ label: r.p.title || r.p.itemId, sub: (r.p.units || 0) + ' 件 · ' + rptPct(r.p.margin), value: r.p.profitCny || 0 }));
+  const revCostItems = topRows.map(r => ({ label: r.p.title || r.p.itemId, sub: (r.p.units || 0) + ' 件', revenueCny: Number(r.p.revenueCny) || 0, costAll: r.costAll }));
 
   const productTable = rows.map(r => {
     const p = r.p, neg = Number(p.profitCny) < 0;
@@ -203,12 +210,14 @@ function buildProfitReportHTML(d) {
      413 行明细能把报告撑到 34 页（实测），允许跨页 + 表头重复才是对的。 */
   @media print{
     body{padding:0;max-width:none}
-    .chart,.kpi{break-inside:avoid}
+    .chart,.kpi{break-inside:avoid;page-break-inside:avoid}
+    .chart svg{max-height:150mm}
     h2{break-after:avoid}
     table{font-size:10px;break-inside:auto}
     thead{display:table-header-group}
     tr{break-inside:avoid}
     th,td{padding:4px 6px}
+    td.name small{display:inline;margin-left:6px;font-size:9px}
     .note{break-inside:auto}
   }
 </style></head><body>
@@ -229,21 +238,21 @@ function buildProfitReportHTML(d) {
 
 <h2>各产品出单件数</h2>
 <div class="chart">
-  <div class="chart-h">横向长度 = 件数；深色为有效件，浅灰为取消 / 退款件</div>
+  <div class="chart-h">横向长度 = 件数；深色为有效件，浅灰为取消 / 退款件 ${escHtml(chartNote)}</div>
   ${unitsItems.length ? rptStackBars(unitsItems, [{ color: RPT.pos }, { color: RPT.dead }], { fmt: v => rptNum(v) + ' 件' }) : '<p class="meta">区间内没有出单</p>'}
   <div class="legend"><span><i style="background:${RPT.pos}"></i>有效件数</span><span><i style="background:${RPT.dead}"></i>取消 / 退款件数</span></div>
 </div>
 
 <h2>各产品利润（折¥）</h2>
 <div class="chart">
-  <div class="chart-h">零轴居中：向右为盈利，向左为亏损</div>
+  <div class="chart-h">零轴居中：向右为盈利，向左为亏损 ${escHtml(chartNote)}</div>
   ${profitItems.length ? rptDivergeBars(profitItems) : '<p class="meta">区间内没有可核算利润的产品</p>'}
   <div class="legend"><span><i style="background:${RPT.pos}"></i>盈利</span><span><i style="background:${RPT.neg}"></i>亏损</span><span>说明：利润已扣平台佣金、尾程运费、税费、产品成本与头程，<b>未扣广告费</b></span></div>
 </div>
 
 <h2>收入 vs 成本</h2>
 <div class="chart">
-  <div class="chart-h">上条为收入、下条为成本合计，右侧为差额（即该产品利润，折¥）</div>
+  <div class="chart-h">上条为收入、下条为成本合计，右侧为差额（即该产品利润，折¥） ${escHtml(chartNote)}</div>
   ${revCostItems.length ? rptRevCostBars(revCostItems) : '<p class="meta">区间内没有数据</p>'}
 </div>
 
