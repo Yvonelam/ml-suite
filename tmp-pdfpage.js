@@ -40,11 +40,11 @@ const getJson = u => new Promise((res, rej) => {
     for (let i = 0; i < 40; i++) { await sleep(300); if (await ev('document.title||""')) break; }
     const b64 = fs.readFileSync('probe-out/profit-report.pdf').toString('base64');
     await ev("(function(){return new Promise(function(res){var s=document.createElement('script');s.src='/vendor/pdf.min.js';s.onload=function(){pdfjsLib.GlobalWorkerOptions.workerSrc='/vendor/pdf.worker.min.js';res(1)};document.head.appendChild(s);});})()");
-    const r = await ev("(async function(){try{var b64=" + JSON.stringify(b64) + ";var bin=atob(b64),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);var doc=await pdfjsLib.getDocument({data:u}).promise;var page=await doc.getPage(4);var vp=page.getViewport({scale:1.35});var c=document.createElement('canvas');c.width=vp.width;c.height=vp.height;c.style.cssText='position:fixed;left:0;top:0;z-index:99999;background:#fff';document.body.appendChild(c);await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return {pages:doc.numPages};}catch(e){return {err:String(e&&e.message||e)}}})()");
+    const r = await ev("(async function(){try{var b64=" + JSON.stringify(b64) + ";var bin=atob(b64),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);var doc=await pdfjsLib.getDocument({data:u}).promise;var page=await doc.getPage(3);var vp=page.getViewport({scale:1.35});var c=document.createElement('canvas');c.width=vp.width;c.height=vp.height;c.style.cssText='position:fixed;left:0;top:0;z-index:99999;background:#fff';document.body.appendChild(c);await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return {pages:doc.numPages};}catch(e){return {err:String(e&&e.message||e)}}})()");
     console.log('渲染', JSON.stringify(r));
     const sh = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync('probe-out/pdf-page4.png', Buffer.from(sh.data, 'base64'));
-    console.log('saved probe-out/pdf-page4.png');
+    fs.writeFileSync('probe-out/pdf-page3.png', Buffer.from(sh.data, 'base64'));
+    console.log('saved probe-out/pdf-page3.png');
   } catch (e) { console.log('err', e.message); }
   finally { try { ws && ws.close(); } catch (e) { } try { child.kill(); } catch (e) { } process.exit(0); }
 })();

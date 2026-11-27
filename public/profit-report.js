@@ -19,7 +19,7 @@ function rptPct(v) { const n = Number(v); return isFinite(n) ? n.toFixed(2) + '%
 function rptClip(s, n = 34) { const t = String(s || ''); return t.length > n ? t.slice(0, n) + '…' : t; }
 
 function rptStackBars(items, series, opt = {}) {
-  const W = 940, labelW = 300, padR = 92, rowH = 26, gap = 8, top = 34;
+  const W = 940, labelW = 300, padR = 92, rowH = 22, gap = 6, top = 30;
   const H = top + items.length * (rowH + gap) + 16;
   const max = Math.max(1, ...items.map(it => it.values.reduce((a, b) => a + Math.max(0, Number(b) || 0), 0)));
   const barW = W - labelW - padR;
@@ -44,7 +44,7 @@ function rptStackBars(items, series, opt = {}) {
 
 /* 正负分叉条形：利润可能为负，零轴居中，负值向左画 */
 function rptDivergeBars(items, opt = {}) {
-  const W = 940, labelW = 300, padR = 110, rowH = 26, gap = 8, top = 34;
+  const W = 940, labelW = 300, padR = 110, rowH = 22, gap = 6, top = 30;
   const H = top + items.length * (rowH + gap) + 22;
   const maxAbs = Math.max(1, ...items.map(it => Math.abs(Number(it.value) || 0)));
   const area = W - labelW - padR;
@@ -66,7 +66,7 @@ function rptDivergeBars(items, opt = {}) {
 
 /* 收入 vs 总成本：分组条形，一眼看出每个产品还剩多少空间 */
 function rptRevCostBars(items) {
-  const W = 940, labelW = 300, padR = 100, rowH = 30, gap = 10, top = 34;
+  const W = 940, labelW = 300, padR = 100, rowH = 26, gap = 8, top = 30;
   const H = top + items.length * (rowH + gap) + 20;
   const max = Math.max(1, ...items.map(it => Math.max(it.revenueCny, it.costAll)));
   const area = W - labelW - padR, half = rowH / 2 - 2;
@@ -110,7 +110,7 @@ function buildProfitReportHTML(d) {
   /* 图表只画前 N 个产品：16 个产品全画时 SVG 高度接近 700px，
      打印分页会把整块 SVG 切掉（实测「收入 vs 成本」那张在 PDF 里只剩标题、图是空白），
      而且一条图里 16 行也看不清。完整数据在下方明细表里，缺不了。 */
-  const CHART_TOP = 12;
+  const CHART_TOP = 10;
   const topRows = rows.slice(0, CHART_TOP);
   const profitTop = rows.slice().sort((a, b) => Math.abs(Number(b.p.profitCny) || 0) - Math.abs(Number(a.p.profitCny) || 0)).slice(0, CHART_TOP);
   const chartNote = rows.length > CHART_TOP ? '（只画前 ' + CHART_TOP + ' 个，另 ' + (rows.length - CHART_TOP) + ' 个见下方明细表）' : '';
