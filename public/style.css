@@ -764,3 +764,8 @@ a.pp-card:hover{border-color:#3a3a46;background:rgba(255,255,255,.05);transform:
 #rank-multi .site-checkboxes{gap:10px;padding:6px 0}
 #rank-multi .site-checkbox{flex:1 1 0;justify-content:center;padding:8px 14px;font-size:13px}
 #rank-multi .site-checkbox span{white-space:nowrap}
+
+/* ---- 产品利润报告：下载条 ---- */
+.profit-report-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 4px;padding:10px 12px;background:var(--s3);border:1px solid var(--bd);border-radius:10px}
+.profit-report-bar .btn{flex:0 0 auto}
+.profit-report-hint{flex:1 1 260px;font-size:11.5px;line-height:1.6;color:var(--mut)}
