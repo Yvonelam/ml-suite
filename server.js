@@ -1837,7 +1837,16 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
       fxUsed[code]={cnyPer100:r2(row.cnyPer100),localPerCny:Number(row.localPerCny)||0,rateType:row.rateType||'',publishedAt:row.publishedAt||'',source:'中国银行牌价'};
     }
     let itemInfo={};
-    try{itemInfo=await mlItemInfo([...byItem.values()].map(p=>p.itemId).filter(Boolean));}catch{/* 图取不到不影响数字 */}
+    const infoIds=[...byItem.values()].map(p=>p.itemId).filter(Boolean);
+    try{itemInfo=await mlItemInfo(infoIds);}catch{/* 图取不到不影响数字 */}
+    /* 长区间（一个月 700+ 单）时，前面已经打了几百次运费 / 广告接口，商品基础资料这一批
+       经常被 429 挡掉；一次失败就是「所有系列卡既没图也没链接」，而 catch 里是静默的。
+       宁可等 1.2 秒补一次，也别让面板看着像坏了。 */
+    if(infoIds.length&&!Object.keys(itemInfo).length){
+      await new Promise(res=>setTimeout(res,1200));
+      try{itemInfo=await mlItemInfo(infoIds);}catch{}
+      console.log('[利润] 商品基础资料首次为空，已补取一次：'+(Object.keys(itemInfo).length?('成功 '+Object.keys(itemInfo).length+' 个'):'仍失败（'+infoIds.length+' 个）'));
+    }
     const products=[...byItem.values()].map(p=>{
       const inf=itemInfo[p.itemId]||{};
       return {itemId:p.itemId,title:inf.title||p.title,thumbnail:inf.thumbnail||'',permalink:inf.permalink||'',
