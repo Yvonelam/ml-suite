@@ -162,9 +162,16 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
       fs.writeFileSync(outPdf, pdfBuf);
       console.log('  📄 ' + outPdf);
 
-      // 用 pdf.js（项目自带 vendor）把第 1 页画出来截图，确认中文与图表没被裁掉
-      await ev("(function(){return new Promise(function(res){if(window.pdfjsLib)return res(1);var s=document.createElement('script');s.src='/vendor/pdf.min.js';s.onload=function(){pdfjsLib.GlobalWorkerOptions.workerSrc='/vendor/pdf.worker.min.js';res(1)};document.head.appendChild(s);});})()");
-      const rendered = await ev("(async function(){try{var bin=atob(window.__pdf.b64),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);var doc=await pdfjsLib.getDocument({data:u}).promise;var page=await doc.getPage(1);var vp=page.getViewport({scale:1.5});var c=document.createElement('canvas');c.width=vp.width;c.height=vp.height;document.body.innerHTML='';document.body.style.margin='0';document.body.appendChild(c);document.body.style.background='#fff';await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return {pages:doc.numPages,w:c.width,h:c.height};}catch(e){return {err:String(e&&e.message||e)}}})()");
+      /* 用 pdf.js（项目自带 vendor）把第 1 页画出来截图，确认中文与图表没被裁掉。
+         ⚠ 必须在空白页里画：如果直接 document.body.innerHTML='' 拆掉 app 的 DOM，
+         app.js 里还在跑的定时器会往 null 上写 textContent / disabled，探针就会被自己的
+         console 断言判死（而且那两条报错跟功能无关）。 */
+      const keptPdfB64 = pdf.b64;
+      await send('Page.navigate', { url: 'about:blank' });
+      await sleep(400);
+      errors.length = 0;   // 上面那步换页的噪音不算功能报错
+      await ev("(function(){return new Promise(function(res){var s=document.createElement('script');s.src='http://127.0.0.1:" + API + "/vendor/pdf.min.js';s.onload=function(){pdfjsLib.GlobalWorkerOptions.workerSrc='http://127.0.0.1:" + API + "/vendor/pdf.worker.min.js';res(1)};document.head.appendChild(s);});})()");
+      const rendered = await ev("(async function(){try{var b64=" + JSON.stringify(keptPdfB64) + ";var bin=atob(b64),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);var doc=await pdfjsLib.getDocument({data:u}).promise;var page=await doc.getPage(1);var vp=page.getViewport({scale:1.5});var c=document.createElement('canvas');c.width=vp.width;c.height=vp.height;document.body.style.margin='0';document.body.style.background='#fff';document.body.appendChild(c);await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return {pages:doc.numPages,w:c.width,h:c.height};}catch(e){return {err:String(e&&e.message||e)}}})()");
       ok(rendered && rendered.pages >= 2, 'pdf.js 能解析并渲染第 1 页', JSON.stringify(rendered));
       const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
       const png = path.join(__dirname, 'probe-out', 'profit-report-pdf.png');
@@ -182,13 +189,18 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
       if (await ev("(function(){var v=document.getElementById('v-profit');return !!v && getComputedStyle(v).display!=='none';})()")) break;
     }
     await ev("(function(){var b=document.querySelector('#profitOrderRange button[data-range=\"7\"]');if(b)b.click();})()");
-    for (let i = 0; i < 90; i++) { rows = await ev("document.querySelectorAll('#profitOrderRows tr').length") || 0; if (rows > 0) break; await sleep(1000); }
+    // 光看表格行数不够：表格可能还是上一轮的空占位，必须等 lastProfitOrderData 真的落库
+    for (let i = 0; i < 90; i++) {
+      const n = await ev("(function(){return (window.lastProfitOrderData&&lastProfitOrderData.products||[]).length})()") || 0;
+      if (n > 0) break;
+      await sleep(1000);
+    }
     const prodCount = await ev("(function(){return (lastProfitOrderData&&lastProfitOrderData.products||[]).length})()") || 0;
     const ordCount = await ev("(function(){return (lastProfitOrderData&&lastProfitOrderData.orders||[]).length})()") || 0;
     await ev("(function(){window.__xls=null;var old=URL.createObjectURL;URL.createObjectURL=function(b){b.arrayBuffer().then(function(buf){var u=new Uint8Array(buf),bin='';for(var i=0;i<u.length;i++)bin+=String.fromCharCode(u[i]);window.__xls={size:b.size,b64:btoa(bin)};});return old.call(URL,b)};})()");
     await ev("(function(){document.getElementById('profitExportXlsx').click();})()");
     let xls = null;
-    for (let i = 0; i < 40; i++) { xls = await ev("window.__xls||null"); if (xls) break; await sleep(500); }
+    for (let i = 0; i < 80; i++) { xls = await ev("window.__xls||null"); if (xls) break; await sleep(500); }
     ok(!!xls && xls.size > 5000, 'Excel 下载产出了文件', xls ? Math.round(xls.size / 1024) + ' KB' : '空');
     if (xls) {
       const xbuf = Buffer.from(xls.b64, 'base64');
