@@ -98,7 +98,7 @@ function login() {
       "sumProdUnits:s(P,'units'),sumProdCancelled:s(P,'cancelledUnits'),sumProdProfit:Math.round(s(P,'profitCny')*100)/100," +
       "cards:document.querySelectorAll('#profitProducts .pp-card').length," +
       "cardUnits:[].slice.call(document.querySelectorAll('#profitProducts .pp-units b')).reduce(function(a,b){return a+Number(String(b.textContent).replace(/[^0-9]/g,''))},0)," +
-      "kpi:[].slice.call(document.querySelectorAll('#profitOrderSummary .profit-order-stat')).map(function(x){var b=x.querySelector('b');return (x.querySelector('small')?x.querySelector('small').textContent:'')+'='+(b?b.textContent:'')})})()") || '{}');
+      "kpi:[].slice.call(document.querySelectorAll('#profitOrderSummary .profit-order-stat')).map(function(x){var b=x.querySelector('b');return (x.querySelector('small')?x.querySelector('small').textContent:'')+'='+(b?b.textContent:'')})}))()") || '{}');
     const T = d.totals || {};
     console.log('\n--- 页面数字 ---');
     console.log('区间            ' + (d.range ? d.range.from + ' ~ ' + d.range.to : '?'));
@@ -127,7 +127,7 @@ function login() {
       const before = await ev('(window.__files||[]).length') || 0;
       await ev("(function(){document.getElementById('" + btnId + "').click();})()");
       let out = null;
-      for (let i = 0; i < 120; i++) {
+      for (let i = 0; i < 300; i++) {
         const n = await ev('(window.__files||[]).length') || 0;
         if (n > before) { out = await ev("(async function(){var b=window.__files[window.__files.length-1];var ab=await b.arrayBuffer();var u=new Uint8Array(ab),bin='';for(var i=0;i<u.length;i++)bin+=String.fromCharCode(u[i]);return {size:b.size,b64:btoa(bin)}})()"); break; }
         await sleep(500);
