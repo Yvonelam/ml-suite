@@ -52,7 +52,9 @@ app.use((req, res, next) => {
 // ⚠️ 只挂 express.json() 但不管它的报错时，畸形 JSON 会掉进 Express 默认错误页，
 //    返回 400 + 一整段 HTML 堆栈（前端 JSON.parse 直接失败，且对外泄漏文件路径）。
 //    下面这个中间件专门接住 body 解析错误，统一按 JSON 回，前端就能拿到可读的 error。
-app.use(express.json());
+// 报告导出会把整个区间（含逐单明细）的 JSON 发回来生成 Excel/PDF，
+// 默认 100kb 直接 413；这里放宽到 20mb（本机自用，且路由本身要求已登录）。
+app.use(express.json({ limit: '20mb' }));
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   const isParseErr = err && (err.type === 'entity.parse.failed' || (err instanceof SyntaxError && 'body' in err));
@@ -1839,6 +1841,51 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
     profitOrderCache.set(cacheKey,{at:Date.now(),data});res.json(summaryOnly?toSummary(data,false):data);
   }catch(e){sendMlError(res,e);}
 });
+
+/* ---- 产品利润报告导出：PDF / Excel ----
+   PDF 走本机 Chrome 的 CDP 打印（lib/html-to-pdf.js）：报告长什么样 PDF 就长什么样，
+   样式只有一份，中文和图表都不用自己排版。
+   Excel 走 exceljs（lib/profit-xlsx.js）：产品利润 + 订单明细 + 口径三张表。
+   两者都直接吃页面当前这份数据，保证「下载的文件」与「屏幕上的数」完全同源。 */
+function reportFileName(base, ext) {
+  const safe = String(base || '').replace(/[\\/:*?"<>|\r\n]+/g, '_').slice(0, 80) || ('产品利润报告_' + Date.now());
+  return safe + '.' + ext;
+}
+app.post('/api/ml/profit/report.pdf', async (req, res) => {
+  try {
+    const html = String((req.body && req.body.html) || '');
+    if (!/<!DOCTYPE html>/i.test(html)) return res.status(400).json({ ok: false, error: '缺少报告内容' });
+    if (html.length > 12 * 1024 * 1024) return res.status(413).json({ ok: false, error: '报告内容过大（超过 12MB）' });
+    const name = reportFileName((req.body && req.body.name) || '', 'pdf');
+    const t0 = Date.now();
+    const pdf = await require('./lib/html-to-pdf').htmlToPdf(html);
+    console.log('[报告] PDF 已生成：' + name + '（' + Math.round(pdf.length / 1024) + ' KB · ' + (Date.now() - t0) + 'ms）');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', "attachment; filename=\"report.pdf\"; filename*=UTF-8''" + encodeURIComponent(name));
+    res.setHeader('Content-Length', pdf.length);
+    res.end(pdf);
+  } catch (e) {
+    console.error('[报告] PDF 生成失败：', e && e.message);
+    res.status(500).json({ ok: false, error: '生成 PDF 失败：' + ((e && e.message) || e) });
+  }
+});
+app.post('/api/ml/profit/report.xlsx', async (req, res) => {
+  try {
+    const d = req.body && req.body.data;
+    if (!d || !Array.isArray(d.products) || !Array.isArray(d.orders)) return res.status(400).json({ ok: false, error: '缺少利润数据' });
+    const name = reportFileName((req.body && req.body.name) || '', 'xlsx');
+    const buf = await require('./lib/profit-xlsx').buildProfitXlsx(d);
+    console.log('[报告] Excel 已生成：' + name + '（' + Math.round(buf.length / 1024) + ' KB · ' + d.products.length + ' 个产品 / ' + d.orders.length + ' 行订单）');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', "attachment; filename=\"report.xlsx\"; filename*=UTF-8''" + encodeURIComponent(name));
+    res.setHeader('Content-Length', buf.length);
+    res.end(Buffer.from(buf));
+  } catch (e) {
+    console.error('[报告] Excel 生成失败：', e && e.message);
+    res.status(500).json({ ok: false, error: '生成 Excel 失败：' + ((e && e.message) || e) });
+  }
+});
+
 app.get('/api/ml/profit/listings', async (req, res) => {
   const cfg = loadConfig();
   if (!mlConfigured(cfg)) return res.json({ ok:false, needConfig:true, message:'尚未配置美客多 API 凭证' });

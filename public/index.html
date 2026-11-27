@@ -174,9 +174,11 @@
         <div class="profit-rate-bar"><b>税费估算税率</b><input type="number" id="profitTaxRate" min="0" max="99" step="0.1" value="8" aria-label="税费估算税率（百分比）"><span class="unit">%</span><button class="btn y" id="profitTaxRateSave" type="button">保存并重算</button><span class="profit-rate-state" id="profitTaxRateState" aria-live="polite"></span><span class="profit-rate-note">平台未代扣税时（巴西站 <code>order.taxes</code> 为空），按<b>订单收入 × 该税率</b>估算税费并计入利润</span></div>
         <div class="profit-order-status" id="profitOrderStatus" aria-live="polite">选择日期范围后查询订单。</div>
         <div class="profit-report-bar">
-          <button class="btn y" id="profitExportReport" type="button">📊 下载报告（表格 + 图表）</button>
-          <button class="btn" id="profitExportCsv" type="button">⬇ 导出产品利润 CSV</button>
-          <span class="profit-report-hint">报告是单个 HTML 文件：产品利润表 + 逐单明细 + 三张图表（出单件数 / 各产品利润 / 收入对比成本），下载后可离线打开，也能直接打印成 PDF。</span>
+          <button class="btn y" id="profitExportPdf" type="button">📄 下载 PDF</button>
+          <button class="btn y" id="profitExportXlsx" type="button">📊 下载 Excel</button>
+          <button class="btn" id="profitExportReport" type="button">🌐 下载 HTML 报告</button>
+          <button class="btn" id="profitExportCsv" type="button">⬇ 导出 CSV</button>
+          <span class="profit-report-hint">PDF / HTML 都含三张图表（出单件数 / 各产品利润 / 收入对比成本）；Excel 是三张表：产品利润、订单明细（按产品分组，能看到每个产品的利润由哪些订单组成）、口径与汇率。</span>
         </div>
         <div class="profit-order-summary" id="profitOrderSummary" hidden></div>
         <div class="profit-products" id="profitProducts" hidden></div>
@@ -717,6 +719,6 @@
   <button class="theme-item" data-t="motion" type="button" role="menuitem"><span class="dot d-motion"></span><span class="nm"><b>动态玻璃</b><small>动态渐变 · 流动波纹 · 通透玻璃</small></span><span class="ck">✓</span></button>
 </div>
 <script src="app.js?v=81"></script>
-<script src="profit-report.js?v=1"></script>
+<script src="profit-report.js?v=2"></script>
 </body>
 </html>

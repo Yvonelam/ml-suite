@@ -197,7 +197,8 @@ function buildProfitReportHTML(d) {
   .note{font-size:11.5px;color:#64748b;line-height:1.75;border-top:1px dashed #e2e8f0;margin-top:22px;padding-top:10px}
   .note b{color:#334155}
   table.mini{width:auto;min-width:420px}
-  @media print{body{padding:0} .chart,table,.kpi{break-inside:avoid} h2{break-after:avoid}}
+  @page{size:A4 landscape;margin:10mm}
+  @media print{body{padding:0;max-width:none} .chart,table,.kpi{break-inside:avoid} h2{break-after:avoid} table{font-size:10.5px} .kpi-v{font-size:17px}}
 </style></head><body>
 
 <h1>产品利润报告</h1>
@@ -284,6 +285,72 @@ function downloadProfitReport() {
   toast('报告已生成：' + name);
 }
 
+function profitReportBaseName(d) {
+  return '产品利润报告_' + d.range.from + '_' + d.range.to;
+}
+function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 8000);
+}
+function profitReportReady() {
+  const d = lastProfitOrderData;
+  if (!d || !(d.products || []).length) { toast('请先查询一个日期范围，有数据后再下载', 'err'); return null; }
+  return d;
+}
+
+/* PDF：把报告 HTML 交给本机 Chrome 打印（服务端 /api/ml/profit/report.pdf），A4 横向。
+   不引 jsPDF/html2canvas —— 那样中文字体要额外塞、分页还得手算，而且打印出来和网页两套样式。 */
+async function downloadProfitReportPdf(btn) {
+  const d = profitReportReady(); if (!d) return;
+  const name = profitReportBaseName(d);
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '正在生成 PDF…'; }
+  toast('正在生成 PDF，通常 3–8 秒…');
+  try {
+    const r = await fetch(API_BASE + '/api/ml/profit/report.pdf', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ html: buildProfitReportHTML(d), name }),
+    });
+    if (!r.ok) { let m = 'HTTP ' + r.status; try { const j = await r.json(); m = j.error || m; } catch { } throw new Error(m); }
+    const blob = await r.blob();
+    if (!blob.size) throw new Error('服务端返回了空文件');
+    saveBlob(blob, name + '.pdf');
+    toast('PDF 已生成：' + name + '.pdf');
+  } catch (e) {
+    console.error('[报告] PDF 导出失败：', e);
+    toast('PDF 导出失败：' + e.message, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = old || '📄 下载 PDF'; }
+  }
+}
+
+/* Excel：服务端用 exceljs 生成 .xlsx（产品利润 / 订单明细 / 口径与汇率 三张表）。
+   直接把页面这份数据发过去，不重新调美客多 —— 免得 Excel 和页面数字打架。 */
+async function downloadProfitReportXlsx(btn) {
+  const d = profitReportReady(); if (!d) return;
+  const name = profitReportBaseName(d);
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '正在生成 Excel…'; }
+  try {
+    const r = await fetch(API_BASE + '/api/ml/profit/report.xlsx', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: d, name }),
+    });
+    if (!r.ok) { let m = 'HTTP ' + r.status; try { const j = await r.json(); m = j.error || m; } catch { } throw new Error(m); }
+    const blob = await r.blob();
+    if (!blob.size) throw new Error('服务端返回了空文件');
+    saveBlob(blob, name + '.xlsx');
+    toast('Excel 已生成：' + name + '.xlsx');
+  } catch (e) {
+    console.error('[报告] Excel 导出失败：', e);
+    toast('Excel 导出失败：' + e.message, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = old || '📊 下载 Excel'; }
+  }
+}
+
 function exportProfitProductsCSV() {
   const d = lastProfitOrderData;
   if (!d || !(d.products || []).length) { toast('请先查询一个日期范围，有数据后再导出', 'err'); return; }
@@ -304,6 +371,10 @@ function exportProfitProductsCSV() {
 (function bindProfitReportButtons() {
   const b1 = document.getElementById('profitExportReport');
   const b2 = document.getElementById('profitExportCsv');
+  const bp = document.getElementById('profitExportPdf');
+  const bx = document.getElementById('profitExportXlsx');
+  if (bp) bp.onclick = () => downloadProfitReportPdf(bp);
+  if (bx) bx.onclick = () => downloadProfitReportXlsx(bx);
   if (b1) {
     b1.onclick = () => {
       try { downloadProfitReport(); }
