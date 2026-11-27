@@ -73,13 +73,18 @@ function login() {
       if (await ev("(function(){var v=document.getElementById('v-profit');return !!v && getComputedStyle(v).display!=='none';})()")) break;
     }
     console.log('区间 ' + FROM + ' ~ ' + TO + '：正在拉订单并算利润…');
-    await ev("(function(){document.getElementById('profitOrderFrom').value=" + JSON.stringify(FROM) + ";document.getElementById('profitOrderTo').value=" + JSON.stringify(TO) + ";document.getElementById('profitOrderApply').click();})()");
+    // 页面进来会自己先加载一次「当天」。那一次请求可能比我们的晚回来，把区间覆盖回今天，
+    // 所以设完日期要**反复确认 lastProfitOrderData.range 真的变成目标区间**，不成就再点一次。
     let ready = false;
-    for (let i = 0; i < 180; i++) {
-      const st = await ev("(function(){var d=(typeof lastProfitOrderData!=='undefined'?lastProfitOrderData:null);if(!d||!d.range||!d.range.from)return '';return d.range.from+'|'+d.range.to+'|'+((d.series||[]).length)})()") || '';
-      const parts = st.split('|');
-      if (parts[0] === FROM && parts[1] === TO && Number(parts[2]) > 0) { ready = true; break; }
-      await sleep(1000);
+    for (let attempt = 0; attempt < 6 && !ready; attempt++) {
+      await ev("(function(){var f=document.getElementById('profitOrderFrom'),t=document.getElementById('profitOrderTo'),b=document.getElementById('profitOrderApply');" +
+        "f.value=" + JSON.stringify(FROM) + ";t.value=" + JSON.stringify(TO) + ";b.click();})()");
+      for (let i = 0; i < 45; i++) {
+        const st = await ev("(function(){var d=(typeof lastProfitOrderData!=='undefined'?lastProfitOrderData:null);if(!d||!d.range||!d.range.from)return '';return d.range.from+'|'+d.range.to+'|'+((d.series||[]).length)})()") || '';
+        const parts = st.split('|');
+        if (parts[0] === FROM && parts[1] === TO && Number(parts[2]) > 0) { ready = true; break; }
+        await sleep(1000);
+      }
     }
     if (!ready) {
       const st = await ev("(function(){var e=document.getElementById('profitOrderStatus');return e?e.textContent:''})()");
