@@ -35,7 +35,7 @@ function login() {
   const b64 = fs.readFileSync(PDF).toString('base64');
   const base = path.basename(PDF).replace(/\.pdf$/i, '');
   const dir = require('./cdp-tmp').profileDir('ml-pdfpage-');
-  const child = spawn(browser, ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--no-proxy-server', '--hide-scrollbars', '--window-size=1300,900', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });
+  const child = spawn(browser, ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--no-proxy-server', '--hide-scrollbars', '--window-size=900,720', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });
   let ws = null, id = 0; const pending = new Map();
   const send = (m, p = {}) => { const n = ++id; ws.send(JSON.stringify({ id: n, method: m, params: p })); return new Promise((res, rej) => { pending.set(n, { res, rej }); setTimeout(() => { if (pending.has(n)) { pending.delete(n); rej(new Error(m + ' timeout')); } }, 120000); }); };
   const ev = async e => (await send('Runtime.evaluate', { expression: e, returnByValue: true, awaitPromise: true })).result.value;
@@ -58,8 +58,8 @@ function login() {
     console.log('PDF 共 ' + total + ' 页');
     for (const n of PAGES) {
       if (n > total) { console.log('  ⚠ 第 ' + n + ' 页不存在（只有 ' + total + ' 页）'); continue; }
-      const ok = await ev("(async function(){var doc=window.__doc;var page=await doc.getPage(" + n + ");var vp=page.getViewport({scale:1.5});var old=document.getElementById('__pdfcanvas');if(old)old.remove();var c=document.createElement('canvas');c.id='__pdfcanvas';c.width=vp.width;c.height=vp.height;c.style.cssText='position:fixed;left:0;top:0;z-index:2147483647;background:#fff';document.body.appendChild(c);await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return c.width+'x'+c.height;})()");
-      const shot = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: 1300, height: 900, scale: 1 } });
+      const ok = await ev("(async function(){var doc=window.__doc;var page=await doc.getPage(" + n + ");var vp=page.getViewport({scale:1});var old=document.getElementById('__pdfcanvas');if(old)old.remove();var c=document.createElement('canvas');c.id='__pdfcanvas';c.width=vp.width;c.height=vp.height;c.style.cssText='position:fixed;left:0;top:0;z-index:2147483647;background:#fff';document.body.appendChild(c);await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return c.width+'x'+c.height;})()");
+      const shot = await send('Page.captureScreenshot', { format: 'png' });
       const out = path.join(__dirname, 'probe-out', base + '-p' + n + '.png');
       fs.writeFileSync(out, Buffer.from(shot.data, 'base64'));
       console.log('  📷 ' + out + '（' + ok + '）');
