@@ -8,6 +8,7 @@ const nodemailer = require('nodemailer');
 const reportSchedule = require('./report-schedule');
 const questionAutoReply = require('./question-auto-reply');
 const { escPush, questionPushHtml, questionPushTitle, buildQuestionPayload } = require('./push-format');
+const { assignSeries, UNKNOWN: UNKNOWN_SERIES } = require('./lib/series');
 
 // node:sqlite（广告账本用）加载时会打一条 "SQLite is an experimental feature" 警告。
 // 功能是好的、稳定的，但这条噪音会让人以为启动报错了 —— 精准挡掉它，其它警告照常放行。
@@ -873,6 +874,26 @@ async function mlItemInfo(ids) {
         if (b && b.id) map[String(b.id)] = { title: b.title || '', thumbnail: b.thumbnail || '', permalink: b.permalink || '' };
       }
     } catch { /* 单批失败不影响其它批次 */ }
+  }
+  return map;
+}
+
+/* 只取型号用的 SKU 批量查询（标题里认不出型号的少数 Listing 才走这条，通常一次都不用打）。
+   SKU 藏在 attributes 的 SELLER_SKU 上，顶层 seller_sku 一直是空。 */
+async function mlItemSkus(ids) {
+  const uniq = [...new Set((ids || []).filter(Boolean).map(String))];
+  const map = {};
+  for (let i = 0; i < uniq.length; i += 20) {
+    const batch = uniq.slice(i, i + 20);
+    try {
+      const d = await mlRequest(`/items?ids=${batch.join(',')}&attributes=id,attributes`);
+      for (const row of (Array.isArray(d) ? d : [])) {
+        const b = row && row.body;
+        if (!b || !b.id) continue;
+        const attr = (b.attributes || []).find(a => a && a.id === 'SELLER_SKU');
+        map[String(b.id)] = String((attr && attr.value_name) || b.seller_sku || '');
+      }
+    } catch { /* 取不到就按未识别处理，不影响金额 */ }
   }
   return map;
 }
@@ -1827,10 +1848,50 @@ app.get('/api/ml/profit/orders', async (req,res)=>{
         computed:p.computed,lines:p.lines,lastDate:p.lastDate};
     }).sort((a,b)=>b.units-a.units||b.profitCny-a.profitCny);
 
+    /* ---- 系列（型号）归并 ----
+       同一个型号常常有 3~5 个链接（不同颜色 / 变体各占一个 Listing），
+       逐 Listing 看利润根本看不出「BW06 这个系列到底赚多少」。
+       型号从标题里认（Bw06 / U3 / Hg04l / N7…），标题认不出再退到 SKU 前缀，最后归「未识别型号」。
+       ⚠ 只有认不出型号的才补一次 SKU 查询 —— 正常区间全部能靠标题识别，不该为此多打一次接口。 */
+    let seriesLabels=assignSeries(products.map(p=>({title:p.title,sku:''})));
+    const needSku=products.filter((p,i)=>seriesLabels[i]===UNKNOWN_SERIES&&p.itemId).map(p=>p.itemId);
+    if(needSku.length){
+      try{
+        const skus=await mlItemSkus(needSku);
+        seriesLabels=assignSeries(products.map(p=>({title:p.title,sku:skus[p.itemId]||''})));
+      }catch{/* SKU 取不到就保留标题识别结果 */}
+    }
+    products.forEach((p,i)=>{p.series=seriesLabels[i]||UNKNOWN_SERIES;});
+    const seriesByItem=new Map();
+    for(const p of products)if(p.itemId)seriesByItem.set(p.itemId,p.series);
+    // 每条订单行都带上系列，报告 / Excel 的逐单明细才能按系列分组
+    for(const x of lines)x.series=seriesByItem.get(x.itemId)||'';
+    const bySeries=new Map();
+    for(const p of products){
+      const key=p.series||UNKNOWN_SERIES;
+      let s=bySeries.get(key);
+      if(!s){s={series:key,listingCount:0,itemIds:[],units:0,cancelledUnits:0,cancelledOrders:0,cancelledLines:0,orders:0,
+        revenue:0,saleFee:0,shipping:0,tax:0,cost:0,profit:0,profitCny:0,revenueCny:0,computed:0,lines:0,lastDate:'',
+        thumbnail:'',permalink:'',topUnits:-1};bySeries.set(key,s);}
+      s.listingCount++;if(p.itemId)s.itemIds.push(p.itemId);
+      s.units+=p.units||0;s.cancelledUnits+=p.cancelledUnits||0;s.cancelledOrders+=p.cancelledOrders||0;s.cancelledLines+=p.cancelledLines||0;
+      s.orders+=p.orders||0;s.revenue+=p.revenue||0;s.saleFee+=p.saleFee||0;s.shipping+=p.shipping||0;s.tax+=p.tax||0;s.cost+=p.cost||0;
+      s.profit+=p.profit||0;s.profitCny+=p.profitCny||0;s.revenueCny+=p.revenueCny||0;s.computed+=p.computed||0;s.lines+=p.lines||0;
+      if(String(p.lastDate)>s.lastDate)s.lastDate=String(p.lastDate);
+      // 卡片主图 / 外链取该系列里出单最多的那个 Listing
+      if((p.units||0)>s.topUnits){s.topUnits=p.units||0;s.thumbnail=p.thumbnail||'';s.permalink=p.permalink||'';}
+    }
+    const series=[...bySeries.values()].map(s=>{
+      delete s.topUnits;
+      return {...s,revenue:r2(s.revenue),saleFee:r2(s.saleFee),shipping:r2(s.shipping),tax:r2(s.tax),cost:r2(s.cost),
+        profit:r2(s.profit),profitCny:r2(s.profitCny),revenueCny:r2(s.revenueCny),
+        margin:s.revenueCny?r2(s.profitCny/s.revenueCny*100):null};
+    }).sort((a,b)=>b.units-a.units||b.profitCny-a.profitCny);
+
     const data={ok:true,range:{from,to},currency:'CNY',taxRate,defaultTaxRate:DEFAULT_TAX_RATE,
       truncated:rawOrders.length<apiTotal,
       apiTotal,pulled:rawOrders.length,cancelled:cancelledOrders.length,strategy:pulled.strategy,
-      orders:lines,products,ads:adStatus,fx:fxUsed,
+      orders:lines,products,series,ads:adStatus,fx:fxUsed,
       totals:{allOrders:rawOrders.length,orders:validOrders.length,cancelledOrders:cancelledOrders.length,
         ordersWithMultiItem:rawOrders.filter(o=>(o.order_items||[]).length>1).length,
         lines:lines.length,validLines:active.length,matched:complete.length,unmatched:active.length-complete.length,
