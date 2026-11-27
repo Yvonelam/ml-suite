@@ -74,13 +74,18 @@ function login() {
     }
     console.log('区间 ' + FROM + ' ~ ' + TO + '：正在拉订单并算利润…');
     await ev("(function(){document.getElementById('profitOrderFrom').value=" + JSON.stringify(FROM) + ";document.getElementById('profitOrderTo').value=" + JSON.stringify(TO) + ";document.getElementById('profitOrderApply').click();})()");
-    let d = null;
+    let ready = false;
     for (let i = 0; i < 180; i++) {
-      const st = await ev("(function(){var d=(typeof lastProfitOrderData!=='undefined'?lastProfitOrderData:null);if(!d||!d.range)return '';return d.range.from+'|'+d.range.to+'|'+((d.series||[]).length)})()") || '';
-      if (st === FROM + '|' + TO + '|' + String(Number(st.split('|')[2] || 0)) && Number(st.split('|')[2]) > 0) { break; }
+      const st = await ev("(function(){var d=(typeof lastProfitOrderData!=='undefined'?lastProfitOrderData:null);if(!d||!d.range||!d.range.from)return '';return d.range.from+'|'+d.range.to+'|'+((d.series||[]).length)})()") || '';
+      const parts = st.split('|');
+      if (parts[0] === FROM && parts[1] === TO && Number(parts[2]) > 0) { ready = true; break; }
       await sleep(1000);
     }
-    d = JSON.parse(await ev("(function(){var d=(typeof lastProfitOrderData!=='undefined'?lastProfitOrderData:null);if(!d)return '{}';var S=d.series||[],P=d.products||[],T=d.totals||{};" +
+    if (!ready) {
+      const st = await ev("(function(){var e=document.getElementById('profitOrderStatus');return e?e.textContent:''})()");
+      throw new Error('等不到 ' + FROM + '~' + TO + ' 的数据：' + String(st || '').slice(0, 200));
+    }
+    const d = JSON.parse(await ev("(function(){var d=(typeof lastProfitOrderData!=='undefined'?lastProfitOrderData:null);if(!d)return '{}';var S=d.series||[],P=d.products||[],T=d.totals||{};" +
       "var s=function(a,k){return a.reduce(function(x,y){return x+(Number(y[k])||0)},0)};" +
       "return JSON.stringify({range:d.range,apiTotal:d.apiTotal,pulled:d.pulled," +
       "series:S.length,listings:P.length,lines:(d.orders||[]).length,noSeries:(d.orders||[]).filter(function(x){return !x.series}).length," +
