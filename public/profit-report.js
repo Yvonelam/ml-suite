@@ -197,8 +197,20 @@ function buildProfitReportHTML(d) {
   .note{font-size:11.5px;color:#64748b;line-height:1.75;border-top:1px dashed #e2e8f0;margin-top:22px;padding-top:10px}
   .note b{color:#334155}
   table.mini{width:auto;min-width:420px}
-  @page{size:A4 landscape;margin:10mm}
-  @media print{body{padding:0;max-width:none} .chart,table,.kpi{break-inside:avoid} h2{break-after:avoid} table{font-size:10.5px} .kpi-v{font-size:17px}}
+  @page{size:A4 landscape;margin:9mm}
+  /* 打印分页：只让「图表 / 卡片」整块不切，**表格必须允许跨页** ——
+     给 table 设 break-inside:avoid 时 Chrome 会为了不切断长表而反复挪页，
+     413 行明细能把报告撑到 34 页（实测），允许跨页 + 表头重复才是对的。 */
+  @media print{
+    body{padding:0;max-width:none}
+    .chart,.kpi{break-inside:avoid}
+    h2{break-after:avoid}
+    table{font-size:10px;break-inside:auto}
+    thead{display:table-header-group}
+    tr{break-inside:avoid}
+    th,td{padding:4px 6px}
+    .note{break-inside:auto}
+  }
 </style></head><body>
 
 <h1>产品利润报告</h1>

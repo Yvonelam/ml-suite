@@ -130,7 +130,14 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
       if (await ev("(function(){var v=document.getElementById('v-profit');return !!v && getComputedStyle(v).display!=='none';})()")) break;
     }
     await ev("(function(){var b=document.querySelector('#profitOrderRange button[data-range=\"7\"]');if(b)b.click();})()");
-    for (let i = 0; i < 90; i++) { rows = await ev("document.querySelectorAll('#profitOrderRows tr').length") || 0; if (rows > 0) break; await sleep(1000); }
+    // 页面进来自动加载「今天」，紧接着我们切「近 7 天」——两轮请求会抢同一个 lastProfitOrderData。
+    // 必须等到数据真的落在 7 天区间，否则会拿今天的 3 个产品去比 DOM 里 16 个卡片。
+    for (let i = 0; i < 90; i++) {
+      const st = await ev("(function(){var d=window.lastProfitOrderData;if(!d)return '';return (d.range?d.range.from+'|'+d.range.to:'')+'|'+((d.products||[]).length)})()") || '';
+      const m = /^(\d{4}-\d{2}-\d{2})\|(\d{4}-\d{2}-\d{2})\|(\d+)$/.exec(st);
+      if (m && m[3] > 0 && (new Date(m[2]) - new Date(m[1])) / 86400000 >= 6) break;
+      await sleep(1000);
+    }
     await ev("(function(){window.__csv=null;window.__csvBom=null;var old=URL.createObjectURL;URL.createObjectURL=function(b){var r=new FileReader();r.onload=function(){var u=new Uint8Array(r.result);window.__csvBom=[u[0],u[1],u[2]];window.__csv=new TextDecoder('utf-8',{ignoreBOM:true}).decode(u);};r.readAsArrayBuffer(b);return old.call(URL,b)};})()");
     await ev("(function(){document.getElementById('profitExportCsv').click();})()");
     let csv = null, bom = null;
@@ -138,7 +145,7 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
     ok(!!csv, 'CSV 有内容');
     if (csv) {
       const lines = String(csv).replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
-      const pc = await ev("(function(){var b=document.getElementById('profitProducts');return b?b.querySelectorAll('.pp-card').length:0;})()") || 0;
+      const pc = await ev("(function(){return (window.lastProfitOrderData&&lastProfitOrderData.products||[]).length})()") || 0;
       ok(bom === '[239,187,191]', 'CSV 带 UTF-8 BOM', bom);
       ok(lines.length === pc + 1, 'CSV 行数 = 表头 + 产品数', lines.length + ' vs ' + (pc + 1));
       ok(/产品/.test(lines[0]) && /利润\(¥\)/.test(lines[0]) && /利润率%/.test(lines[0]), 'CSV 表头含利润与利润率', lines[0].slice(0, 70));
