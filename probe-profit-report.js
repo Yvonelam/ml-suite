@@ -21,6 +21,8 @@ const path = require('path');
 const DBG = 9391;
 const API = Number(process.env.PORT || 3000);
 const HOST = 'http://127.0.0.1:' + API;
+// 想看第几页的渲染就设 PDF_PAGE=3（第 1 页是封面 KPI，图表从第 2 页起，肉眼查图有没有被切时用得上）
+const PDF_PAGE = Math.max(1, Number(process.env.PDF_PAGE || 1));
 const dev = (() => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'auth-data', 'dev-login.json'), 'utf8')); } catch { return {}; } })();
 function login() {
   const body = Buffer.from(JSON.stringify({ username: process.env.ML_ADMIN_USER || dev.username, password: process.env.ML_ADMIN_PASSWORD || dev.password }));
@@ -205,12 +207,12 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
       const injected = await Promise.race([inject, sleep(12000).then(() => 'guarded-timeout')]);
       ok(injected === 'ok' || injected === 'cached', 'pdf.js 加载成功', String(injected));
       const rendered = await Promise.race([
-        ev("(async function(){try{var b64=" + JSON.stringify(keptPdfB64) + ";var bin=atob(b64),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);var doc=await pdfjsLib.getDocument({data:u}).promise;var page=await doc.getPage(1);var vp=page.getViewport({scale:1.4});var c=document.createElement('canvas');c.width=vp.width;c.height=vp.height;c.style.cssText='position:fixed;left:0;top:0;z-index:2147483647;background:#fff';document.body.appendChild(c);await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return {pages:doc.numPages,w:c.width,h:c.height};}catch(e){return {err:String(e&&e.message||e)}}})()"),
+        ev("(async function(){try{var b64=" + JSON.stringify(keptPdfB64) + ";var bin=atob(b64),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);var doc=await pdfjsLib.getDocument({data:u}).promise;var page=await doc.getPage(" + PDF_PAGE + ");var vp=page.getViewport({scale:1.4});var c=document.createElement('canvas');c.width=vp.width;c.height=vp.height;c.style.cssText='position:fixed;left:0;top:0;z-index:2147483647;background:#fff';document.body.appendChild(c);await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return {pages:doc.numPages,w:c.width,h:c.height};}catch(e){return {err:String(e&&e.message||e)}}})()"),
         sleep(25000).then(() => ({ err: 'render-timeout' })),
       ]);
-      ok(rendered && rendered.pages >= 2, 'pdf.js 能解析并渲染第 1 页', JSON.stringify(rendered));
+      ok(rendered && rendered.pages >= 2, 'pdf.js 能解析并渲染第 ' + PDF_PAGE + ' 页', JSON.stringify(rendered));
       const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
-      const png = path.join(__dirname, 'probe-out', 'profit-report-pdf.png');
+      const png = path.join(__dirname, 'probe-out', PDF_PAGE === 1 ? 'profit-report-pdf.png' : ('profit-report-pdf-p' + PDF_PAGE + '.png'));
       fs.writeFileSync(png, Buffer.from(shot.data, 'base64'));
       console.log('  📷 ' + png);
     }
