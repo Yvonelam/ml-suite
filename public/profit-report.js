@@ -100,8 +100,11 @@ function buildProfitReportHTML(d, opt) {
   const products = (bySeries ? d.series : (d.products || [])).slice();
   const labelOf = p => bySeries ? (p.series || '未识别型号') : (p.title || p.itemId || '');
   const subOf = p => bySeries
-    ? (rptNum(p.listingCount || 1) + ' 个 Listing' + (p.units ? ' · ' + rptNum(p.units) + ' 件' : ''))
+    ? (rptNum(p.listingCount || 1) + ' 个 Listing' + (p.units ? ' · 有效 ' + rptNum(p.units) + ' 件' : ''))
     : String(p.itemId || '');
+  // 出单件数那张图的条长是「有效 + 取消」，右侧数字也就是含取消的合计；
+  // 小字再写一遍件数会跟右侧数字对不上（584 vs 544），所以那张图只写 Listing 数。
+  const subShortOf = p => bySeries ? (rptNum(p.listingCount || 1) + ' 个 Listing') : String(p.itemId || '');
   const orders = (d.orders || []).slice();
   const genAt = new Date().toLocaleString('zh-CN', { hour12: false });
   const fxRows = Object.keys(fx).map(c => `<tr><td>${escHtml(c)}</td><td>${rptNum(fx[c].cnyPer100, 2)}</td><td>${escHtml(fx[c].rateType || '中行牌价')}</td><td>${escHtml(fx[c].publishedAt || '—')}</td></tr>`).join('');
@@ -127,7 +130,7 @@ function buildProfitReportHTML(d, opt) {
   const topRows = rows.slice(0, CHART_TOP);
   const profitTop = rows.slice().sort((a, b) => Math.abs(Number(b.p.profitCny) || 0) - Math.abs(Number(a.p.profitCny) || 0)).slice(0, CHART_TOP);
   const chartNote = rows.length > CHART_TOP ? '（只画前 ' + CHART_TOP + ' 个，另 ' + (rows.length - CHART_TOP) + ' 个见下方明细表）' : '';
-  const unitsItems = topRows.map(r => ({ label: labelOf(r.p), sub: subOf(r.p), values: [r.p.units || 0, r.p.cancelledUnits || 0] }));
+  const unitsItems = topRows.map(r => ({ label: labelOf(r.p), sub: subShortOf(r.p), values: [r.p.units || 0, r.p.cancelledUnits || 0] }));
   const profitItems = profitTop.map(r => ({ label: labelOf(r.p), sub: (r.p.units || 0) + ' 件 · ' + rptPct(r.p.margin), value: r.p.profitCny || 0 }));
   const revCostItems = topRows.map(r => ({ label: labelOf(r.p), sub: (r.p.units || 0) + ' 件', revenueCny: Number(r.p.revenueCny) || 0, costAll: r.costAll }));
 
