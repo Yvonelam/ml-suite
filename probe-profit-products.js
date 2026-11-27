@@ -44,9 +44,10 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
   const ck = await login();
   const api = await apiGet(`/api/ml/profit/orders?from=${FROM}&to=${TO}`, ck);
   if (!api.ok) { console.error('接口异常：' + JSON.stringify(api).slice(0, 300)); process.exit(1); }
-  const T = api.totals, P = api.products || [];
+  const T = api.totals, P = api.products || [], S = api.series || [];
   console.log('接口口径：全部 ' + T.allOrders + ' 单 / ' + T.units + ' 件 · 有效 ' + T.orders + ' 单 / ' + T.validUnits + ' 件 · 取消 ' + T.cancelledOrders + ' 单 / ' + T.cancelledUnits + ' 件');
-  console.log('产品维度：' + P.length + ' 个 Listing · 件数合计 ' + P.reduce((s, p) => s + p.units, 0));
+  console.log('产品维度：' + P.length + ' 个 Listing · ' + S.length + ' 个系列 · 件数合计 ' + P.reduce((s, p) => s + p.units, 0));
+  if (S.length) console.log('系列：' + S.map(s => s.series + '（' + s.listingCount + ' 个 Listing）').join(' · '));
 
   const dir = require('./cdp-tmp').profileDir('ml-pp-');
   const child = spawn(browser, ['--headless=new', '--remote-debugging-port=' + DBG, '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--hide-scrollbars', '--mute-audio', '--window-size=1440,1400', '--user-data-dir=' + dir, 'about:blank'], { stdio: 'ignore' });
@@ -169,8 +170,10 @@ const ok = (c, label, extra) => { if (c) { pass++; console.log('  ✓ ' + label)
     console.log('    卡片 ' + pp.cards + ' 个 · 有 https 图 ' + pp.withImg + ' · 实际加载成功 ' + pp.loaded);
     console.log('    首卡：' + pp.first);
     console.log('    说明：' + pp.head);
-    ok(!pp.hidden, '产品出单统计区块可见');
-    ok(pp.cards === P.length, '卡片数 = 接口产品数 ' + P.length, pp.cards);
+    ok(!pp.hidden, '系列出单统计区块可见');
+    // 卡片是**系列**维度（同型号合并），所以跟 series 数比，不是跟 Listing 数比
+    ok(pp.cards === S.length, '卡片数 = 接口系列数 ' + S.length + '（Listing ' + P.length + ' 个）', pp.cards);
+    ok(S.length > 0 && S.length < P.length, '同型号确实合并了（系列 < Listing）', S.length + ' vs ' + P.length);
     ok(pp.withImg === pp.cards, '每张卡片都有 https 主图', { withImg: pp.withImg, cards: pp.cards });
     ok(pp.loaded >= Math.ceil(pp.cards * 0.6), '至少 60% 主图真实加载成功（' + pp.loaded + '/' + pp.cards + '）');
     ok(pp.unitsSum === T.validUnits, '产品件数合计 = 有效件数 ' + T.validUnits, pp.unitsSum);

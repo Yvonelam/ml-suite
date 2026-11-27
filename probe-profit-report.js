@@ -77,12 +77,33 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
     for (let i = 0; i < 90; i++) {
       rows = await ev("document.querySelectorAll('#profitOrderRows tr').length") || 0;
       const hidden = await ev("(function(){var p=document.getElementById('profitProducts');return !p || p.hidden;})()");
-      if (rows > 0 && !hidden) break;
+      // 页面进来自动加载「今天」，紧接着我们切「近 7 天」——两轮请求抢同一个 lastProfitOrderData。
+      // 只看「有行」会拿到今天那 3 个系列，系列数 / 合并断言全成假象，必须等到区间真的变成 7 天。
+      const span = await ev("(function(){var d=(typeof lastProfitOrderData!=='undefined'?lastProfitOrderData:null);if(!d||!d.range)return 0;return Math.round((new Date(d.range.to)-new Date(d.range.from))/86400000)})()") || 0;
+      if (rows > 0 && !hidden && span >= 6) break;
       await sleep(1000);
     }
-    const pageProducts = await ev("(function(){var b=document.getElementById('profitProducts');return b?b.querySelectorAll('.pp-card').length:0;})()") || 0;
+    const pageCards = await ev("(function(){var b=document.getElementById('profitProducts');return b?b.querySelectorAll('.pp-card').length:0;})()") || 0;
+    const inv = await ev("(function(){var d=(typeof lastProfitOrderData!=='undefined'?lastProfitOrderData:null);if(!d)return '{}';var S=d.series||[],P=d.products||[],O=d.orders||[];" +
+      "var sum=function(a,f){return a.reduce(function(s,x){return s+(Number(f(x))||0)},0)};" +
+      "return JSON.stringify({series:S.length,listings:P.length,orders:O.length," +
+      "seriesUnits:sum(S,function(x){return x.units}),listingUnits:sum(P,function(x){return x.units})," +
+      "seriesProfit:Math.round(sum(S,function(x){return x.profitCny})*100)/100,listingProfit:Math.round(sum(P,function(x){return x.profitCny})*100)/100," +
+      "uniqSeries:new Set(S.map(function(x){return x.series})).size,noSeriesRows:O.filter(function(x){return !x.series}).length})})()");
+    const D = JSON.parse(inv || '{}');
+    const seriesCount = D.series || 0, listingCount = D.listings || 0;
+    const firstCardName = await ev("(function(){var e=document.querySelector('#profitProducts .pp-series');return e?e.textContent.trim():''})()") || '';
     ok(rows > 0, '逐单表有行', 'rows=' + rows);
-    ok(pageProducts > 0, '产品出单卡片有行', 'products=' + pageProducts);
+    ok(pageCards > 0, '系列出单卡片有行', 'cards=' + pageCards);
+    ok(seriesCount > 0 && pageCards === seriesCount, '卡片数 = 系列数（不是 Listing 数）', pageCards + ' vs ' + seriesCount);
+    ok(seriesCount <= listingCount, '系列数 ≤ Listing 数', seriesCount + ' 系列 / ' + listingCount + ' Listing');
+    ok(D.uniqSeries === seriesCount, '每个 Listing 只归一个系列（系列名不重复）', D.uniqSeries + ' vs ' + seriesCount);
+    // 合并绝不能丢钱：系列合计必须逐项等于 Listing 合计
+    ok(D.seriesUnits === D.listingUnits, '系列件数合计 = Listing 件数合计', D.seriesUnits + ' vs ' + D.listingUnits);
+    ok(Math.abs(D.seriesProfit - D.listingProfit) < 0.01, '系列利润合计 = Listing 利润合计（合并没丢数）', D.seriesProfit + ' vs ' + D.listingProfit);
+    ok((D.orders || 0) > 0 && D.noSeriesRows === 0, '每条订单行都带系列（逐单明细才能分组）', D.noSeriesRows + ' 行缺系列 / 共 ' + D.orders);
+    // 卡片标题必须是短型号，不能是整条长标题
+    ok(!!firstCardName && firstCardName.length <= 16 && !/headset|fone|wireless|para /i.test(firstCardName), '卡片只显示系列名，不铺标题', JSON.stringify(firstCardName));
 
     console.log('--- 2. 生成报告 ---');
     // 拦住 createObjectURL：报告与 CSV 都是 Blob，直接读文本核对
@@ -99,9 +120,9 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
       const svgs = (rpt.match(/<svg /g) || []).length;
       const productRows = (rpt.match(/<td class="num">\d+<\/td>\s*<td class="name">/g) || []).length;
       ok(svgs >= 3, '报告内嵌 ≥3 张 SVG 图表', 'svg=' + svgs);
-      ok(/产品利润明细/.test(rpt) && /逐单明细/.test(rpt) && /净利润/.test(rpt), '报告含利润表 / 逐单明细 / 净利润 KPI');
+      ok(/系列利润明细/.test(rpt) && /逐单明细/.test(rpt) && /净利润/.test(rpt), '报告含系列利润表 / 逐单明细 / 净利润 KPI');
       ok(/产品利润报告/.test(rpt) && /<!DOCTYPE html>/.test(rpt), '是完整 HTML 文档');
-      ok(productRows === pageProducts, '报告产品行数 = 页面产品数', productRows + ' vs ' + pageProducts);
+      ok(productRows === seriesCount, '报告系列行数 = 页面系列数', productRows + ' vs ' + seriesCount);
       ok(!/\$\{|undefined|NaN/.test(rpt.replace(/<script[\s\S]*?<\/script>/g, '')), '报告里没有模板漏值 / NaN');
       ok(!/https?:\/\/[^"]*\.(js|css)/i.test(rpt), '报告不引外部 js/css（离线可看）');
       const out = path.join(__dirname, 'probe-out', 'profit-report.html');
@@ -142,7 +163,7 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
     // 读数与点击必须在同一次求值里完成：中间隔一次往返，页面自带的「今天」加载可能刚好覆盖数据
     // 注意：app.js 里是 `let lastProfitOrderData`（词法绑定），不是 window 属性。
     // 写成 window.lastProfitOrderData 恒为 undefined → 产品数永远是 0，断言就假失败。
-    const pcAtClick = await ev("(function(){var n=(typeof lastProfitOrderData!=='undefined'&&lastProfitOrderData&&lastProfitOrderData.products||[]).length;document.getElementById('profitExportCsv').click();return n})()") || 0;
+    const pcAtClick = await ev("(function(){var d=(typeof lastProfitOrderData!=='undefined'?lastProfitOrderData:null);var n=((d&&d.series&&d.series.length)?d.series:d&&d.products||[]).length;document.getElementById('profitExportCsv').click();return n})()") || 0;
     let csv = null, bom = null;
     for (let i = 0; i < 30; i++) { csv = await ev('window.__csv'); bom = await ev('JSON.stringify(window.__csvBom||null)'); if (csv) break; await sleep(300); }
     ok(!!csv, 'CSV 有内容');
@@ -150,8 +171,8 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
       const lines = String(csv).replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
       const pc = pcAtClick;
       ok(bom === '[239,187,191]', 'CSV 带 UTF-8 BOM', bom);
-      ok(lines.length === pc + 1, 'CSV 行数 = 表头 + 产品数', lines.length + ' vs ' + (pc + 1));
-      ok(/产品/.test(lines[0]) && /利润\(¥\)/.test(lines[0]) && /利润率%/.test(lines[0]), 'CSV 表头含利润与利润率', lines[0].slice(0, 70));
+      ok(lines.length === pc + 1, 'CSV 行数 = 表头 + 系列数', lines.length + ' vs ' + (pc + 1));
+      ok(/系列/.test(lines[0]) && /利润\(¥\)/.test(lines[0]) && /利润率%/.test(lines[0]), 'CSV 表头是系列口径且含利润与利润率', lines[0].slice(0, 70));
     }
 
     console.log('--- 4. 导出 PDF（服务端 Chrome 打印）---');
@@ -210,7 +231,7 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
       if (n > 0) break;
       await sleep(1000);
     }
-    const prodCount = await ev("(function(){return (lastProfitOrderData&&lastProfitOrderData.products||[]).length})()") || 0;
+    const prodCount = await ev("(function(){return (lastProfitOrderData&&lastProfitOrderData.series||[]).length})()") || 0;
     const ordCount = await ev("(function(){return (lastProfitOrderData&&lastProfitOrderData.orders||[]).length})()") || 0;
     await ev("(function(){window.__xls=null;var old=URL.createObjectURL;URL.createObjectURL=function(b){b.arrayBuffer().then(function(buf){var u=new Uint8Array(buf),bin='';for(var i=0;i<u.length;i++)bin+=String.fromCharCode(u[i]);window.__xls={size:b.size,b64:btoa(bin)};});return old.call(URL,b)};})()");
     await ev("(function(){document.getElementById('profitExportXlsx').click();})()");
@@ -227,13 +248,13 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(xbuf);
       const names = wb.worksheets.map(w => w.name);
-      ok(names.includes('产品利润') && names.includes('订单明细'), '三张表齐全', names.join(' / '));
-      const s1 = wb.getWorksheet('产品利润'), s2 = wb.getWorksheet('订单明细');
+      ok(names.includes('系列利润') && names.includes('订单明细') && names.includes('口径与汇率'), '三张表齐全', names.join(' / '));
+      const s1 = wb.getWorksheet('系列利润'), s2 = wb.getWorksheet('订单明细');
       const s1Rows = s1.rowCount - 3 - 4;   // 标题2行 + 表头1行 + 合计1行 + 空行1行 + 广告/净利2行
-      ok(prodCount > 0 && s1Rows === prodCount, '产品利润行数 = 页面产品数', s1Rows + ' vs ' + prodCount);
+      ok(prodCount > 0 && s1Rows === prodCount, '系列利润行数 = 页面系列数', s1Rows + ' vs ' + prodCount);
       ok(s2.rowCount - 1 === ordCount, '订单明细行数 = 页面订单数（能对上每一单）', (s2.rowCount - 1) + ' vs ' + ordCount);
-      ok(String(s1.getRow(3).getCell(2).value) === '产品' && String(s2.getRow(1).getCell(3).value) === '产品', '两张表都带「产品」列');
-      ok(!!s2.autoFilter, '订单明细带筛选器（可按产品/状态筛）');
+      ok(/系列/.test(String(s1.getRow(3).getCell(2).value)) && String(s2.getRow(1).getCell(3).value) === '系列', '两张表都是系列口径', String(s1.getRow(3).getCell(2).value) + ' / ' + String(s2.getRow(1).getCell(3).value));
+      ok(!!s2.autoFilter, '订单明细带筛选器（可按系列/状态筛）');
       const anyNum = s1.getRow(4).getCell(13).numFmt;
       ok(anyNum && String(anyNum).includes('#,##0'), '利润列有千分位数字格式', String(anyNum));
     }

@@ -187,6 +187,7 @@ function buildProfitReportHTML(d) {
   body{margin:0;padding:28px;background:#fff;color:#0f172a;
     font:13px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
   h1{font-size:22px;margin:0 0 4px}
+  h1 .h1sub{font-size:12.5px;font-weight:400;color:#64748b;margin-left:8px;letter-spacing:0}
   h2{font-size:15px;margin:26px 0 10px;padding-left:9px;border-left:3px solid ${RPT.pos}}
   .meta{color:#64748b;font-size:12px;margin-bottom:4px}
   .meta b{color:#0f172a}
@@ -279,7 +280,7 @@ function buildProfitReportHTML(d) {
 <h2>逐单明细（${rptNum(orders.length)} 行）</h2>
 <table>
   <thead><tr>
-    <th>下单时间</th><th>订单号</th><th>商品</th><th class="num">数量</th>
+    <th>下单时间</th><th>订单号</th><th>系列</th><th class="num">数量</th>
     <th class="num">收入（${escHtml(lcur)}）</th><th class="num">佣金（${escHtml(lcur)}）</th><th class="num">运费（${escHtml(lcur)}）</th><th class="num">税费（${escHtml(lcur)}）</th>
     <th class="num">成本+头程（¥）</th><th class="num">利润（¥）</th>
   </tr></thead>
@@ -288,8 +289,9 @@ function buildProfitReportHTML(d) {
 
 <div class="note">
   <b>口径说明</b><br>
+  0. <b>按系列（型号）合并</b>：同一个型号的不同颜色 / 变体在美客多是各自独立的 Listing，报告按标题里识别出的型号（U3 / BW06 / HG04L…）把它们的订单与利润合并成一条；逐单明细第二列给出系列名，第三列仍是 Listing ID，需要拆开看时按 Listing ID 筛。<br>
   1. 件数含取消 / 退款单（与美客多后台「已售出」口径一致），但取消单不计入收入与利润，逐单明细里整行置灰并划掉。<br>
-  2. 产品利润 = 收入 − 平台佣金 − 尾程运费 − 税费 − 产品成本 − 头程；<b>广告费不分摊到产品</b>，只从整体净利润里扣一次。<br>
+  2. 系列利润 = 收入 − 平台佣金 − 尾程运费 − 税费 − 产品成本 − 头程；<b>广告费不分摊到系列</b>，只从整体净利润里扣一次。<br>
   3. 税费：平台返回 <code>order.taxes.amount</code> 有数字就用平台值；巴西站平台不代扣，按订单收入 × ${rptNum((d.taxRate || 0) * 100, 1)}% 估算，因此是<b>估算值</b>。<br>
   4. 汇率：中国银行牌价，${Object.keys(fx).length ? '参与折算的币种见下表' : '本次区间无可用牌价，相关金额显示为待核对'}。同一行里原币列与人民币列<b>不能直接相减</b>。<br>
   5. 标「待核对」的行表示缺成本、缺运费或暂无牌价，未计入合计。<br>
@@ -382,17 +384,27 @@ async function downloadProfitReportXlsx(btn) {
 
 function exportProfitProductsCSV() {
   const d = lastProfitOrderData;
-  if (!d || !(d.products || []).length) { toast('请先查询一个日期范围，有数据后再导出', 'err'); return; }
+  if (!d || !((d.series || d.products) || []).length) { toast('请先查询一个日期范围，有数据后再导出', 'err'); return; }
   const lcur = (d.orders && d.orders[0] && d.orders[0].currency) || 'BRL';
-  const headers = ['产品', 'Listing', '件数', '订单数', '取消件数', '收入(' + lcur + ')', '收入(¥)', '平台佣金(' + lcur + ')', '尾程运费(' + lcur + ')', '税费(' + lcur + ')', '成本+头程(¥)', '利润(¥)', '利润率%'];
+  // 与页面同口径：有 series 就导系列（同型号合并），否则退回逐 Listing
+  const bySeries = Array.isArray(d.series) && d.series.length > 0;
+  const rows0 = bySeries ? d.series : d.products;
+  const headers = bySeries
+    ? ['系列（型号）', 'Listing 数', 'Listing ID', '件数', '订单数', '取消件数', '收入(' + lcur + ')', '收入(¥)', '平台佣金(' + lcur + ')', '尾程运费(' + lcur + ')', '税费(' + lcur + ')', '成本+头程(¥)', '利润(¥)', '利润率%']
+    : ['产品', 'Listing', '件数', '订单数', '取消件数', '收入(' + lcur + ')', '收入(¥)', '平台佣金(' + lcur + ')', '尾程运费(' + lcur + ')', '税费(' + lcur + ')', '成本+头程(¥)', '利润(¥)', '利润率%'];
   const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-  const rows = (d.products || []).map(p => [
-    q(p.title || ''), p.itemId || '', p.units || 0, p.orders || 0, p.cancelledUnits || 0,
-    (Number(p.revenue) || 0).toFixed(2), (Number(p.revenueCny) || 0).toFixed(2),
-    (Number(p.saleFee) || 0).toFixed(2), (Number(p.shipping) || 0).toFixed(2), (Number(p.tax) || 0).toFixed(2),
-    (Number(p.cost) || 0).toFixed(2), (Number(p.profitCny) || 0).toFixed(2),
-    p.margin == null ? '' : Number(p.margin).toFixed(2),
-  ]);
+  const rows = rows0.map(p => {
+    const tail = [
+      p.units || 0, p.orders || 0, p.cancelledUnits || 0,
+      (Number(p.revenue) || 0).toFixed(2), (Number(p.revenueCny) || 0).toFixed(2),
+      (Number(p.saleFee) || 0).toFixed(2), (Number(p.shipping) || 0).toFixed(2), (Number(p.tax) || 0).toFixed(2),
+      (Number(p.cost) || 0).toFixed(2), (Number(p.profitCny) || 0).toFixed(2),
+      p.margin == null ? '' : Number(p.margin).toFixed(2),
+    ];
+    return bySeries
+      ? [q(p.series || '未识别型号'), p.listingCount || 1, q((p.itemIds || []).join(' '))].concat(tail)
+      : [q(p.title || ''), p.itemId || ''].concat(tail);
+  });
   downloadCSV('产品利润_' + d.range.from + '_' + d.range.to + '.csv', headers, rows);
 }
 
