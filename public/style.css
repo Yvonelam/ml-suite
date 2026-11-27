@@ -672,6 +672,10 @@ a.pp-card:hover{border-color:#3a3a46;background:rgba(255,255,255,.05);transform:
 .pp-body{min-width:0;flex:1}
 .pp-title{font-size:11px;color:var(--ink);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pp-id{font-size:9px;color:var(--mut);margin-top:2px;letter-spacing:.2px}
+/* 系列卡：系列名要一眼能扫（U3 / BW06 / HG04L），所以单独放大 + 等宽数字感 */
+.pp-title.pp-series{font-size:17px;font-weight:700;letter-spacing:.6px;line-height:1.15;-webkit-line-clamp:1;display:flex;align-items:baseline;gap:6px;overflow:hidden;text-overflow:ellipsis}
+.pp-series-tag{font-size:9px;font-weight:500;letter-spacing:1px;color:var(--mut);border:1px solid var(--bd);border-radius:4px;padding:1px 4px;text-transform:none;flex:0 0 auto}
+.po-series{font-size:11px;font-weight:600;letter-spacing:.4px}
 .pp-metrics{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:5px;font-size:10px;color:var(--mut)}
 .pp-units{color:var(--ink)}.pp-units b{font-size:13px;color:var(--ok)}
 .pp-orders{color:var(--mut)}

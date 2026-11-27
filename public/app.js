@@ -489,7 +489,7 @@ function renderProfitOrders(data){
     const badge=dead?'<span class="po-badge off">已取消</span>':'';
     const detail=!dead&&x.statusDetail&&/cancel|refund/i.test(x.statusDetail)?'<span class="po-badge off">'+escHtml(x.statusDetail)+'</span>':'';
     return '<tr'+(dead?' class="dead"':'')+'><td>'+escHtml(date)+badge+detail+'<small>订单 '+escHtml(x.orderId)+'</small></td>'
-      +'<td><span class="profit-order-title" title="'+escHtml(x.title)+'">'+escHtml(x.title)+'</span><small>'+escHtml(x.itemId)+'</small></td>'
+      +'<td><span class="profit-order-title po-series" title="系列 '+escHtml(x.series||'')+'">'+escHtml(x.series||'未识别型号')+'</span><small>'+escHtml(x.itemId)+'</small></td>'
       +'<td>'+fmt(x.qty)+(Number(x.qty)>1?'<small>单笔多件</small>':'')+'</td>'
       +'<td title="'+escHtml(revT)+'">'+money(rev,lcur)+'</td>'
       +'<td'+(feeT?' title="'+escHtml(feeT)+'"':'')+'>'+(fee===null?'—':money(fee,lcur))+'</td>'
@@ -502,26 +502,36 @@ function renderProfitOrders(data){
   }).join('');
 }
 
-// 产品出单统计：按 Listing 聚合，带主图。件数口径跟上面汇总一致（有效件数 / 取消件数分开）。
+// 系列出单统计：按「型号」聚合（U3 / BW06 / HG04L…），同型号的不同颜色、不同变体合并成一张卡。
+// 型号由服务端从标题里自动识别（见 lib/series.js）；识别不出来的归「未识别型号」。
+// 件数口径跟上面汇总一致（有效件数 / 取消件数分开）。
 function renderProfitProducts(data){
   const box=$('#profitProducts');if(!box)return;
-  const list=(data.products||[]).slice();
+  // 旧缓存 / summary 响应没有 series，就退回逐 Listing，别把面板搞空
+  const useSeries=Array.isArray(data.series)&&data.series.length>0;
+  const list=(useSeries?data.series:(data.products||[])).slice();
   if(!list.length){box.hidden=true;box.innerHTML='';return;}
   const lcur=profitLocalCode();
   const validUnits=list.reduce((s,p)=>s+(Number(p.units)||0),0);
   const deadUnits=list.reduce((s,p)=>s+(Number(p.cancelledUnits)||0),0);
+  const listingTotal=list.reduce((s,p)=>s+(Number(p.listingCount)||0),0);
   const cards=list.map(p=>{
     const thumb=String(p.thumbnail||'').replace(/^http:\/\//i,'https://');
     const profit=Number(p.profitCny)||0,cls=profit<0?'negative':'';
+    const name=useSeries?(p.series||'未识别型号'):(p.title||p.itemId||'（未知商品）');
     const img=thumb
       ?'<img class="pp-img" src="'+escHtml(thumb)+'" alt="" loading="lazy" referrerpolicy="no-referrer">'
-      :'<span class="pp-img pp-img-ph">'+escHtml(String(p.title||p.itemId||'?').slice(0,1).toUpperCase())+'</span>';
+      :'<span class="pp-img pp-img-ph">'+escHtml(String(name||'?').slice(0,1).toUpperCase())+'</span>';
     const pending=(Number(p.lines)||0)-(Number(p.computed)||0)-(Number(p.cancelledLines)||0);
+    // 系列名单独一行（大字号），下面小字只给「几个 Listing / 最近出货」，标题一个字都不展示
+    const sub=useSeries
+      ?(fmt(p.listingCount||1)+' 个 Listing'+(p.lastDate?' · 最近出货 '+escHtml(String(p.lastDate).slice(0,10)):''))
+      :escHtml(p.itemId||'—');
     const body='<div class="pp-body">'
-      +'<div class="pp-title" title="'+escHtml(p.title)+'">'+escHtml(p.title||p.itemId||'（未知商品）')+'</div>'
-      +'<div class="pp-id">'+escHtml(p.itemId||'—')+'</div>'
+      +'<div class="pp-title pp-series" title="'+(useSeries?'系列 ':'')+escHtml(name)+'">'+escHtml(name)+(useSeries?'<span class="pp-series-tag">系列</span>':'')+'</div>'
+      +'<div class="pp-id" title="'+escHtml((p.itemIds||[]).join('、'))+'">'+sub+'</div>'
       +'<div class="pp-metrics"><span class="pp-units"><b>'+fmt(p.units||0)+'</b> 件</span><span class="pp-orders">'+fmt(p.orders||0)+' 单</span>'
-        +((Number(p.cancelledUnits)||0)?'<span class="pp-dead" title="该 Listing 在所选区间有取消 / 退款件数，不计入利润">取消 '+fmt(p.cancelledUnits)+' 件</span>':'')+'</div>'
+        +((Number(p.cancelledUnits)||0)?'<span class="pp-dead" title="该系列在所选区间有取消 / 退款件数，不计入利润">取消 '+fmt(p.cancelledUnits)+' 件</span>':'')+'</div>'
       +'<div class="pp-money"><span title="折合 '+money(p.revenueCny,'CNY')+'">收入 '+money(p.revenue,lcur)+'</span>'
         +'<span class="pp-profit '+cls+'">利润 '+money(profit,'CNY')+'</span></div>'
       +'<div class="pp-metrics"><span class="pp-margin">利润率 '+(p.margin==null?'—':Number(p.margin).toFixed(2)+'%')+'</span>'
@@ -532,9 +542,9 @@ function renderProfitProducts(data){
       :'<div class="pp-card">'+img+body+'</div>';
   }).join('');
   box.hidden=false;
-  box.innerHTML='<div class="pp-head"><h3>产品出单统计<span class="pp-count">'+fmt(list.length)+' 个产品</span></h3>'
-    +'<p>按 Listing 汇总所选区间：有效 <b>'+fmt(validUnits)+'</b> 件'+(deadUnits?(' · 取消 / 退款 <b>'+fmt(deadUnits)+'</b> 件'):'')
-    +' · Listing 利润保持原口径；广告总额只从页面总利润中扣除，不分摊到商品 · 点卡片可打开该 Listing</p></div>'
+  box.innerHTML='<div class="pp-head"><h3>系列出单统计<span class="pp-count">'+fmt(list.length)+' 个系列'+(useSeries?' · 合并 '+fmt(listingTotal)+' 个 Listing':'')+'</span></h3>'
+    +'<p>按<b>型号</b>汇总所选区间：同型号的不同颜色 / 变体合并成一条，有效 <b>'+fmt(validUnits)+'</b> 件'+(deadUnits?(' · 取消 / 退款 <b>'+fmt(deadUnits)+'</b> 件'):'')
+    +' · 型号由标题自动识别（U3 / BW06 / HG04L…），认不出的归「未识别型号」；广告总额只从页面总利润中扣除，不分摊到系列 · 点卡片可打开该系列出单最多的 Listing</p></div>'
     +'<div class="pp-grid">'+cards+'</div>';
 }
 async function loadProfitOrders(refresh=false){

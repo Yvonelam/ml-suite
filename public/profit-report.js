@@ -88,7 +88,15 @@ function rptRevCostBars(items) {
 function buildProfitReportHTML(d) {
   const lcur = (d.orders && d.orders[0] && d.orders[0].currency) || (d.ads && d.ads.currency) || 'BRL';
   const T = d.totals || {}, ads = d.ads || {}, fx = d.fx || {};
-  const products = (d.products || []).slice();
+  /* 服务端已按「型号」把同系列的不同颜色/变体合并成一条（U3 / BW06 / HG04L…）。
+     报告里只展示系列名，不再铺长标题 —— 一个系列 5 个链接各写一遍标题，谁也看不出差别。
+     老缓存没有 series 时退回逐 Listing，保证不会报空。 */
+  const bySeries = Array.isArray(d.series) && d.series.length > 0;
+  const products = (bySeries ? d.series : (d.products || [])).slice();
+  const labelOf = p => bySeries ? (p.series || '未识别型号') : (p.title || p.itemId || '');
+  const subOf = p => bySeries
+    ? (rptNum(p.listingCount || 1) + ' 个 Listing' + (p.units ? ' · ' + rptNum(p.units) + ' 件' : ''))
+    : String(p.itemId || '');
   const orders = (d.orders || []).slice();
   const genAt = new Date().toLocaleString('zh-CN', { hour12: false });
   const fxRows = Object.keys(fx).map(c => `<tr><td>${escHtml(c)}</td><td>${rptNum(fx[c].cnyPer100, 2)}</td><td>${escHtml(fx[c].rateType || '中行牌价')}</td><td>${escHtml(fx[c].publishedAt || '—')}</td></tr>`).join('');
@@ -114,15 +122,15 @@ function buildProfitReportHTML(d) {
   const topRows = rows.slice(0, CHART_TOP);
   const profitTop = rows.slice().sort((a, b) => Math.abs(Number(b.p.profitCny) || 0) - Math.abs(Number(a.p.profitCny) || 0)).slice(0, CHART_TOP);
   const chartNote = rows.length > CHART_TOP ? '（只画前 ' + CHART_TOP + ' 个，另 ' + (rows.length - CHART_TOP) + ' 个见下方明细表）' : '';
-  const unitsItems = topRows.map(r => ({ label: r.p.title || r.p.itemId, sub: r.p.itemId, values: [r.p.units || 0, r.p.cancelledUnits || 0] }));
-  const profitItems = profitTop.map(r => ({ label: r.p.title || r.p.itemId, sub: (r.p.units || 0) + ' 件 · ' + rptPct(r.p.margin), value: r.p.profitCny || 0 }));
-  const revCostItems = topRows.map(r => ({ label: r.p.title || r.p.itemId, sub: (r.p.units || 0) + ' 件', revenueCny: Number(r.p.revenueCny) || 0, costAll: r.costAll }));
+  const unitsItems = topRows.map(r => ({ label: labelOf(r.p), sub: subOf(r.p), values: [r.p.units || 0, r.p.cancelledUnits || 0] }));
+  const profitItems = profitTop.map(r => ({ label: labelOf(r.p), sub: (r.p.units || 0) + ' 件 · ' + rptPct(r.p.margin), value: r.p.profitCny || 0 }));
+  const revCostItems = topRows.map(r => ({ label: labelOf(r.p), sub: (r.p.units || 0) + ' 件', revenueCny: Number(r.p.revenueCny) || 0, costAll: r.costAll }));
 
   const productTable = rows.map(r => {
     const p = r.p, neg = Number(p.profitCny) < 0;
     return `<tr>
       <td class="num">${r.rank}</td>
-      <td class="name">${escHtml(p.title || p.itemId)}<small>${escHtml(p.itemId || '')}</small></td>
+      <td class="name"><b>${escHtml(labelOf(p))}</b><small>${escHtml(subOf(p))}</small></td>
       <td class="num">${rptNum(p.units)}</td>
       <td class="num">${rptNum(p.orders)}</td>
       <td class="num">${p.cancelledUnits ? rptNum(p.cancelledUnits) : '—'}</td>
@@ -138,7 +146,7 @@ function buildProfitReportHTML(d) {
     </tr>`;
   }).join('');
   const productSum = `<tr class="sum">
-      <td></td><td>合计 ${rptNum(products.length)} 个产品</td>
+      <td></td><td>合计 ${rptNum(products.length)} 个${bySeries ? '系列' : '产品'}</td>
       <td class="num">${rptNum(products.reduce((s, p) => s + (p.units || 0), 0))}</td>
       <td class="num">${rptNum(products.reduce((s, p) => s + (p.orders || 0), 0))}</td>
       <td class="num">${rptNum(products.reduce((s, p) => s + (p.cancelledUnits || 0), 0))}</td>
@@ -157,7 +165,7 @@ function buildProfitReportHTML(d) {
     return `<tr class="${dead ? 'dead' : ''}">
       <td>${escHtml(String(x.date || '').replace('T', ' ').slice(0, 16))}</td>
       <td>${escHtml(x.orderId)}</td>
-      <td class="name">${escHtml(rptClip(x.title || x.itemId, 46))}<small>${escHtml(x.itemId || '')}</small></td>
+      <td class="name"><b>${escHtml(x.series || '未识别型号')}</b><small>${escHtml(x.itemId || '')}</small></td>
       <td class="num">${rptNum(x.qty)}</td>
       <td class="num">${rptNum(x.revenue, 2)}</td>
       <td class="num">${x.saleFee == null ? '—' : rptNum(x.saleFee, 2)}</td>
@@ -222,8 +230,8 @@ function buildProfitReportHTML(d) {
   }
 </style></head><body>
 
-<h1>产品利润报告</h1>
-<div class="meta">统计区间 <b>${escHtml(d.range.from)} 至 ${escHtml(d.range.to)}</b> · 经营币种 ${escHtml(lcur)} · 生成时间 ${escHtml(genAt)}</div>
+<h1>产品利润报告<span class="h1sub">（按系列 / 型号合并）</span></h1>
+<div class="meta">统计区间 <b>${escHtml(d.range.from)} 至 ${escHtml(d.range.to)}</b> · 经营币种 ${escHtml(lcur)} · 生成时间 ${escHtml(genAt)} · ${bySeries ? rptNum(products.length) + ' 个系列 / ' + rptNum((d.products || []).length) + ' 个 Listing' : rptNum(products.length) + ' 个产品'}</div>
 <div class="meta">口径：成本与利润为人民币；收入与平台费用为当地币（${escHtml(lcur)}）；汇率取中国银行牌价；平台未代扣税时按订单收入 × ${rptNum((d.taxRate || 0) * 100, 1)}% 估算</div>
 
 <div class="kpis">
@@ -256,10 +264,10 @@ function buildProfitReportHTML(d) {
   ${revCostItems.length ? rptRevCostBars(revCostItems) : '<p class="meta">区间内没有数据</p>'}
 </div>
 
-<h2>产品利润明细</h2>
+<h2>系列利润明细</h2>
 <table>
   <thead><tr>
-    <th class="num">#</th><th>产品</th>
+    <th class="num">#</th><th>系列（型号）</th>
     <th class="num">件数</th><th class="num">订单数</th><th class="num">取消件</th>
     <th class="num">收入（${escHtml(lcur)}）</th><th class="num">收入（折¥）</th>
     <th class="num">平台佣金（${escHtml(lcur)}）</th><th class="num">尾程运费（${escHtml(lcur)}）</th><th class="num">税费（${escHtml(lcur)}）</th>
