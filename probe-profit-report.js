@@ -162,16 +162,21 @@ const ok = (cond, label, extra) => { cond ? pass++ : fail++; console.log('  ' + 
       fs.writeFileSync(outPdf, pdfBuf);
       console.log('  📄 ' + outPdf);
 
-      /* 用 pdf.js（项目自带 vendor）把第 1 页画出来截图，确认中文与图表没被裁掉。
-         ⚠ 必须在空白页里画：如果直接 document.body.innerHTML='' 拆掉 app 的 DOM，
-         app.js 里还在跑的定时器会往 null 上写 textContent / disabled，探针就会被自己的
-         console 断言判死（而且那两条报错跟功能无关）。 */
       const keptPdfB64 = pdf.b64;
-      await send('Page.navigate', { url: 'about:blank' });
-      await sleep(400);
-      errors.length = 0;   // 上面那步换页的噪音不算功能报错
-      await ev("(function(){return new Promise(function(res){var s=document.createElement('script');s.src='http://127.0.0.1:" + API + "/vendor/pdf.min.js';s.onload=function(){pdfjsLib.GlobalWorkerOptions.workerSrc='http://127.0.0.1:" + API + "/vendor/pdf.worker.min.js';res(1)};document.head.appendChild(s);});})()");
-      const rendered = await ev("(async function(){try{var b64=" + JSON.stringify(keptPdfB64) + ";var bin=atob(b64),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);var doc=await pdfjsLib.getDocument({data:u}).promise;var page=await doc.getPage(1);var vp=page.getViewport({scale:1.5});var c=document.createElement('canvas');c.width=vp.width;c.height=vp.height;document.body.style.margin='0';document.body.style.background='#fff';document.body.appendChild(c);await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return {pages:doc.numPages,w:c.width,h:c.height};}catch(e){return {err:String(e&&e.message||e)}}})()");
+      /* 用 pdf.js 画第 1 页截图，确认中文与图表没被裁掉。
+         做法：回到 index.html（同源，带 cookie 才能取到 /vendor/pdf.min.js），
+         在**顶层浮层**里画 canvas —— 绝不能 innerHTML 清空 body，
+         那样 app.js 的定时器会往 null 上写 textContent / disabled，探针会被自己的 console 断言判死。 */
+      await send('Page.navigate', { url: HOST + '/index.html' });
+      for (let i = 0; i < 40; i++) { await sleep(300); if (await ev('document.title||""')) break; }
+      await ev("(function(){var s=document.getElementById('splash');if(s)s.style.setProperty('display','none','important');})()");
+      const inject = ev("(function(){return new Promise(function(res){if(window.pdfjsLib)return res('cached');var s=document.createElement('script');s.src='/vendor/pdf.min.js';s.onload=function(){pdfjsLib.GlobalWorkerOptions.workerSrc='/vendor/pdf.worker.min.js';res('ok')};s.onerror=function(){res('load-fail')};document.head.appendChild(s);setTimeout(function(){res('timeout')},8000);});})()");
+      const injected = await Promise.race([inject, sleep(12000).then(() => 'guarded-timeout')]);
+      ok(injected === 'ok' || injected === 'cached', 'pdf.js 加载成功', String(injected));
+      const rendered = await Promise.race([
+        ev("(async function(){try{var b64=" + JSON.stringify(keptPdfB64) + ";var bin=atob(b64),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);var doc=await pdfjsLib.getDocument({data:u}).promise;var page=await doc.getPage(1);var vp=page.getViewport({scale:1.4});var c=document.createElement('canvas');c.width=vp.width;c.height=vp.height;c.style.cssText='position:fixed;left:0;top:0;z-index:2147483647;background:#fff';document.body.appendChild(c);await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return {pages:doc.numPages,w:c.width,h:c.height};}catch(e){return {err:String(e&&e.message||e)}}})()"),
+        sleep(25000).then(() => ({ err: 'render-timeout' })),
+      ]);
       ok(rendered && rendered.pages >= 2, 'pdf.js 能解析并渲染第 1 页', JSON.stringify(rendered));
       const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
       const png = path.join(__dirname, 'probe-out', 'profit-report-pdf.png');
