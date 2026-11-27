@@ -58,7 +58,7 @@ function login() {
     console.log('PDF 共 ' + total + ' 页');
     for (const n of PAGES) {
       if (n > total) { console.log('  ⚠ 第 ' + n + ' 页不存在（只有 ' + total + ' 页）'); continue; }
-      const ok = await ev("(async function(){var doc=window.__doc;var page=await doc.getPage(" + n + ");var vp=page.getViewport({scale:1});var old=document.getElementById('__pdfcanvas');if(old)old.remove();var c=document.createElement('canvas');c.id='__pdfcanvas';c.width=vp.width;c.height=vp.height;c.style.cssText='position:fixed;left:0;top:0;z-index:2147483647;background:#fff';document.body.appendChild(c);await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return c.width+'x'+c.height;})()");
+      const ok = await ev("(async function(){var doc=window.__doc;var page=await doc.getPage(" + n + ");var vp=page.getViewport({scale:1});var old=document.getElementById('__pdfcanvas');if(old)old.remove();var c=document.createElement('canvas');c.id='__pdfcanvas';c.width=vp.width;c.height=vp.height;c.style.cssText='position:fixed;left:0;top:0;z-index:2147483647;background:#fff';document.body.appendChild(c);await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;var tc=await page.getTextContent();var head=tc.items.slice(0,14).map(function(i){return i.str}).join(' | ');return c.width+'x'+c.height+' 首行文字: '+head;})()");
       const shot = await send('Page.captureScreenshot', { format: 'png' });
       const out = path.join(__dirname, 'probe-out', base + '-p' + n + '.png');
       fs.writeFileSync(out, Buffer.from(shot.data, 'base64'));
